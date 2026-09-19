@@ -111,7 +111,7 @@ export default function ProfileScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => setConfirming(true)}
-            style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}>
+            style={({ pressed }) => [styles.logoutButton, pressed && styles.logoutButtonPressed]}>
             <LogoutIcon />
             <Text style={styles.logoutLabel}>Log out</Text>
           </Pressable>
@@ -335,6 +335,10 @@ const styles = StyleSheet.create({
     borderColor: Palette.goldTrack,
     backgroundColor: Palette.cream,
     marginTop: Spacing.five,
+  },
+  logoutButtonPressed: {
+    backgroundColor: Palette.gold,
+    borderColor: Palette.gold,
   },
   logoutLabel: {
     fontFamily: Fonts.sans,
