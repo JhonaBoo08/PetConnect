@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,11 +32,12 @@ const pets: Pet[] = [
   { name: 'Mingming', details: 'Orange Tabby · 2 years', status: 'Booster due', statusTone: 'warning' },
 ];
 
-function PetCard({ pet }: { pet: Pet }) {
+function PetCard({ pet, onPress }: { pet: Pet; onPress: () => void }) {
   const isWarning = pet.statusTone === 'warning';
   return (
     <Pressable
       accessibilityRole="button"
+      onPress={onPress}
       style={({ pressed }) => [styles.petCard, pressed && styles.pressed]}>
       <View style={styles.petPhoto}>
         <PawIcon size={30} color={Palette.forestDark} />
@@ -98,6 +100,7 @@ function useNow() {
 
 export default function DashboardScreen() {
   const { dateLabel, greeting } = useNow();
+  const router = useRouter();
 
   return (
     <View style={styles.container}>
@@ -145,7 +148,11 @@ export default function DashboardScreen() {
 
           <View style={styles.petList}>
             {pets.map((pet) => (
-              <PetCard key={pet.name} pet={pet} />
+              <PetCard
+                key={pet.name}
+                pet={pet}
+                onPress={() => router.push({ pathname: '/pet-id', params: { name: pet.name } })}
+              />
             ))}
           </View>
 

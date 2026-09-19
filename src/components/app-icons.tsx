@@ -232,6 +232,48 @@ export function ProfileIcon({ size = 22, color = Palette.forestDark }: IconProps
   );
 }
 
+export function ShieldIcon({ size = 22, color = Palette.gold }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 3l7 3v5.4c0 4.3-3 7.6-7 9-4-1.4-7-4.7-7-9V6z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M9 12l2 2 4-4"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function ShareIcon({ size = 18, color = Palette.forestDark }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 15V4M8.5 7.5 12 4l3.5 3.5"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 export function PhoneIcon({ size = 22, color = Palette.forestDark }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

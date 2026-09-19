@@ -19,6 +19,7 @@ export default function RootLayout() {
         <Stack.Screen name="scan" />
         <Stack.Screen name="alerts" />
         <Stack.Screen name="profile" />
+        <Stack.Screen name="pet-id" />
       </Stack>
     </ThemeProvider>
   );
