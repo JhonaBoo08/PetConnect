@@ -140,7 +140,10 @@ export default function DashboardScreen() {
 
           <View style={styles.sectionRow}>
             <Text style={styles.sectionTitle}>Your pets</Text>
-            <Pressable accessibilityRole="button" style={styles.addPet}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/add-pet')}
+              style={styles.addPet}>
               <PlusIcon size={14} />
               <Text style={styles.addPetLabel}>Add pet</Text>
             </Pressable>
