@@ -14,22 +14,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-
-export const authPalette = {
-  cream: '#F8F0DF',
-  surface: '#FFFDF7',
-  border: '#46584B',
-  borderSoft: '#C7CDC0',
-  forestDark: '#1B4332',
-  sage: '#DCE7DA',
-  segmentTrack: '#EDE6D5',
-  inkMuted: '#5C6356',
-  placeholder: '#9AA093',
-};
+import { Palette } from '@/constants/palette';
 
 export type AccountType = 'owner' | 'vet';
 
-function BackArrow({ size = 22, color = authPalette.forestDark }: { size?: number; color?: string }) {
+function BackArrow({ size = 22, color = Palette.forestDark }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path
@@ -43,7 +32,7 @@ function BackArrow({ size = 22, color = authPalette.forestDark }: { size?: numbe
   );
 }
 
-function PawIcon({ size = 16, color = authPalette.forestDark }: { size?: number; color?: string }) {
+function PawIcon({ size = 16, color = Palette.forestDark }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Circle cx={7} cy={8.5} r={2.4} />
@@ -54,7 +43,7 @@ function PawIcon({ size = 16, color = authPalette.forestDark }: { size?: number;
   );
 }
 
-function VetIcon({ size = 16, color = authPalette.forestDark }: { size?: number; color?: string }) {
+function VetIcon({ size = 16, color = Palette.forestDark }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Rect x={10} y={3.5} width={4} height={17} rx={1.6} />
@@ -112,6 +101,7 @@ type AuthScreenProps = {
   clinicNote?: string;
   footer: ReactNode;
   onBack: () => void;
+  onSubmit: () => void;
 };
 
 export function AuthScreen({
@@ -121,6 +111,7 @@ export function AuthScreen({
   clinicNote,
   footer,
   onBack,
+  onSubmit,
 }: AuthScreenProps) {
   const [accountType, setAccountType] = useState<AccountType>('owner');
   const [email, setEmail] = useState('');
@@ -170,7 +161,7 @@ export function AuthScreen({
                 accessibilityState={{ selected: accountType === 'owner' }}
                 onPress={() => setAccountType('owner')}
                 style={[styles.segmentItem, accountType === 'owner' && styles.segmentItemActive]}>
-                <PawIcon color={accountType === 'owner' ? '#FFFFFF' : authPalette.forestDark} />
+                <PawIcon color={accountType === 'owner' ? '#FFFFFF' : Palette.forestDark} />
                 <Text
                   style={[
                     styles.segmentLabel,
@@ -185,7 +176,7 @@ export function AuthScreen({
                 accessibilityState={{ selected: accountType === 'vet' }}
                 onPress={() => setAccountType('vet')}
                 style={[styles.segmentItem, accountType === 'vet' && styles.segmentItemActive]}>
-                <VetIcon color={accountType === 'vet' ? '#FFFFFF' : authPalette.forestDark} />
+                <VetIcon color={accountType === 'vet' ? '#FFFFFF' : Palette.forestDark} />
                 <Text
                   style={[styles.segmentLabel, accountType === 'vet' && styles.segmentLabelActive]}>
                   Vet Clinic
@@ -204,7 +195,7 @@ export function AuthScreen({
                   value={email}
                   onChangeText={setEmail}
                   placeholder="you@example.com"
-                  placeholderTextColor={authPalette.placeholder}
+                  placeholderTextColor={Palette.placeholder}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -218,7 +209,7 @@ export function AuthScreen({
                   value={password}
                   onChangeText={setPassword}
                   placeholder="At least 6 characters"
-                  placeholderTextColor={authPalette.placeholder}
+                  placeholderTextColor={Palette.placeholder}
                   secureTextEntry
                   style={styles.input}
                 />
@@ -227,6 +218,7 @@ export function AuthScreen({
 
             <Pressable
               accessibilityRole="button"
+              onPress={onSubmit}
               style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
               <Text style={styles.primaryLabel}>{submitLabel}</Text>
             </Pressable>
@@ -252,9 +244,9 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: authPalette.cream,
+    backgroundColor: Palette.cream,
     borderWidth: 1,
-    borderColor: authPalette.border,
+    borderColor: Palette.border,
     borderRadius: 32,
     overflow: 'hidden',
     flexDirection: 'row',
@@ -303,14 +295,14 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 19,
     fontWeight: '800',
-    color: authPalette.forestDark,
+    color: Palette.forestDark,
     letterSpacing: -0.3,
   },
   brandTagline: {
     fontFamily: Fonts.sans,
     fontSize: 10,
     fontWeight: '600',
-    color: authPalette.inkMuted,
+    color: Palette.inkMuted,
     letterSpacing: 1.2,
     marginTop: 2,
   },
@@ -323,7 +315,7 @@ const styles = StyleSheet.create({
     fontSize: 29,
     lineHeight: 36,
     fontWeight: '800',
-    color: authPalette.forestDark,
+    color: Palette.forestDark,
     letterSpacing: -0.5,
   },
   subtitle: {
@@ -331,11 +323,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '400',
-    color: authPalette.inkMuted,
+    color: Palette.inkMuted,
   },
   segment: {
     flexDirection: 'row',
-    backgroundColor: authPalette.segmentTrack,
+    backgroundColor: Palette.segmentTrack,
     borderRadius: 999,
     padding: 4,
     marginTop: Spacing.four,
@@ -351,13 +343,13 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   segmentItemActive: {
-    backgroundColor: authPalette.forestDark,
+    backgroundColor: Palette.forestDark,
   },
   segmentLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: '600',
-    color: authPalette.forestDark,
+    color: Palette.forestDark,
   },
   segmentLabelActive: {
     color: '#FFFFFF',
@@ -366,7 +358,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 13,
     lineHeight: 19,
-    color: authPalette.inkMuted,
+    color: Palette.inkMuted,
     marginTop: Spacing.three,
   },
   form: {
@@ -380,23 +372,23 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: '600',
-    color: authPalette.forestDark,
+    color: Palette.forestDark,
   },
   input: {
     height: 48,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: authPalette.borderSoft,
-    backgroundColor: authPalette.surface,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
     paddingHorizontal: Spacing.three,
     fontFamily: Fonts.sans,
     fontSize: 15,
-    color: authPalette.forestDark,
+    color: Palette.forestDark,
   },
   primaryButton: {
     height: 48,
     borderRadius: 22,
-    backgroundColor: authPalette.forestDark,
+    backgroundColor: Palette.forestDark,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: Spacing.five,
@@ -415,9 +407,9 @@ const styles = StyleSheet.create({
   googleButton: {
     height: 48,
     borderRadius: 22,
-    backgroundColor: authPalette.surface,
+    backgroundColor: Palette.surface,
     borderWidth: 1,
-    borderColor: authPalette.borderSoft,
+    borderColor: Palette.borderSoft,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -428,7 +420,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 15,
     fontWeight: '600',
-    color: authPalette.forestDark,
+    color: Palette.forestDark,
   },
   footerRow: {
     flexDirection: 'row',
@@ -439,13 +431,13 @@ const styles = StyleSheet.create({
   footerText: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    color: authPalette.inkMuted,
+    color: Palette.inkMuted,
   },
   footerLink: {
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: '700',
-    color: authPalette.forestDark,
+    color: Palette.forestDark,
   },
   pressed: {
     opacity: 0.85,

@@ -15,6 +15,7 @@ export default function CreateAccountScreen() {
       submitLabel="Create Account"
       clinicNote={ClinicNote}
       onBack={() => router.back()}
+      onSubmit={() => router.push('/dashboard')}
       footer={
         <AuthFooter
           text="Already have an account? "

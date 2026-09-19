@@ -11,6 +11,7 @@ export default function SignInScreen() {
       subtitle="Care follows wherever your pet goes."
       submitLabel="Sign In"
       onBack={() => router.back()}
+      onSubmit={() => router.push('/dashboard')}
       footer={
         <AuthFooter
           text="New here? "
