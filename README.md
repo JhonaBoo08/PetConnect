@@ -4,6 +4,9 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 
 ## Get started
 
+See the [development plan and Git workflow](docs/IMPLEMENTATION.md) for milestones,
+branching, committing, pushing, pulling, and safe branch cleanup.
+
 1. Install dependencies
 
    ```bash
