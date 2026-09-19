@@ -14,9 +14,10 @@ import { Fonts, Spacing } from '@/constants/theme';
 
 export type TabKey = 'home' | 'scan' | 'alerts' | 'profile';
 
-const tabRoutes: Partial<Record<TabKey, '/dashboard' | '/scan'>> = {
+const tabRoutes: Partial<Record<TabKey, '/dashboard' | '/scan' | '/alerts'>> = {
   home: '/dashboard',
   scan: '/scan',
+  alerts: '/alerts',
 };
 
 const tabs: { key: TabKey; label: string; Icon: ComponentType<IconProps> }[] = [

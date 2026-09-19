@@ -11,5 +11,6 @@ export const Palette = {
   gold: '#F2B632',
   goldSoft: '#FBEBC4',
   goldTrack: '#E7E0CE',
+  danger: '#B4552D',
   white: '#FFFFFF',
 } as const;

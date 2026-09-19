@@ -17,6 +17,7 @@ export default function RootLayout() {
         <Stack.Screen name="create-account" />
         <Stack.Screen name="dashboard" />
         <Stack.Screen name="scan" />
+        <Stack.Screen name="alerts" />
       </Stack>
     </ThemeProvider>
   );
