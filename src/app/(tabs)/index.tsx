@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,6 +19,8 @@ const ButtonMargin = 30;
 const ButtonHeight = 56;
 
 export default function WelcomeScreen() {
+  const router = useRouter();
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -40,6 +43,7 @@ export default function WelcomeScreen() {
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
+            onPress={() => router.push('/sign-in')}
             style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
             <Text style={styles.primaryLabel}>Get Started&ensp;›</Text>
           </Pressable>
