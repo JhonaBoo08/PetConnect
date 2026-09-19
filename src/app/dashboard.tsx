@@ -2,181 +2,22 @@ import { Image } from 'expo-image';
 import { type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
+import {
+  BellIcon,
+  CalendarIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  HealthIcon,
+  PawIcon,
+  PlusIcon,
+  PinIcon,
+  QrIcon,
+  WarningIcon,
+} from '@/components/app-icons';
+import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-
-type IconProps = { size?: number; color?: string };
-
-function BellIcon({ size = 22, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M10.5 19a2 2 0 0 0 3 0"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
-
-function PlusIcon({ size = 16, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 5v14M5 12h14" stroke={color} strokeWidth={2} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
-function ChevronRightIcon({ size = 20, color = Palette.inkMuted }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M9 5l7 7-7 7"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
-
-function PawIcon({ size = 30, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-      <Circle cx={7} cy={8.5} r={2.4} />
-      <Circle cx={12} cy={6.5} r={2.4} />
-      <Circle cx={17} cy={8.5} r={2.4} />
-      <Path d="M12 11.5c-3.2 0-5.6 2.1-5.6 4.5 0 1.7 1.3 2.9 3 2.9 1 0 1.7-.4 2.6-.4s1.6.4 2.6.4c1.7 0 3-1.2 3-2.9 0-2.4-2.4-4.5-5.6-4.5z" />
-    </Svg>
-  );
-}
-
-function QrIcon({ size = 24, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3} y={3} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.8} />
-      <Rect x={14} y={3} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.8} />
-      <Rect x={3} y={14} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.8} />
-      <Path
-        d="M14 14h3v3h-3zM20 14h1M14 20h3M20 18v3"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
-
-function HealthIcon({ size = 24, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 20s-7-4.3-7-9.3A4 4 0 0 1 12 8a4 4 0 0 1 7 2.7c0 5-7 9.3-7 9.3z"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Path d="M12 11.5v4M10 13.5h4" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
-function CalendarIcon({ size = 24, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3.5} y={5} width={17} height={16} rx={3} stroke={color} strokeWidth={1.8} />
-      <Path d="M3.5 10h17M8 3v4M16 3v4" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-      <Path d="M8 14h3v3H8z" fill={color} />
-    </Svg>
-  );
-}
-
-function PinIcon({ size = 20, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 21s6-5.3 6-10a6 6 0 1 0-12 0c0 4.7 6 10 6 10z"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Circle cx={12} cy={11} r={2.2} stroke={color} strokeWidth={1.8} />
-    </Svg>
-  );
-}
-
-function CheckIcon({ size = 12, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M5 13l4 4L19 7"
-        stroke={color}
-        strokeWidth={2.4}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
-
-function WarningIcon({ size = 12, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 4l9 16H3z"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Path d="M12 10v4" stroke={color} strokeWidth={2} strokeLinecap="round" />
-      <Circle cx={12} cy={17} r={1} fill={color} />
-    </Svg>
-  );
-}
-
-function HomeIcon({ size = 22, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
-
-function ProfileIcon({ size = 22, color = Palette.forestDark }: IconProps) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={8} r={3.5} stroke={color} strokeWidth={1.8} />
-      <Path
-        d="M5.5 20a6.5 6.5 0 0 1 13 0"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
-}
 
 type Pet = {
   name: string;
@@ -227,28 +68,6 @@ function QuickCareCard({
       style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}>
       {icon}
       <Text style={styles.quickLabel}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function NavItem({
-  icon,
-  label,
-  active,
-}: {
-  icon: ReactNode;
-  label: string;
-  active?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: !!active }}
-      style={styles.navItem}>
-      <View style={[styles.navInner, active && styles.navInnerActive]}>
-        {icon}
-        <Text style={[styles.navLabel, active && styles.navLabelActive]}>{label}</Text>
-      </View>
     </Pressable>
   );
 }
@@ -360,12 +179,7 @@ export default function DashboardScreen() {
           </View>
         </ScrollView>
 
-        <View style={styles.bottomNav}>
-          <NavItem icon={<HomeIcon />} label="Home" active />
-          <NavItem icon={<QrIcon size={22} />} label="Scan" />
-          <NavItem icon={<BellIcon />} label="Alerts" />
-          <NavItem icon={<ProfileIcon />} label="Profile" />
-        </View>
+        <BottomNav active="home" />
       </SafeAreaView>
     </View>
   );
@@ -639,40 +453,6 @@ const styles = StyleSheet.create({
   reminderButtonLabel: {
     fontFamily: Fonts.sans,
     fontSize: 13,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  bottomNav: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
-    gap: Spacing.one,
-  },
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  navInner: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.one,
-    borderRadius: 999,
-  },
-  navInnerActive: {
-    backgroundColor: Palette.sage,
-  },
-  navLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 10,
-    fontWeight: '600',
-    color: Palette.inkMuted,
-  },
-  navLabelActive: {
     fontWeight: '800',
     color: Palette.forestDark,
   },
