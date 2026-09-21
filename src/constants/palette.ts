@@ -1,0 +1,16 @@
+export const Palette = {
+  cream: '#F8F0DF',
+  surface: '#FFFDF7',
+  border: '#46584B',
+  borderSoft: '#C7CDC0',
+  forestDark: '#1B4332',
+  sage: '#DCE7DA',
+  segmentTrack: '#EDE6D5',
+  inkMuted: '#5C6356',
+  placeholder: '#9AA093',
+  gold: '#F2B632',
+  goldSoft: '#FBEBC4',
+  goldTrack: '#E7E0CE',
+  danger: '#B4552D',
+  white: '#FFFFFF',
+} as const;
