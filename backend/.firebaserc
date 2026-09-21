@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "dev": "petconnect-8e685",
+    "staging": "petconnect-staging-4069d"
+  }
+}
