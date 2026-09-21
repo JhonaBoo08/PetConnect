@@ -178,13 +178,25 @@ export default function DashboardScreen() {
 
           <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Quick care</Text>
           <View style={styles.quickRow}>
-            <QuickCareCard icon={<QrIcon />} label="View QR" />
+            <QuickCareCard
+              icon={<QrIcon />}
+              label="View QR"
+              onPress={() =>
+                router.push({ pathname: '/pet-id', params: { name: pets[0]?.name } })
+              }
+            />
             <QuickCareCard
               icon={<HealthIcon />}
               label="Health"
+              onPress={() =>
+                router.push({ pathname: '/health-records', params: { name: pets[0]?.name } })
+              }
+            />
+            <QuickCareCard
+              icon={<CalendarIcon />}
+              label="Reminders"
               onPress={() => router.push('/health-reminders')}
             />
-            <QuickCareCard icon={<CalendarIcon />} label="Reminders" />
           </View>
 
           <Pressable

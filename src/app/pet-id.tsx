@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -99,6 +99,7 @@ function QrCode({ seed, size = 72 }: { seed: string; size?: number }) {
 }
 
 export default function PetIdScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{ name?: string }>();
   const requested = Array.isArray(params.name) ? params.name[0] : params.name;
   const petName = requested ?? 'Bantay';
@@ -175,6 +176,7 @@ export default function PetIdScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/health-records', params: { name: petName } })}
               style={({ pressed }) => [styles.healthButton, pressed && styles.pressed]}>
               <HealthIcon size={18} />
               <Text style={styles.healthLabel}>Health</Text>
