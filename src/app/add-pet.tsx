@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -57,14 +58,30 @@ export default function AddPetScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
-          <View style={styles.topBar}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={() => goBack('/dashboard')}
-              style={styles.iconButton}>
-              <BackArrow />
-            </Pressable>
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                onPress={() => goBack('/dashboard')}
+                style={styles.iconButton}>
+                <BackArrow />
+              </Pressable>
+
+              <View style={styles.brandRow}>
+                <View style={styles.brandMark}>
+                  <Image
+                    source={require('@/assets/images/logo.png')}
+                    style={styles.brandMarkImage}
+                    contentFit="contain"
+                  />
+                </View>
+                <View>
+                  <Text style={styles.brandName}>Pet-Connect</Text>
+                  <Text style={styles.brandTagline}>SCAN · PROTECT · RECONNECT</Text>
+                </View>
+              </View>
+            </View>
 
             <Pressable
               accessibilityRole="button"
@@ -242,11 +259,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.five,
   },
-  topBar: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: Spacing.two,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  brandMark: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Palette.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  brandMarkImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 22,
+  },
+  brandName: {
+    fontFamily: Fonts.sans,
+    fontSize: 19,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    letterSpacing: -0.3,
+  },
+  brandTagline: {
+    fontFamily: Fonts.sans,
+    fontSize: 10,
+    fontWeight: '600',
+    color: Palette.inkMuted,
+    letterSpacing: 1.2,
+    marginTop: 2,
   },
   iconButton: {
     width: 42,
