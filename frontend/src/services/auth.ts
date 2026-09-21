@@ -11,7 +11,7 @@ import {
   parseProfile,
   type ProfileInput,
   type Session,
-} from "../../backend/functions/src/contracts";
+} from "../../../backend/functions/src/contracts";
 
 export async function completeOwnerRegistration(input: ProfileInput) {
   const profile = parseProfile(input);
