@@ -7,6 +7,9 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 See the [development plan and Git workflow](docs/IMPLEMENTATION.md) for milestones,
 branching, committing, pushing, pulling, and safe branch cleanup.
 
+For Firebase setup, emulator tests, and account operations, see the
+[backend guide](backend/README.md).
+
 1. Install dependencies
 
    ```bash

@@ -41,3 +41,14 @@ example
 # generated native folders
 /ios
 /android
+
+# Backend output, local credentials and emulator state
+backend/functions/lib/
+.firebase/
+*-debug.log*
+firebase-debug.log
+test-results/
+test-results-backend.log
+dist-native/
+*service-account*.json
+clinic-input*.json

@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function activeSelf(uid) {
+      let profile = get(/databases/$(database)/documents/users/$(uid)).data;
+      return request.auth != null && request.auth.uid == uid
+        && profile.status == 'ACTIVE'
+        && request.auth.token.role == profile.role
+        && (profile.role == 'OWNER' || (profile.role == 'CLINIC'
+          && request.auth.token.clinicId == profile.clinicId
+          && get(/databases/$(database)/documents/clinics/$(profile.clinicId)).data.status == 'ACTIVE'
+          && uid in get(/databases/$(database)/documents/clinics/$(profile.clinicId)).data.provisionedUserIds));
+    }
+    match /users/{uid} {
+      allow get: if activeSelf(uid);
+      allow update: if activeSelf(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'phone', 'updatedAt'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0
+        && request.resource.data.displayName.size() <= 80
+        && request.resource.data.displayName.matches('.*[^\\s].*')
+        && (!('phone' in request.resource.data) || (request.resource.data.phone is string && request.resource.data.phone.size() <= 30))
+        && request.resource.data.updatedAt == request.time;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
