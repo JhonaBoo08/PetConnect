@@ -14,9 +14,13 @@ export default function CreateAccountScreen() {
       title="Join the network"
       subtitle="Care follows wherever your pet goes."
       submitLabel="Create Account"
+      showFullName
+      showConfirmPassword
       clinicNote={ClinicNote}
       onBack={() => goBack('/')}
-      onSubmit={() => router.push('/dashboard')}
+      onSubmit={(type) =>
+        router.push(type === 'vet' ? '/vet-details' : '/owner-details')
+      }
       footer={
         <AuthFooter
           text="Already have an account? "

@@ -98,24 +98,30 @@ type AuthScreenProps = {
   title: string;
   subtitle: string;
   submitLabel: string;
+  showFullName?: boolean;
+  showConfirmPassword?: boolean;
   clinicNote?: string;
   footer: ReactNode;
   onBack: () => void;
-  onSubmit: () => void;
+  onSubmit: (type: AccountType) => void;
 };
 
 export function AuthScreen({
   title,
   subtitle,
   submitLabel,
+  showFullName = false,
+  showConfirmPassword = false,
   clinicNote,
   footer,
   onBack,
   onSubmit,
 }: AuthScreenProps) {
   const [accountType, setAccountType] = useState<AccountType>('owner');
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   return (
     <View style={styles.container}>
@@ -189,6 +195,23 @@ export function AuthScreen({
             ) : null}
 
             <View style={styles.form}>
+              {showFullName ? (
+                <View style={styles.field}>
+                  <Text style={styles.label}>
+                    {accountType === 'vet' ? 'Clinic name' : 'Full name'}
+                  </Text>
+                  <TextInput
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder={
+                      accountType === 'vet' ? 'e.g. Mabuhay Veterinary Clinic' : 'e.g. Raven Babiano'
+                    }
+                    placeholderTextColor={Palette.placeholder}
+                    style={styles.input}
+                  />
+                </View>
+              ) : null}
+
               <View style={styles.field}>
                 <Text style={styles.label}>Email address</Text>
                 <TextInput
@@ -214,11 +237,25 @@ export function AuthScreen({
                   style={styles.input}
                 />
               </View>
+
+              {showConfirmPassword ? (
+                <View style={styles.field}>
+                  <Text style={styles.label}>Confirm password</Text>
+                  <TextInput
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Re-enter your password"
+                    placeholderTextColor={Palette.placeholder}
+                    secureTextEntry
+                    style={styles.input}
+                  />
+                </View>
+              ) : null}
             </View>
 
             <Pressable
               accessibilityRole="button"
-              onPress={onSubmit}
+              onPress={() => onSubmit(accountType)}
               style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
               <Text style={styles.primaryLabel}>{submitLabel}</Text>
             </Pressable>

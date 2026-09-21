@@ -15,6 +15,8 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="create-account" />
+        <Stack.Screen name="owner-details" />
+        <Stack.Screen name="vet-details" />
         <Stack.Screen name="dashboard" />
         <Stack.Screen name="scan" />
         <Stack.Screen name="alerts" />
