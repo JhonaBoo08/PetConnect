@@ -23,6 +23,7 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { goBack } from '@/lib/navigation';
 
 const petOptions = ['Bantay', 'Mingming'];
 
@@ -155,7 +156,7 @@ export default function AlertsScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => router.back()}
+              onPress={() => goBack('/dashboard')}
               style={styles.iconButton}>
               <BackArrow />
             </Pressable>

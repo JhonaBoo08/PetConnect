@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { type ReactNode, useState } from 'react';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -101,6 +101,14 @@ function useNow() {
 export default function DashboardScreen() {
   const { dateLabel, greeting } = useNow();
   const router = useRouter();
+  const addGlow = useState(() => new Animated.Value(0))[0];
+
+  const fadeAddPet = (toValue: number) =>
+    Animated.timing(addGlow, {
+      toValue,
+      duration: 180,
+      useNativeDriver: false,
+    }).start();
 
   return (
     <View style={styles.container}>
@@ -143,7 +151,13 @@ export default function DashboardScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push('/add-pet')}
+              onPressIn={() => fadeAddPet(1)}
+              onPressOut={() => fadeAddPet(0)}
               style={styles.addPet}>
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.addPetGlow, { opacity: addGlow }]}
+              />
               <PlusIcon size={14} />
               <Text style={styles.addPetLabel}>Add pet</Text>
             </Pressable>
@@ -308,9 +322,23 @@ const styles = StyleSheet.create({
     marginTop: Spacing.five,
   },
   addPet: {
+    position: 'relative',
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.one,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    borderRadius: 999,
+  },
+  addPetGlow: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: Palette.gold,
+    borderRadius: 999,
   },
   addPetLabel: {
     fontFamily: Fonts.sans,

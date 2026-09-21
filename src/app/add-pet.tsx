@@ -22,6 +22,7 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { goBack } from '@/lib/navigation';
 
 const speciesOptions = ['Dog', 'Cat', 'Bird', 'Other'];
 const sexOptions = ['Male', 'Female'];
@@ -60,7 +61,7 @@ export default function AddPetScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => router.back()}
+              onPress={() => goBack('/dashboard')}
               style={styles.iconButton}>
               <BackArrow />
             </Pressable>

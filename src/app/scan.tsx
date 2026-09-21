@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   Animated,
@@ -16,9 +15,9 @@ import { BackArrow, BellIcon, CameraIcon, QrIcon } from '@/components/app-icons'
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { goBack } from '@/lib/navigation';
 
 export default function ScanScreen() {
-  const router = useRouter();
   const scanAnim = useState(() => new Animated.Value(0))[0];
   const useNative = Platform.OS !== 'web';
 
@@ -58,7 +57,7 @@ export default function ScanScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => router.back()}
+              onPress={() => goBack('/dashboard')}
               style={styles.iconButton}>
               <BackArrow />
             </Pressable>

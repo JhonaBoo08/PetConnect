@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 
 import { AuthFooter, AuthScreen } from '@/components/auth-screen';
+import { goBack } from '@/lib/navigation';
 
 export default function SignInScreen() {
   const router = useRouter();
@@ -10,7 +11,7 @@ export default function SignInScreen() {
       title="Welcome back"
       subtitle="Care follows wherever your pet goes."
       submitLabel="Sign In"
-      onBack={() => router.back()}
+      onBack={() => goBack('/')}
       onSubmit={() => router.push('/dashboard')}
       footer={
         <AuthFooter

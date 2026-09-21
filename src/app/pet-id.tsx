@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import { BackArrow, BellIcon, HealthIcon, PawIcon, ShareIcon, ShieldIcon } from 
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { goBack } from '@/lib/navigation';
 
 type PetProfile = {
   breed: string;
@@ -98,7 +99,6 @@ function QrCode({ seed, size = 72 }: { seed: string; size?: number }) {
 }
 
 export default function PetIdScreen() {
-  const router = useRouter();
   const params = useLocalSearchParams<{ name?: string }>();
   const requested = Array.isArray(params.name) ? params.name[0] : params.name;
   const petName = requested ?? 'Bantay';
@@ -116,7 +116,7 @@ export default function PetIdScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => router.back()}
+              onPress={() => goBack('/dashboard')}
               style={styles.iconButton}>
               <BackArrow />
             </Pressable>
