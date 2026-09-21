@@ -60,13 +60,16 @@ function PetCard({ pet, onPress }: { pet: Pet; onPress: () => void }) {
 function QuickCareCard({
   icon,
   label,
+  onPress,
 }: {
   icon: ReactNode;
   label: string;
+  onPress?: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      onPress={onPress}
       style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}>
       {icon}
       <Text style={styles.quickLabel}>{label}</Text>
@@ -176,7 +179,11 @@ export default function DashboardScreen() {
           <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Quick care</Text>
           <View style={styles.quickRow}>
             <QuickCareCard icon={<QrIcon />} label="View QR" />
-            <QuickCareCard icon={<HealthIcon />} label="Health" />
+            <QuickCareCard
+              icon={<HealthIcon />}
+              label="Health"
+              onPress={() => router.push('/health-reminders')}
+            />
             <QuickCareCard icon={<CalendarIcon />} label="Reminders" />
           </View>
 
@@ -193,10 +200,11 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.reminderTitle}>Booster is due</Text>
             <Text style={styles.reminderMeta}>
-              EVRCP booster · September 20 at Tagum Pet Care Clinic
+              FVRCP booster · September 20 at Tagum Pet Care Clinic
             </Text>
             <Pressable
               accessibilityRole="button"
+              onPress={() => router.push('/reminder-details')}
               style={({ pressed }) => [styles.reminderButton, pressed && styles.pressed]}>
               <Text style={styles.reminderButtonLabel}>View reminder</Text>
             </Pressable>
