@@ -204,7 +204,7 @@ export default function DashboardScreen() {
             </Text>
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/reminder-details')}
+              onPress={() => router.push('/view-reminder')}
               style={({ pressed }) => [styles.reminderButton, pressed && styles.pressed]}>
               <Text style={styles.reminderButtonLabel}>View reminder</Text>
             </Pressable>
