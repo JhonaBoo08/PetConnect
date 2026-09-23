@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "devDependencies": {
     "@eslint/js": "^9.0.0",
-    "@firebase/rules-unit-testing": "^5.0.2",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^22.0.0",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "firebase-tools": "^15.30.2",
@@ -21,13 +24,13 @@
     "lint:frontend": "npm --prefix frontend run lint",
     "typecheck:frontend": "npm --prefix frontend run typecheck",
     "typecheck": "npm run typecheck:frontend",
-    "build:backend": "npm --prefix backend/functions run build",
-    "lint:backend": "eslint backend/functions/src backend/tests frontend/src/services",
-    "format:backend": "prettier --check backend/functions/src backend/tests frontend/src/services backend/firebase.json backend/firebase/firestore.indexes.json",
+    "build:backend": "npm --prefix backend/api run build",
+    "lint:backend": "eslint backend/api/src backend/api/tests frontend/src/services shared/contracts.ts",
+    "format:backend": "prettier --check backend/api/src backend/api/tests frontend/src/services shared/contracts.ts backend/firebase.json",
     "check:backend": "npm run build:backend && npm run typecheck && npm run lint:backend && npm run format:backend",
-    "test:backend:run": "tsx --test --test-concurrency=1 backend/tests/backend.test.ts",
-    "test:backend": "npm run build:backend && firebase --config backend/firebase.json emulators:exec --project demo-petconnect --only auth,firestore,functions,storage \"npm run test:backend:run\"",
-    "emulators": "npm run build:backend && firebase --config backend/firebase.json emulators:start --project demo-petconnect --only auth,firestore,functions,storage"
+    "test:backend:run": "tsx --test --test-concurrency=1 backend/api/tests/backend.test.ts",
+    "test:backend": "npm run build:backend && firebase --config backend/firebase.json emulators:exec --project demo-petconnect --only auth \"npm run test:backend:run\"",
+    "emulators": "npm run build:backend && firebase --config backend/firebase.json emulators:start --project demo-petconnect --only auth"
   },
   "private": true
 }

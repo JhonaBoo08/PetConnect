@@ -8,6 +8,15 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: petconnect_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,17 +25,20 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            backend/functions/package-lock.json
+            backend/api/package-lock.json
             frontend/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
       - run: npm ci
-      - run: npm --prefix backend/functions ci
+      - run: npm --prefix backend/api ci
       - run: npm --prefix frontend ci
       - run: npm run check:backend
       - run: npm run test:backend
         env:
-          FUNCTIONS_DISCOVERY_TIMEOUT: "60"
-
+          MYSQL_HOST: "127.0.0.1"
+          MYSQL_USER: "root"
+          MYSQL_PASSWORD: "root"
+          MYSQL_DATABASE: "petconnect_test"
+          MYSQL_PORT: "3306"
