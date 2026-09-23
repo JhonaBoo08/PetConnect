@@ -34,7 +34,6 @@ jobs:
       - run: npm ci
       - run: npm --prefix backend/api ci
       - run: npm --prefix frontend ci
-      - run: mysql -h 127.0.0.1 -P 3306 -u root -proot petconnect_test < sql/schema.sql
       - run: npm run check:backend
       - run: npm run test:backend
         env:

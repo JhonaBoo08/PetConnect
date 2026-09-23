@@ -125,6 +125,8 @@ test("clinic provisioning and login succeeds", async () => {
     },
     "test-operator",
   );
+  const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
+  await getAdminAuth().updateUser("vet-one", { password: "Example-pass-123!" });
 
   const auth = client("clinic");
   const credential = await signInWithEmailAndPassword(
