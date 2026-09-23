@@ -35,6 +35,8 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+shared/*.js
+shared/*.map
 
 example
 
@@ -44,6 +46,10 @@ example
 
 # Backend output, local credentials and emulator state
 backend/functions/lib/
+backend/api/lib/
+backend/api/uploads/
+uploads/
+backend/api/.env
 .firebase/
 *-debug.log*
 firebase-debug.log

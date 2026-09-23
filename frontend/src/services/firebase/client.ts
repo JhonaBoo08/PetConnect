@@ -1,7 +1,5 @@
 import { initializeApp, getApps } from "firebase/app";
 import { connectAuthEmulator } from "firebase/auth";
-import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
-import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 import { persistentAuth } from "./persistence";
 
 let cached: ReturnType<typeof createClient> | undefined;
@@ -43,16 +41,13 @@ function createClient() {
       name,
     );
   const auth = persistentAuth(app);
-  const db = getFirestore(app);
-  const functions = getFunctions(app, "asia-southeast1");
   if (emulator && !existing) {
     const host = process.env.EXPO_PUBLIC_EMULATOR_HOST || "127.0.0.1";
     connectAuthEmulator(auth, `http://${host}:9099`, { disableWarnings: true });
-    connectFirestoreEmulator(db, host, 8080);
-    connectFunctionsEmulator(functions, host, 5001);
   }
-  return { auth, db, functions };
+  return { auth };
 }
+
 export function firebaseClient() {
   return (cached ??= createClient());
 }

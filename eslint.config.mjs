@@ -1,6 +1,6 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 export default tseslint.config(
-  {ignores: ['node_modules/**', 'backend/functions/lib/**', 'dist/**', 'dist-native/**', '.expo/**']},
-  {files: ['backend/functions/src/**/*.ts', 'backend/tests/**/*.ts', 'frontend/src/services/**/*.ts'], extends: [js.configs.recommended, ...tseslint.configs.recommended], rules: {'@typescript-eslint/no-require-imports': 'off', '@typescript-eslint/no-explicit-any': 'error'}}
+  {ignores: ['node_modules/**', 'backend/api/lib/**', 'dist/**', 'dist-native/**', '.expo/**']},
+  {files: ['backend/api/src/**/*.ts', 'backend/api/tests/**/*.ts', 'frontend/src/services/**/*.ts', 'shared/**/*.ts'], extends: [js.configs.recommended, ...tseslint.configs.recommended], rules: {'@typescript-eslint/no-require-imports': 'off', '@typescript-eslint/no-explicit-any': 'error'}}
 );
