@@ -17,11 +17,16 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             backend/functions/package-lock.json
+            frontend/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
       - run: npm ci
       - run: npm --prefix backend/functions ci
+      - run: npm --prefix frontend ci
       - run: npm run check:backend
       - run: npm run test:backend
+        env:
+          FUNCTIONS_DISCOVERY_TIMEOUT: "60"
+
