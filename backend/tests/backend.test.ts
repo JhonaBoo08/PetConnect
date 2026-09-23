@@ -91,6 +91,18 @@ before(async () => {
     },
   });
   await env.clearFirestore();
+  const warmupClient = client("warmup");
+  const warmupFn = httpsCallable(warmupClient.functions, "getSession");
+  const start = Date.now();
+  while (Date.now() - start < 15000) {
+    try {
+      await warmupFn();
+      break;
+    } catch (err: unknown) {
+      if ((err as { code?: string })?.code !== "functions/not-found") break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
 });
 after(async () => {
   await Promise.all(apps.map(deleteApp));
