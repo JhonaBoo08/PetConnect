@@ -109,7 +109,7 @@ export default function HealthRecordsScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() => router.push('/alerts')}
+              onPress={() => router.push('/notifications')}
               style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
               <BellIcon />
               <View style={styles.bellDot} />

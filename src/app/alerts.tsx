@@ -164,6 +164,7 @@ export default function AlertsScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
+              onPress={() => router.push('/notifications')}
               style={styles.iconButton}>
               <BellIcon />
               <View style={styles.bellDot} />

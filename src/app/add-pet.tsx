@@ -86,6 +86,7 @@ export default function AddPetScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
+              onPress={() => router.push('/notifications')}
               style={styles.iconButton}>
               <BellIcon />
               <View style={styles.bellDot} />

@@ -71,6 +71,7 @@ export default function ProfileScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
+              onPress={() => router.push('/notifications')}
               style={styles.bellButton}>
               <BellIcon />
               <View style={styles.bellDot} />

@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   Animated,
@@ -20,6 +21,7 @@ import { goBack } from '@/lib/navigation';
 export default function ScanScreen() {
   const scanAnim = useState(() => new Animated.Value(0))[0];
   const useNative = Platform.OS !== 'web';
+  const router = useRouter();
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -65,6 +67,7 @@ export default function ScanScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
+              onPress={() => router.push('/notifications')}
               style={styles.iconButton}>
               <BellIcon />
               <View style={styles.bellDot} />
