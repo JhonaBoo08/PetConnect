@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
+import { haversineKm, type LocationSource } from '@/lib/geolocation';
 import { firebaseClient } from '@/services/firebase/client';
 
 export type AlertStatus = 'ACTIVE' | 'FOUND' | 'CLOSED';
@@ -15,7 +16,10 @@ export type LostPetAlert = {
   lastSeenDescription: string;
   latitude: number | null;
   longitude: number | null;
+  lastSeenAccuracy: number | null;
   locationName: string;
+  locationSource: LocationSource | null;
+  locationUpdatedAt: number | null;
   description: string;
   photoUrl: string;
   reportKind: ReportKind;
@@ -30,71 +34,16 @@ export type NewLostPetAlertInput = Omit<
   'id' | 'status' | 'foundAt' | 'createdAt' | 'updatedAt'
 >;
 
-export type PinnedLocation = {
-  latitude: number | null;
-  longitude: number | null;
-  name: string;
-};
-
-export type TagumLocation = {
-  name: string;
-  area: string;
+export type SelectedLocation = {
   latitude: number;
   longitude: number;
+  accuracy: number | null;
+  address: string | null;
+  source: LocationSource;
+  updatedAt: number;
 };
 
 const ALERTS_KEY = 'petconnect.lostPetAlerts.v1';
-
-export const referenceLocation = {
-  name: 'Freedom Park, Tagum',
-  latitude: 7.4475,
-  longitude: 125.8087,
-};
-
-export const tagumLocations: TagumLocation[] = [
-  {
-    name: 'Freedom Park',
-    area: 'Tagum City Center',
-    latitude: 7.4475,
-    longitude: 125.8087,
-  },
-  {
-    name: 'Apokon',
-    area: 'Tagum City',
-    latitude: 7.4204,
-    longitude: 125.7965,
-  },
-  {
-    name: 'Mankilam',
-    area: 'Tagum City',
-    latitude: 7.4728,
-    longitude: 125.831,
-  },
-  {
-    name: 'Magugpo East',
-    area: 'Tagum City',
-    latitude: 7.4044,
-    longitude: 125.7775,
-  },
-  {
-    name: 'Cabidianan',
-    area: 'Tagum City',
-    latitude: 7.458,
-    longitude: 125.822,
-  },
-  {
-    name: 'Tagum City Hall',
-    area: 'Tagum City Center',
-    latitude: 7.4466,
-    longitude: 125.808,
-  },
-  {
-    name: 'Tagum Public Market',
-    area: 'Tagum City Center',
-    latitude: 7.45,
-    longitude: 125.81,
-  },
-];
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
@@ -110,6 +59,9 @@ export const seedLostPetAlerts: LostPetAlert[] = [
     latitude: 7.4204,
     longitude: 125.7965,
     locationName: 'Apokon, Tagum City',
+    locationSource: null,
+    locationUpdatedAt: null,
+    lastSeenAccuracy: null,
     description: 'Orange tabby with blue collar',
     photoUrl: '',
     reportKind: 'Lost',
@@ -128,6 +80,9 @@ export const seedLostPetAlerts: LostPetAlert[] = [
     latitude: 7.4475,
     longitude: 125.8087,
     locationName: 'Freedom Park, Tagum',
+    locationSource: null,
+    locationUpdatedAt: null,
+    lastSeenAccuracy: null,
     description: 'Brown aspin with red collar, friendly',
     photoUrl: '',
     reportKind: 'Found',
@@ -146,6 +101,9 @@ export const seedLostPetAlerts: LostPetAlert[] = [
     latitude: 7.4044,
     longitude: 125.7775,
     locationName: 'Magugpo East, Tagum City',
+    locationSource: null,
+    locationUpdatedAt: null,
+    lastSeenAccuracy: null,
     description: 'White shih tzu, pink leash',
     photoUrl: '',
     reportKind: 'Lost',
@@ -173,6 +131,17 @@ async function persist(alerts: LostPetAlert[]) {
   notify();
 }
 
+function normalizeAlert(alert: LostPetAlert): LostPetAlert {
+  return {
+    ...alert,
+    latitude: alert.latitude ?? null,
+    longitude: alert.longitude ?? null,
+    lastSeenAccuracy: alert.lastSeenAccuracy ?? null,
+    locationSource: alert.locationSource ?? null,
+    locationUpdatedAt: alert.locationUpdatedAt ?? null,
+  };
+}
+
 async function readAlerts(): Promise<LostPetAlert[]> {
   if (alertsCache) return alertsCache;
   try {
@@ -180,7 +149,7 @@ async function readAlerts(): Promise<LostPetAlert[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as LostPetAlert[];
       if (Array.isArray(parsed)) {
-        alertsCache = parsed;
+        alertsCache = parsed.map(normalizeAlert);
         return alertsCache;
       }
     }
@@ -299,10 +268,25 @@ export async function closeAlert(id: string): Promise<void> {
   await persist(next);
 }
 
-export function activeNearbyAlerts(alerts: LostPetAlert[]): LostPetAlert[] {
-  return [...alerts]
-    .filter((alert) => alert.status === 'ACTIVE')
-    .sort((a, b) => b.createdAt - a.createdAt);
+export function nearbyAlertsSorted(
+  alerts: LostPetAlert[],
+  origin: { latitude: number; longitude: number } | null,
+): LostPetAlert[] {
+  const active = alerts.filter((alert) => alert.status === 'ACTIVE');
+  if (!origin) {
+    return [...active].sort((a, b) => b.createdAt - a.createdAt);
+  }
+  return active
+    .map((alert) => ({ alert, distance: alertDistanceKm(alert, origin) }))
+    .sort((a, b) => {
+      if (a.distance === null && b.distance === null) {
+        return b.alert.createdAt - a.alert.createdAt;
+      }
+      if (a.distance === null) return 1;
+      if (b.distance === null) return -1;
+      return a.distance - b.distance;
+    })
+    .map((entry) => entry.alert);
 }
 
 export function activeLostAlertForPet(
@@ -319,29 +303,12 @@ export function activeLostAlertForPet(
   );
 }
 
-function round(value: number, decimals: number): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
-}
-
-export function distanceFromReference(
-  latitude: number | null,
-  longitude: number | null,
+export function alertDistanceKm(
+  alert: LostPetAlert,
+  origin: { latitude: number; longitude: number } | null,
 ): number | null {
-  if (latitude === null || longitude === null) return null;
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-  const earthRadiusKm = 6371;
-  const dLat = toRadians(latitude - referenceLocation.latitude);
-  const dLng = toRadians(longitude - referenceLocation.longitude);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(referenceLocation.latitude)) *
-      Math.cos(toRadians(latitude)) *
-      Math.sin(dLng / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const km = earthRadiusKm * c;
-  if (Number.isNaN(km) || km <= 0) return 0.1;
-  return round(km, 1);
+  if (!origin || alert.latitude === null || alert.longitude === null) return null;
+  return haversineKm(origin, { latitude: alert.latitude, longitude: alert.longitude });
 }
 
 export function timeAgo(timestamp: number): string {

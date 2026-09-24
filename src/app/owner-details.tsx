@@ -263,11 +263,7 @@ const styles = StyleSheet.create({
   },
   stepCurrent: {
     backgroundColor: Palette.forestDark,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
+    boxShadow: '0px 3px 8px rgba(27,67,50,0.2)',
   },
   stepCurrentLabel: {
     fontFamily: Fonts.sans,
@@ -365,11 +361,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: Spacing.five,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    boxShadow: '0px 4px 10px rgba(27,67,50,0.25)',
   },
   primaryLabel: {
     fontFamily: Fonts.sans,

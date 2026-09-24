@@ -27,6 +27,7 @@ export default function RootLayout() {
         <Stack.Screen name="pet-id" />
         <Stack.Screen name="my-pets" />
         <Stack.Screen name="add-pet" />
+        <Stack.Screen name="add-reminder" />
         <Stack.Screen name="notifications" />
       </Stack>
     </ThemeProvider>

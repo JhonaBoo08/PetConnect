@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -16,9 +16,10 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { formatDistanceKm, getCurrentDevicePosition, type GeoPosition } from '@/lib/geolocation';
 import {
+  alertDistanceKm,
   currentOwnerId,
-  distanceFromReference,
   markAlertFound,
   timeAgo,
   useLostPetAlerts,
@@ -37,13 +38,29 @@ export default function AlertDetailsScreen() {
   const [foundOpen, setFoundOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [origin, setOrigin] = useState<GeoPosition | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getCurrentDevicePosition()
+      .then((position) => {
+        if (active) setOrigin(position);
+      })
+      .catch(() => {
+        // Distance is omitted when the viewer's location is unavailable.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const ownerId = currentOwnerId();
   const isOwner = alert?.ownerId === ownerId;
   const pet = alert ? pets.find((p) => p.id === alert.petId) : null;
   const photo = alert?.photoUrl || alert?.petPhoto || pet?.photo || '';
-  const distance = alert ? distanceFromReference(alert.latitude, alert.longitude) : null;
+  const distance = alert ? alertDistanceKm(alert, origin) : null;
   const isLost = alert?.reportKind === 'Lost';
+  const isActive = alert?.status === 'ACTIVE';
 
   if (!alert) {
     return (
@@ -74,6 +91,10 @@ export default function AlertDetailsScreen() {
   }
 
   const onMarkFound = async () => {
+    if (alert.status !== 'ACTIVE') {
+      setFoundOpen(false);
+      return;
+    }
     setBusy(true);
     try {
       await markAlertFound(alert.id);
@@ -121,8 +142,8 @@ export default function AlertDetailsScreen() {
             <View style={styles.headerBody}>
               <View style={styles.headerTopRow}>
                 <Text style={styles.petName}>{alert.petName}</Text>
-                <View style={[styles.statusPill, isLost ? styles.statusLost : styles.statusFound]}>
-                  <Text style={styles.statusText}>{isLost ? 'Lost' : 'Found'}</Text>
+                <View style={[styles.statusPill, isActive && isLost ? styles.statusLost : styles.statusFound]}>
+                  <Text style={styles.statusText}>{isActive && isLost ? 'Lost' : 'Found'}</Text>
                 </View>
               </View>
               <Text style={styles.petMeta}>
@@ -153,7 +174,9 @@ export default function AlertDetailsScreen() {
               <View style={styles.detailText}>
                 <Text style={styles.detailTitle}>Last seen {timeAgo(alert.createdAt)}</Text>
                 <Text style={styles.detailSub}>
-                  {distance !== null ? `${distance} km from the reference point` : 'Location pinned manually'}
+                  {distance !== null
+                    ? `${formatDistanceKm(distance)} away from you`
+                    : 'Location pinned manually'}
                 </Text>
               </View>
             </View>
@@ -176,13 +199,20 @@ export default function AlertDetailsScreen() {
                 style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}>
                 <Text style={styles.outlineLabel}>Edit alert</Text>
               </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setFoundOpen(true)}
-                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-                <CheckIcon />
-                <Text style={styles.primaryLabel}>Mark as found</Text>
-              </Pressable>
+              {isActive ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setFoundOpen(true)}
+                  style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+                  <CheckIcon />
+                  <Text style={styles.primaryLabel}>Mark as found</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.foundBadge}>
+                  <CheckIcon size={16} color={Palette.forestDark} />
+                  <Text style={styles.foundBadgeLabel}>Marked as found</Text>
+                </View>
+              )}
             </View>
           ) : (
             <Pressable
@@ -325,11 +355,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: Spacing.three,
     marginTop: Spacing.five,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    boxShadow: '0px 3px 8px rgba(27,67,50,0.06)',
   },
   headerPhoto: {
     width: 72,
@@ -472,6 +498,22 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.gold,
   },
   primaryLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  foundBadge: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: Palette.sage,
+  },
+  foundBadgeLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: '800',

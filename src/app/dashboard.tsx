@@ -186,8 +186,7 @@ export default function DashboardScreen() {
               onPressOut={() => fadeAddPet(0)}
               style={styles.addPet}>
               <Animated.View
-                pointerEvents="none"
-                style={[styles.addPetGlow, { opacity: addGlow }]}
+                style={[styles.addPetGlow, { opacity: addGlow, pointerEvents: 'none' }]}
               />
               <PlusIcon size={14} />
               <Text style={styles.addPetLabel}>Add pet</Text>
@@ -429,11 +428,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: Spacing.three,
     minHeight: 88,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    boxShadow: '0px 3px 8px rgba(27,67,50,0.06)',
   },
   petPhoto: {
     width: 65,
@@ -514,11 +509,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: Palette.gold,
     marginTop: Spacing.five,
-    shadowColor: '#F2B632',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    boxShadow: '0px 4px 10px rgba(242,182,50,0.3)',
   },
   lostLabel: {
     fontFamily: Fonts.sans,

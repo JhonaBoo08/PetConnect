@@ -60,6 +60,17 @@ function notify() {
   listeners.forEach((listener) => listener());
 }
 
+function dedupeById(list: AppNotification[]): AppNotification[] {
+  const seen = new Set<string>();
+  const result: AppNotification[] = [];
+  for (const item of list) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    result.push(item);
+  }
+  return result;
+}
+
 async function persist(notifications: AppNotification[]) {
   notificationsCache = notifications;
   try {
@@ -77,7 +88,9 @@ async function readNotifications(): Promise<AppNotification[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as AppNotification[];
       if (Array.isArray(parsed)) {
-        notificationsCache = parsed;
+        const deduped = dedupeById(parsed);
+        notificationsCache = deduped;
+        if (deduped.length !== parsed.length) await persist(deduped);
         return notificationsCache;
       }
     }
@@ -116,13 +129,12 @@ export async function addNotification(
   notification: Omit<AppNotification, 'unread'>,
 ): Promise<void> {
   const notifications = await readNotifications();
+  const id =
+    notification.id ||
+    `ntf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   await persist([
-    {
-      ...notification,
-      id: notification.id || `ntf-${Date.now().toString(36)}`,
-      unread: true,
-    },
-    ...notifications,
+    { ...notification, id, unread: true },
+    ...notifications.filter((existing) => existing.id !== id),
   ]);
 }
 

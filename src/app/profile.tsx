@@ -301,11 +301,7 @@ const styles = StyleSheet.create({
     borderColor: Palette.borderSoft,
     borderRadius: 15,
     paddingHorizontal: Spacing.three,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    boxShadow: '0px 3px 8px rgba(27,67,50,0.05)',
   },
   cardIcon: {
     width: 40,

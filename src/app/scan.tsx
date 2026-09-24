@@ -164,7 +164,7 @@ export default function ScanScreen() {
                   onBarcodeScanned={handleBarcodeScanned}
                 />
               ) : null}
-              <View style={styles.frame} pointerEvents="none">
+              <View style={styles.frame}>
                 <View style={[styles.bracket, styles.bracketTL]} />
                 <View style={[styles.bracket, styles.bracketTR]} />
                 <View style={[styles.bracket, styles.bracketBL]} />
@@ -377,11 +377,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.22,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 5,
+    boxShadow: '0px 6px 14px rgba(27,67,50,0.22)',
     overflow: 'hidden',
   },
   camera: {
@@ -396,6 +392,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    pointerEvents: 'none',
   },
   bracket: {
     position: 'absolute',
@@ -471,11 +468,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.four,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    boxShadow: '0px 4px 12px rgba(27,67,50,0.12)',
   },
   statusContent: {
     alignItems: 'center',
@@ -567,11 +560,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: Palette.gold,
     marginTop: Spacing.four,
-    shadowColor: '#F2B632',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    boxShadow: '0px 4px 10px rgba(242,182,50,0.3)',
   },
   simulateLabel: {
     fontFamily: Fonts.sans,

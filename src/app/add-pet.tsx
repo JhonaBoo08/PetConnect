@@ -752,11 +752,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: Palette.gold,
     marginTop: Spacing.five,
-    shadowColor: '#F2B632',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    boxShadow: '0px 4px 10px rgba(242,182,50,0.3)',
   },
   saveLabel: {
     fontFamily: Fonts.sans,

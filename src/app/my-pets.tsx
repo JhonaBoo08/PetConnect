@@ -244,11 +244,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: Spacing.three,
     gap: Spacing.three,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    boxShadow: '0px 3px 8px rgba(27,67,50,0.06)',
   },
   petTopRow: {
     flexDirection: 'row',

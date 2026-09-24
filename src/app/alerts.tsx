@@ -23,17 +23,18 @@ import {
   UploadIcon,
 } from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
+import { LocationPicker } from '@/components/location-picker';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { formatDistanceKm, getCurrentDevicePosition, type GeoPosition } from '@/lib/geolocation';
 import {
-  activeNearbyAlerts,
+  alertDistanceKm,
   createLostPetAlert,
   currentOwnerId,
-  distanceFromReference,
   getLostPetAlertsSync,
+  nearbyAlertsSorted,
   type LostPetAlert,
-  type PinnedLocation,
-  tagumLocations,
+  type SelectedLocation,
   timeAgo,
   updateLostPetAlert,
   useLostPetAlerts,
@@ -54,12 +55,14 @@ function PhotoFrame({ photo, size }: { photo: string; size: number }) {
 
 function FeedCard({
   alert,
+  origin,
   onPress,
 }: {
   alert: LostPetAlert;
+  origin: GeoPosition | null;
   onPress: () => void;
 }) {
-  const distance = distanceFromReference(alert.latitude, alert.longitude);
+  const distance = alertDistanceKm(alert, origin);
   const photo = alert.photoUrl || alert.petPhoto;
   const isLost = alert.reportKind === 'Lost';
   return (
@@ -83,7 +86,7 @@ function FeedCard({
         </View>
         <Text style={styles.feedLocation}>
           Near {alert.locationName}
-          {distance !== null ? ` · ${distance} km away` : ''}
+          {distance !== null ? ` · ${formatDistanceKm(distance)} away` : ''}
         </Text>
         <Text style={styles.feedTime}>Posted {timeAgo(alert.createdAt)}</Text>
         {alert.description ? (
@@ -91,88 +94,6 @@ function FeedCard({
         ) : null}
       </View>
     </Pressable>
-  );
-}
-
-function PinSheet({
-  petName,
-  onClose,
-  onSelect,
-}: {
-  petName: string;
-  onClose: () => void;
-  onSelect: (location: PinnedLocation) => void;
-}) {
-  const [custom, setCustom] = useState('');
-  const choosePreset = (location: (typeof tagumLocations)[number]) => {
-    onSelect({
-      latitude: location.latitude,
-      longitude: location.longitude,
-      name: `${location.name}, Tagum City`,
-    });
-  };
-  const chooseCustom = () => {
-    if (custom.trim()) {
-      onSelect({ latitude: null, longitude: null, name: custom.trim() });
-    }
-  };
-  return (
-    <View style={styles.overlay}>
-      <View style={styles.pinSheet}>
-        <Text style={styles.pinTitle}>Pin exact location</Text>
-        <Text style={styles.pinHint}>Where was {petName || 'your pet'} last seen?</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Suggested nearby places"
-          style={styles.mapPanel}>
-          <PinIcon size={30} color={Palette.forestDark} />
-          <Text style={styles.mapPanelTitle}>Tagum City</Text>
-          <Text style={styles.mapPanelHint}>Choose a suggested place or enter a custom spot.</Text>
-        </Pressable>
-
-        <Text style={styles.pinSectionLabel}>SUGGESTED NEARBY</Text>
-        <View style={styles.pinList}>
-          {tagumLocations.map((location) => (
-            <Pressable
-              key={location.name}
-              accessibilityRole="button"
-              onPress={() => choosePreset(location)}
-              style={({ pressed }) => [styles.pinOption, pressed && styles.pressed]}>
-              <PinIcon size={16} color={Palette.forestDark} />
-              <Text style={styles.pinOptionLabel}>{location.name}</Text>
-              <Text style={styles.pinOptionArea}>{location.area}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Text style={styles.pinSectionLabel}>CUSTOM LOCATION</Text>
-        <TextInput
-          value={custom}
-          onChangeText={setCustom}
-          placeholder="Describe a nearby landmark or street"
-          placeholderTextColor={Palette.placeholder}
-          style={styles.input}
-        />
-        <Pressable
-          accessibilityRole="button"
-          onPress={chooseCustom}
-          disabled={!custom.trim()}
-          style={({ pressed }) => [
-            styles.pinCustomButton,
-            (!custom.trim() || pressed) && styles.pressed,
-          ]}>
-          <CheckIcon />
-          <Text style={styles.pinCustomLabel}>Use this location</Text>
-        </Pressable>
-
-        <Pressable
-          accessibilityRole="button"
-          onPress={onClose}
-          style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}>
-          <Text style={styles.cancelLabel}>Cancel</Text>
-        </Pressable>
-      </View>
-    </View>
   );
 }
 
@@ -196,15 +117,17 @@ export default function AlertsScreen() {
       ? editingAlert.lastSeenDescription
       : (getLostPetAlertsSync().find((a) => a.id === editParam)?.lastSeenDescription ?? ''),
   );
-  const [location, setLocation] = useState<PinnedLocation | null>(() => {
+  const [location, setLocation] = useState<SelectedLocation | null>(() => {
     const target = editingAlert ?? getLostPetAlertsSync().find((a) => a.id === editParam);
-    return target
-      ? {
-          latitude: target.latitude,
-          longitude: target.longitude,
-          name: target.locationName,
-        }
-      : null;
+    if (!target || target.latitude === null || target.longitude === null) return null;
+    return {
+      latitude: target.latitude,
+      longitude: target.longitude,
+      accuracy: target.lastSeenAccuracy,
+      address: target.locationName || null,
+      source: target.locationSource ?? 'manual_map_selection',
+      updatedAt: target.locationUpdatedAt ?? target.updatedAt,
+    };
   });
   const [details, setDetails] = useState(() =>
     editingAlert
@@ -222,6 +145,22 @@ export default function AlertsScreen() {
   const [discardOpen, setDiscardOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [publishedAlert, setPublishedAlert] = useState<LostPetAlert | null>(null);
+  const [feedOrigin, setFeedOrigin] = useState<GeoPosition | null>(null);
+
+  useEffect(() => {
+    if (mode !== 'feed' || feedOrigin) return;
+    let active = true;
+    getCurrentDevicePosition()
+      .then((position) => {
+        if (active) setFeedOrigin(position);
+      })
+      .catch(() => {
+        // Nearby distances fall back to newest-first when location is unavailable.
+      });
+    return () => {
+      active = false;
+    };
+  }, [mode, feedOrigin]);
 
   const hydratedRef = useRef(false);
   useEffect(() => {
@@ -229,11 +168,16 @@ export default function AlertsScreen() {
     hydratedRef.current = true;
     setPetId(editingAlert.petId);
     setLastSeen(editingAlert.lastSeenDescription);
-    setLocation({
-      latitude: editingAlert.latitude,
-      longitude: editingAlert.longitude,
-      name: editingAlert.locationName,
-    });
+    if (editingAlert.latitude !== null && editingAlert.longitude !== null) {
+      setLocation({
+        latitude: editingAlert.latitude,
+        longitude: editingAlert.longitude,
+        accuracy: editingAlert.lastSeenAccuracy,
+        address: editingAlert.locationName || null,
+        source: editingAlert.locationSource ?? 'manual_map_selection',
+        updatedAt: editingAlert.locationUpdatedAt ?? editingAlert.updatedAt,
+      });
+    }
     setDetails(editingAlert.description);
     setPhotoOverride(editingAlert.photoUrl);
   }, [editParam, editingAlert]);
@@ -270,7 +214,7 @@ export default function AlertsScreen() {
     const next: typeof errors = {};
     if (!petId) next.pet = 'Please select a pet.';
     if (!lastSeen.trim()) next.lastSeen = 'Please enter where your pet was last seen.';
-    if (!location) next.pin = 'Please pin the last known location.';
+    if (!location) next.pin = 'Please select the last-seen location before publishing.';
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -292,7 +236,10 @@ export default function AlertsScreen() {
         lastSeenDescription: lastSeen.trim(),
         latitude: location.latitude,
         longitude: location.longitude,
-        locationName: location.name,
+        lastSeenAccuracy: location.accuracy,
+        locationName: location.address ?? 'Location selected',
+        locationSource: location.source,
+        locationUpdatedAt: location.updatedAt,
         description: details.trim(),
         photoUrl: photo,
         reportKind: 'Lost' as const,
@@ -510,7 +457,9 @@ export default function AlertsScreen() {
                       <CheckIcon size={14} color={Palette.white} />
                     </View>
                     <View style={styles.locationText}>
-                      <Text style={styles.locationTitle}>Pinned · {location.name}</Text>
+                      <Text style={styles.locationTitle}>
+                        Pinned · {location.address ?? 'Location selected'}
+                      </Text>
                       <Text style={styles.locationHint}>Tap to change pin</Text>
                     </View>
                   </View>
@@ -573,10 +522,11 @@ export default function AlertsScreen() {
             </>
           ) : (
             <View style={styles.feedList}>
-              {activeNearbyAlerts(alerts).map((alert) => (
+              {nearbyAlertsSorted(alerts, feedOrigin).map((alert) => (
                 <FeedCard
                   key={alert.id}
                   alert={alert}
+                  origin={feedOrigin}
                   onPress={() =>
                     router.push({ pathname: '/alert-details', params: { id: alert.id } })
                   }
@@ -590,9 +540,10 @@ export default function AlertsScreen() {
       </SafeAreaView>
 
       {pinOpen ? (
-        <PinSheet
+        <LocationPicker
           petName={selectedPet?.name ?? editingAlert?.petName ?? ''}
-          onSelect={(next) => {
+          initial={location}
+          onConfirm={(next) => {
             setLocation(next);
             setPinOpen(false);
           }}
@@ -608,7 +559,7 @@ export default function AlertsScreen() {
             </Text>
             <Text style={styles.discardText}>
               {selectedPet?.name ?? editingAlert?.petName ?? 'Your pet'} · last seen near{' '}
-              {location?.name}
+              {location?.address ?? 'Location selected'}
             </Text>
             <Pressable
               accessibilityRole="button"
@@ -933,11 +884,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: Palette.gold,
     marginTop: Spacing.four,
-    shadowColor: '#F2B632',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    boxShadow: '0px 4px 10px rgba(242,182,50,0.3)',
   },
   publishLabel: {
     fontFamily: Fonts.sans,
@@ -957,11 +904,7 @@ const styles = StyleSheet.create({
     borderColor: Palette.borderSoft,
     borderRadius: 16,
     padding: Spacing.three,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    boxShadow: '0px 3px 8px rgba(27,67,50,0.06)',
   },
   feedPhoto: {
     width: 60,
@@ -1090,114 +1033,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  pinSheet: {
-    width: '100%',
-    maxWidth: 360,
-    maxHeight: '86%',
-    backgroundColor: Palette.cream,
-    borderRadius: 18,
-    padding: Spacing.four,
-  },
-  pinTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 18,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  pinHint: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    color: Palette.inkMuted,
-    marginTop: 2,
-  },
-  mapPanel: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Palette.sage,
-    borderRadius: 14,
-    padding: Spacing.four,
-    gap: 4,
-    marginTop: Spacing.four,
-  },
-  mapPanelTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  mapPanelHint: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    color: Palette.inkMuted,
-    textAlign: 'center',
-  },
-  pinSectionLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.3,
-    color: Palette.forestDark,
-    marginTop: Spacing.four,
-    marginBottom: Spacing.two,
-  },
-  pinList: {
-    gap: Spacing.two,
-  },
-  pinOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    borderRadius: 12,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-  },
-  pinOptionLabel: {
-    flex: 1,
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  pinOptionArea: {
-    fontFamily: Fonts.sans,
-    fontSize: 11,
-    color: Palette.inkMuted,
-  },
-  pinCustomButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: Palette.gold,
-    marginTop: Spacing.two,
-  },
-  pinCustomLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  cancelButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
-    marginTop: Spacing.two,
-  },
-  cancelLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '700',
     color: Palette.forestDark,
   },
   confirmWrap: {

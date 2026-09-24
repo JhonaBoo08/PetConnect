@@ -26,6 +26,18 @@ export type NewHealthRecordInput = Omit<
   'id' | 'createdAt' | 'updatedAt'
 >;
 
+export type NewHealthReminderInput = {
+  petId: string;
+  petName: string;
+  title: string;
+  type: HealthRecordType;
+  dueDate: string;
+  time: string;
+  notificationTiming: ReminderNotificationTiming;
+  clinicName: string;
+  description?: string;
+};
+
 export type HealthReminder = {
   id: string;
   petId: string;
@@ -530,5 +542,36 @@ export function removeReminder(reminderId: string): Promise<void> {
   return mutate(async () => {
     const reminders = await readReminders();
     await persistReminders(reminders.filter((reminder) => reminder.id !== reminderId));
+  });
+}
+
+export function newReminderId(): string {
+  return `rem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function createReminder(input: NewHealthReminderInput): Promise<HealthReminder> {
+  return mutate(async () => {
+    const reminders = await readReminders();
+    const now = Date.now();
+    const reminder: HealthReminder = {
+      id: newReminderId(),
+      petId: input.petId,
+      petName: input.petName,
+      recordId: null,
+      title: input.title.trim(),
+      type: input.type,
+      description: input.description?.trim() ?? '',
+      dueDate: input.dueDate,
+      time: input.time,
+      notificationTiming: input.notificationTiming,
+      clinicId: null,
+      clinicName: input.clinicName.trim() || defaultClinicName,
+      completedAt: null,
+      rescheduledAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await persistReminders([...reminders, reminder]);
+    return reminder;
   });
 }

@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -76,6 +77,14 @@ function NotificationCard({
 export default function NotificationsScreen() {
   const router = useRouter();
   const notifications = useNotifications();
+  const unique = useMemo(
+    () =>
+      notifications.filter(
+        (notification, index, list) =>
+          list.findIndex((candidate) => candidate.id === notification.id) === index,
+      ),
+    [notifications],
+  );
 
   const open = (notification: AppNotification) => {
     readNotification(notification.id);
@@ -100,7 +109,7 @@ export default function NotificationsScreen() {
           <Text style={styles.heading}>Notifications</Text>
           <Text style={styles.supporting}>Health alerts, reminders, and recovery activity.</Text>
 
-          {notifications.length === 0 ? (
+          {unique.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyStateIcon}>
                 <BellIcon size={28} color={Palette.forestDark} />
@@ -112,7 +121,7 @@ export default function NotificationsScreen() {
             </View>
           ) : (
             <View style={styles.list}>
-              {notifications.map((notification) => (
+              {unique.map((notification) => (
                 <NotificationCard
                   key={notification.id}
                   notification={notification}
@@ -203,11 +212,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: Spacing.three,
     minHeight: 88,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    boxShadow: '0px 3px 8px rgba(27,67,50,0.06)',
   },
   notificationCardUnread: {
     backgroundColor: '#FFFDF7',

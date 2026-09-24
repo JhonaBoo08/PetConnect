@@ -59,18 +59,16 @@ export function DateField({
 
   return (
     <View style={styles.wrap}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel}
-        onPress={openPicker}
-        style={({ pressed }) => [
-          styles.field,
-          invalid ? styles.fieldInvalid : null,
-          pressed && styles.pressed,
-        ]}>
-        <Text numberOfLines={1} style={[styles.value, !value && styles.placeholder]}>
-          {displayValue || placeholder}
-        </Text>
+      <View style={[styles.field, invalid ? styles.fieldInvalid : null]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel}
+          onPress={openPicker}
+          style={({ pressed }) => [styles.fieldValue, pressed && styles.pressed]}>
+          <Text numberOfLines={1} style={[styles.value, !value && styles.placeholder]}>
+            {displayValue || placeholder}
+          </Text>
+        </Pressable>
         {onClear && value ? (
           <Pressable
             accessibilityRole="button"
@@ -80,8 +78,14 @@ export function DateField({
             <Text style={styles.clearLabel}>&times;</Text>
           </Pressable>
         ) : null}
-        <CalendarIcon size={18} color={Palette.forestDark} />
-      </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open date picker"
+          onPress={openPicker}
+          style={({ pressed }) => [styles.fieldIcon, pressed && styles.pressed]}>
+          <CalendarIcon size={18} color={Palette.forestDark} />
+        </Pressable>
+      </View>
 
       {createElement('input', {
         ref: inputRef,
@@ -117,6 +121,15 @@ const styles = StyleSheet.create({
   },
   fieldInvalid: {
     borderColor: Palette.danger,
+  },
+  fieldValue: {
+    flex: 1,
+    minHeight: 42,
+    justifyContent: 'center',
+  },
+  fieldIcon: {
+    paddingLeft: Spacing.one,
+    paddingVertical: Spacing.one,
   },
   value: {
     flex: 1,

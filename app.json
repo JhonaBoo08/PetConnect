@@ -35,6 +35,12 @@
       ],
       "@react-native-community/datetimepicker",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to identify where a pet was last seen and show nearby lost-pet alerts."
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan Pet-Connect IDs.",
