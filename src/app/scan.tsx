@@ -114,7 +114,10 @@ export default function ScanScreen() {
             params: { pet: pet.id },
           });
         } else {
-          router.push({ pathname: "/scan-result", params: { pet: pet.id } });
+          router.push({
+            pathname: "/scan-result",
+            params: { pet: pet.id, report: "1" },
+          });
         }
       } catch {
         setScanState("error");
