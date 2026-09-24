@@ -150,7 +150,7 @@ export default function ScanScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => goBack(isClinic ? "/clinic" : "/dashboard")}
+              onPress={() => goBack(isClinic ? "/clinic" : finderMode ? "/" : "/dashboard")}
               style={styles.iconButton}
             >
               <BackArrow />
@@ -159,11 +159,13 @@ export default function ScanScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() =>
-                router.push(
-                  isClinic ? "/clinic-notifications" : "/notifications",
-                )
-              }
+              onPress={() => {
+                if (finderMode) {
+                  router.replace("/");
+                } else {
+                  router.push(isClinic ? "/clinic-notifications" : "/notifications");
+                }
+              }}
               style={styles.iconButton}
             >
               <BellIcon />
@@ -325,18 +327,14 @@ export default function ScanScreen() {
             </View>
           ) : null}
 
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push("/found-report-general")}
-            style={({ pressed }) => [
-              styles.generalReportButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.generalReportLabel}>
-              Can&apos;t scan a QR? Report a found pet
-            </Text>
-          </Pressable>
+          {finderMode && scanState === "idle" ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push("/found-report-general")}
+              style={({ pressed }) => [styles.generalReportButton, pressed && styles.pressed]}>
+              <Text style={styles.generalReportLabel}>Report without a QR code</Text>
+            </Pressable>
+          ) : null}
 
           <Text style={styles.helper}>
             Camera access is used only while scanning.
@@ -603,26 +601,28 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: Palette.forestDark,
   },
-  generalReportButton: {
-    alignSelf: "center",
-    minHeight: 42,
-    justifyContent: "center",
-    paddingHorizontal: Spacing.three,
-    marginTop: Spacing.three,
-  },
-  generalReportLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: "700",
-    color: Palette.forestDark,
-    textDecorationLine: "underline",
-  },
   helper: {
     fontFamily: Fonts.sans,
     fontSize: 11.5,
     color: Palette.inkMuted,
     textAlign: "center",
     marginTop: Spacing.three,
+  },
+  generalReportButton: {
+    alignSelf: "center",
+    marginTop: Spacing.four,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.three,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.sage,
+  },
+  generalReportLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "800",
+    color: Palette.forestDark,
   },
   pressed: {
     opacity: 0.85,
