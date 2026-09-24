@@ -202,6 +202,21 @@ export function CalendarIcon({ size = 24, color = Palette.forestDark }: IconProp
   );
 }
 
+export function ClockIcon({ size = 22, color = Palette.forestDark }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={8.5} stroke={color} strokeWidth={1.8} />
+      <Path
+        d="M12 7.5V12l3 2"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 export function PinIcon({ size = 20, color = Palette.forestDark }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

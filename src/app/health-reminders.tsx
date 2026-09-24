@@ -15,8 +15,14 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { isoToShortDate, parseIsoDate } from '@/lib/date';
-import { type HealthReminder, useHealthReminders } from '@/lib/health';
+import { parseIsoDate } from '@/lib/date';
+import {
+  reminderDaysUntil,
+  reminderStatus,
+  reminderWhen,
+  type HealthReminder,
+  useHealthReminders,
+} from '@/lib/health';
 import { goBack } from '@/lib/navigation';
 
 const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -35,28 +41,10 @@ const monthNames = [
   'December',
 ];
 
-const DAY_MS = 86_400_000;
-
-function daysUntil(iso: string): number {
-  const due = parseIsoDate(iso);
-  if (!due) return Number.POSITIVE_INFINITY;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.round((due.getTime() - today.getTime()) / DAY_MS);
-}
-
 function toOn(iso: string): { year: number; month: number; day: number } {
   const date = parseIsoDate(iso);
   if (!date) return { year: 2026, month: 8, day: 1 };
   return { year: date.getFullYear(), month: date.getMonth(), day: date.getDate() };
-}
-
-function reminderWhen(reminder: HealthReminder): string {
-  return `${isoToShortDate(reminder.dueDate)} \u00b7 ${reminder.time}`;
-}
-
-function reminderStatus(reminder: HealthReminder): 'Due soon' | 'Upcoming' {
-  return daysUntil(reminder.dueDate) <= 30 ? 'Due soon' : 'Upcoming';
 }
 
 function isSameDay(a: { year: number; month: number; day: number }, y: number, m: number, d: number) {
@@ -65,7 +53,8 @@ function isSameDay(a: { year: number; month: number; day: number }, y: number, m
 
 function ReminderCard({ reminder, onPress }: { reminder: HealthReminder; onPress: () => void }) {
   const status = reminderStatus(reminder);
-  const isDue = status === 'Due soon';
+  const isDue = status === 'Due soon' || status === 'Due today';
+  const isOverdue = status === 'Overdue';
   return (
     <Pressable
       accessibilityRole="button"
@@ -77,8 +66,12 @@ function ReminderCard({ reminder, onPress }: { reminder: HealthReminder; onPress
       <View style={styles.reminderBody}>
         <View style={styles.reminderTopRow}>
           <Text style={styles.reminderTitle}>{reminder.title}</Text>
-          <View style={[styles.statusPill, isDue ? styles.statusDue : styles.statusUpcoming]}>
-            <Text style={styles.statusText}>{status}</Text>
+          <View
+            style={[
+              styles.statusPill,
+              isOverdue ? styles.statusOverdue : isDue ? styles.statusDue : styles.statusUpcoming,
+            ]}>
+            <Text style={[styles.statusText, isOverdue && styles.statusTextOverdue]}>{status}</Text>
           </View>
         </View>
         <Text style={styles.reminderPet}>{reminder.petName}</Text>
@@ -173,9 +166,11 @@ export default function HealthRemindersScreen() {
   const router = useRouter();
   const reminders = useHealthReminders();
   const sorted = [...reminders].sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+  const active = sorted.filter((reminder) => !reminder.completedAt);
+  const completed = sorted.filter((reminder) => Boolean(reminder.completedAt));
 
   const highlightedIso =
-    sorted.find((reminder) => daysUntil(reminder.dueDate) <= 30)?.dueDate ??
+    sorted.find((reminder) => reminderDaysUntil(reminder.dueDate) <= 30)?.dueDate ??
     sorted[0]?.dueDate ??
     '';
   const highlighted = highlightedIso ? toOn(highlightedIso) : null;
@@ -246,12 +241,17 @@ export default function HealthRemindersScreen() {
 
           {view === 'list' ? (
             <View style={styles.list}>
-              {sorted.length > 0 ? (
-                sorted.map((reminder) => (
+              {active.length > 0 ? (
+                active.map((reminder) => (
                   <ReminderCard
                     key={reminder.id}
                     reminder={reminder}
-                    onPress={() => router.push('/reminder-details')}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/reminder-details',
+                        params: { reminder: reminder.id },
+                      })
+                    }
                   />
                 ))
               ) : (
@@ -262,6 +262,23 @@ export default function HealthRemindersScreen() {
                   </Text>
                 </View>
               )}
+              {completed.length > 0 ? (
+                <>
+                  <Text style={styles.completedLabel}>Completed</Text>
+                  {completed.map((reminder) => (
+                    <ReminderCard
+                      key={reminder.id}
+                      reminder={reminder}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/reminder-details',
+                          params: { reminder: reminder.id },
+                        })
+                      }
+                    />
+                  ))}
+                </>
+              ) : null}
             </View>
           ) : (
             <>
@@ -445,11 +462,26 @@ const styles = StyleSheet.create({
   statusUpcoming: {
     backgroundColor: Palette.sage,
   },
+  statusOverdue: {
+    backgroundColor: Palette.danger,
+  },
   statusText: {
     fontFamily: Fonts.sans,
     fontSize: 10,
     fontWeight: '700',
     color: Palette.forestDark,
+  },
+  statusTextOverdue: {
+    color: Palette.white,
+  },
+  completedLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    color: Palette.inkMuted,
+    textTransform: 'uppercase',
+    marginTop: Spacing.one,
   },
   reminderPet: {
     fontFamily: Fonts.sans,

@@ -1,7 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
+import { dateToIso, isoToFullMonthDay, parseIsoDate } from '@/lib/date';
+
 export type HealthRecordType = 'Vaccination' | 'Checkup' | 'Medication' | 'Other';
+
+export type ReminderNotificationTiming = '1 week before' | '1 day before' | 'On the due date';
 
 export type HealthRecord = {
   id: string;
@@ -28,14 +32,23 @@ export type HealthReminder = {
   petName: string;
   recordId: string | null;
   title: string;
+  type: HealthRecordType;
+  description: string;
   dueDate: string;
   time: string;
+  notificationTiming: ReminderNotificationTiming;
+  clinicId: string | null;
+  clinicName: string;
+  completedAt: string | null;
+  rescheduledAt: number | null;
   createdAt: number;
   updatedAt: number;
 };
 
 const RECORDS_KEY = 'petconnect.healthRecords.v1';
 const REMINDERS_KEY = 'petconnect.healthReminders.v1';
+
+export const defaultClinicName = 'Tagum Pet Care Clinic';
 
 export const recordTypes: HealthRecordType[] = [
   'Vaccination',
@@ -45,6 +58,48 @@ export const recordTypes: HealthRecordType[] = [
 ];
 
 export const reminderTimes = ['9:30 AM', '10:00 AM', '2:00 PM'];
+
+export const reminderNotificationTimings: ReminderNotificationTiming[] = [
+  '1 week before',
+  '1 day before',
+  'On the due date',
+];
+
+type StoredReminder = Omit<
+  HealthReminder,
+  | 'type'
+  | 'description'
+  | 'notificationTiming'
+  | 'clinicId'
+  | 'clinicName'
+  | 'completedAt'
+  | 'rescheduledAt'
+> &
+  Partial<
+    Pick<
+      HealthReminder,
+      | 'type'
+      | 'description'
+      | 'notificationTiming'
+      | 'clinicId'
+      | 'clinicName'
+      | 'completedAt'
+      | 'rescheduledAt'
+    >
+  >;
+
+function normalizeReminder(reminder: StoredReminder): HealthReminder {
+  return {
+    type: 'Vaccination',
+    description: '',
+    notificationTiming: reminderNotificationTimings[1],
+    clinicId: null,
+    clinicName: defaultClinicName,
+    completedAt: null,
+    rescheduledAt: null,
+    ...reminder,
+  };
+}
 
 export const seedHealthRecords: HealthRecord[] = [
   {
@@ -95,8 +150,15 @@ export const seedHealthReminders: HealthReminder[] = [
     petName: 'Mingming',
     recordId: null,
     title: 'FVRCP booster',
+    type: 'Vaccination',
+    description: '',
     dueDate: '2026-09-20',
     time: '9:30 AM',
+    notificationTiming: '1 day before',
+    clinicId: null,
+    clinicName: defaultClinicName,
+    completedAt: null,
+    rescheduledAt: null,
     createdAt: 1,
     updatedAt: 1,
   },
@@ -106,8 +168,15 @@ export const seedHealthReminders: HealthReminder[] = [
     petName: 'Bantay',
     recordId: null,
     title: 'EVRCP booster',
+    type: 'Vaccination',
+    description: '',
     dueDate: '2026-10-05',
     time: '2:00 PM',
+    notificationTiming: '1 day before',
+    clinicId: null,
+    clinicName: defaultClinicName,
+    completedAt: null,
+    rescheduledAt: null,
     createdAt: 0,
     updatedAt: 0,
   },
@@ -172,7 +241,7 @@ async function readReminders(): Promise<HealthReminder[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as HealthReminder[];
       if (Array.isArray(parsed)) {
-        remindersCache = parsed;
+        remindersCache = parsed.map(normalizeReminder);
         return remindersCache;
       }
     }
@@ -254,6 +323,47 @@ export function useHealthReminders(): HealthReminder[] {
   return reminders;
 }
 
+const DAY_MS = 86_400_000;
+
+export function reminderDaysUntil(dueDate: string): number {
+  const due = parseIsoDate(dueDate);
+  if (!due) return Number.POSITIVE_INFINITY;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((due.getTime() - today.getTime()) / DAY_MS);
+}
+
+export type ReminderStatus = 'Completed' | 'Overdue' | 'Due today' | 'Due soon' | 'Upcoming';
+
+export function reminderStatus(reminder: HealthReminder): ReminderStatus {
+  if (reminder.completedAt) return 'Completed';
+  const daysUntil = reminderDaysUntil(reminder.dueDate);
+  if (daysUntil < 0) return 'Overdue';
+  if (daysUntil === 0) return 'Due today';
+  if (daysUntil <= 30) return 'Due soon';
+  return 'Upcoming';
+}
+
+export function reminderWhen(reminder: HealthReminder): string {
+  return `${isoToFullMonthDay(reminder.dueDate)} \u00b7 ${reminder.time}`;
+}
+
+export function describeReminder(reminder: HealthReminder): string {
+  const pet = reminder.petName;
+  const title = reminder.title;
+  switch (reminder.type) {
+    case 'Checkup':
+      return `${pet}'s ${title} is a scheduled checkup to help keep ${pet} in good health.`;
+    case 'Medication':
+      return `${pet}'s ${title} is scheduled as part of a medication routine.`;
+    case 'Other':
+      return `${pet}'s ${title} is scheduled on your pet's health calendar.`;
+    case 'Vaccination':
+    default:
+      return `${pet}'s ${title} is scheduled to help keep vaccinations up to date.`;
+  }
+}
+
 export function newRecordId(): string {
   return `rec-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -269,8 +379,15 @@ function upsertRecordReminder(record: HealthRecord) {
     petName: record.petName,
     recordId: record.id,
     title: record.recordName,
+    type: record.recordType,
+    description: '',
     dueDate: record.nextDueDate,
     time: existing?.time ?? reminderTimes[0],
+    notificationTiming: existing?.notificationTiming ?? reminderNotificationTimings[1],
+    clinicId: existing?.clinicId ?? null,
+    clinicName: record.veterinaryClinic,
+    completedAt: existing?.completedAt ?? null,
+    rescheduledAt: existing?.rescheduledAt ?? null,
     createdAt: existing?.createdAt ?? Date.now(),
     updatedAt: Date.now(),
   };
@@ -328,4 +445,59 @@ export async function deleteHealthRecord(id: string): Promise<void> {
   const records = await readRecords();
   await persistRecords(records.filter((record) => record.id !== id));
   removeRecordReminder(id);
+}
+
+export async function toggleReminderCompleted(reminderId: string): Promise<void> {
+  const reminders = await readReminders();
+  const now = Date.now();
+  const next = reminders.map((reminder) => {
+    if (reminder.id !== reminderId) return reminder;
+    return {
+      ...reminder,
+      completedAt: reminder.completedAt ? null : dateToIso(new Date()),
+      updatedAt: now,
+    };
+  });
+  await persistReminders(next);
+}
+
+export async function rescheduleReminder(
+  reminderId: string,
+  dueDate: string,
+  time: string,
+): Promise<void> {
+  const reminders = await readReminders();
+  const now = Date.now();
+  const next = reminders.map((reminder) =>
+    reminder.id === reminderId
+      ? {
+          ...reminder,
+          dueDate,
+          time,
+          completedAt: null,
+          rescheduledAt: now,
+          updatedAt: now,
+        }
+      : reminder,
+  );
+  await persistReminders(next);
+}
+
+export async function setReminderNotificationTiming(
+  reminderId: string,
+  notificationTiming: ReminderNotificationTiming,
+): Promise<void> {
+  const reminders = await readReminders();
+  const now = Date.now();
+  const next = reminders.map((reminder) =>
+    reminder.id === reminderId
+      ? { ...reminder, notificationTiming, updatedAt: now }
+      : reminder,
+  );
+  await persistReminders(next);
+}
+
+export async function removeReminder(reminderId: string): Promise<void> {
+  const reminders = await readReminders();
+  await persistReminders(reminders.filter((reminder) => reminder.id !== reminderId));
 }

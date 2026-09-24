@@ -171,6 +171,11 @@ export default function RecordDetailsScreen() {
             <Text style={styles.sheetMeta}>
               This record will be removed from {record.petName}&apos;s health history.
             </Text>
+            {boosterDue ? (
+              <Text style={styles.sheetMeta}>
+                The linked health reminder will be removed as well.
+              </Text>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               onPress={() => setRemoving(false)}

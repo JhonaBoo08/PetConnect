@@ -22,7 +22,11 @@ type Notification = {
   description: string;
   timestamp: string;
   unread: boolean;
-  route: '/reminder-details' | '/alerts' | { pathname: '/record-details'; params: { record: string; name: string } };
+  route:
+    | '/reminder-details'
+    | '/alerts'
+    | { pathname: '/record-details'; params: { record: string; name: string } }
+    | { pathname: '/reminder-details'; params: { reminder: string } };
 };
 
 const initialNotifications: Notification[] = [
@@ -33,7 +37,7 @@ const initialNotifications: Notification[] = [
     description: "Mingming's FVRCP booster is due in 3 days.",
     timestamp: '2h',
     unread: true,
-    route: '/reminder-details',
+    route: { pathname: '/reminder-details', params: { reminder: 'rem-fvrcp' } },
   },
   {
     id: 'lost-pet',

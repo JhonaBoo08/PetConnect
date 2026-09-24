@@ -15,6 +15,13 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { parseIsoDate } from '@/lib/date';
+import {
+  reminderStatus,
+  reminderWhen,
+  type ReminderStatus,
+  useHealthReminders,
+} from '@/lib/health';
 import { goBack } from '@/lib/navigation';
 
 const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -40,59 +47,34 @@ type Reminder = {
   when: string;
   time: string;
   on: { year: number; month: number; day: number };
-  due: boolean;
+  status: ReminderStatus;
 };
 
-const reminders: Reminder[] = [
-  {
-    id: 'fvrcp',
-    title: 'FVRCP booster',
-    pet: 'Mingming',
-    when: 'Sep 20 · 9:30 AM',
-    time: '9:30 AM',
-    on: { year: 2026, month: 8, day: 20 },
-    due: true,
-  },
-  {
-    id: 'deworming',
-    title: 'Deworming',
-    pet: 'Bantay',
-    when: 'Oct 08 · 10:00 AM',
-    time: '10:00 AM',
-    on: { year: 2026, month: 9, day: 8 },
-    due: false,
-  },
-  {
-    id: 'wellness',
-    title: 'Wellness check',
-    pet: 'Bantay',
-    when: 'Oct 29 · 2:00 PM',
-    time: '2:00 PM',
-    on: { year: 2026, month: 9, day: 29 },
-    due: false,
-  },
-];
-
-const groups: { label: string; items: Reminder[] }[] = [
-  { label: 'This week', items: [reminders[0]] },
-  { label: 'Next month', items: reminders.slice(1) },
-];
+function toOn(iso: string): { year: number; month: number; day: number } {
+  const date = parseIsoDate(iso);
+  if (!date) return { year: 2026, month: 8, day: 1 };
+  return { year: date.getFullYear(), month: date.getMonth(), day: date.getDate() };
+}
 
 function isSameDay(a: { year: number; month: number; day: number }, y: number, m: number, d: number) {
   return a.year === y && a.month === m && a.day === d;
 }
 
 function ReminderRow({ reminder, onPress }: { reminder: Reminder; onPress: () => void }) {
+  const isUrgent =
+    reminder.status === 'Due soon' ||
+    reminder.status === 'Due today' ||
+    reminder.status === 'Overdue';
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.reminderCard, pressed && styles.pressed]}>
-      <View style={[styles.reminderIcon, reminder.due ? styles.reminderIconDue : styles.reminderIconUpcoming]}>
+      <View style={[styles.reminderIcon, isUrgent ? styles.reminderIconDue : styles.reminderIconUpcoming]}>
         <CalendarIcon size={22} color={Palette.forestDark} />
       </View>
       <View style={styles.reminderBody}>
-        <Text style={styles.reminderTitle}>{`${reminder.pet} · ${reminder.title}`}</Text>
+        <Text style={styles.reminderTitle}>{`${reminder.pet} \u00b7 ${reminder.title}`}</Text>
         <Text style={styles.reminderWhen}>{reminder.when}</Text>
       </View>
       <ChevronRightIcon />
@@ -102,11 +84,13 @@ function ReminderRow({ reminder, onPress }: { reminder: Reminder; onPress: () =>
 
 function MonthCalendar({
   viewDate,
+  reminders,
   selected,
   onShift,
   onSelectDay,
 }: {
   viewDate: { year: number; month: number };
+  reminders: Reminder[];
   selected: { year: number; month: number; day: number } | null;
   onShift: (delta: number) => void;
   onSelectDay: (day: { year: number; month: number; day: number }) => void;
@@ -183,13 +167,24 @@ function MonthCalendar({
 
 export default function ViewReminderScreen() {
   const router = useRouter();
+  const stored = useHealthReminders();
+  const sorted = [...stored].sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+  const reminders: Reminder[] = sorted.map((reminder) => ({
+    id: reminder.id,
+    title: reminder.title,
+    pet: reminder.petName,
+    when: reminderWhen(reminder),
+    time: reminder.time,
+    on: toOn(reminder.dueDate),
+    status: reminderStatus(reminder),
+  }));
+
+  const now = new Date();
   const [view, setView] = useState<'list' | 'calendar'>('list');
-  const [viewDate, setViewDate] = useState({ year: 2026, month: 8 });
-  const [selected, setSelected] = useState<{ year: number; month: number; day: number } | null>({
-    year: 2026,
-    month: 8,
-    day: 20,
-  });
+  const [viewDate, setViewDate] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const [selected, setSelected] = useState<{ year: number; month: number; day: number } | null>(
+    reminders.find((reminder) => reminder.status !== 'Completed')?.on ?? null,
+  );
 
   const shiftMonth = (delta: number) => {
     const nextMonth = viewDate.month + delta;
@@ -259,23 +254,33 @@ export default function ViewReminderScreen() {
 
           {view === 'list' ? (
             <View style={styles.list}>
-              {groups.map((group) => (
-                <View key={group.label} style={styles.listSection}>
-                  <Text style={styles.sectionLabel}>{group.label}</Text>
-                  {group.items.map((reminder) => (
-                    <ReminderRow
-                      key={reminder.id}
-                      reminder={reminder}
-                      onPress={() => router.push('/reminder-details')}
-                    />
-                  ))}
+              {reminders.length > 0 ? (
+                reminders.map((reminder) => (
+                  <ReminderRow
+                    key={reminder.id}
+                    reminder={reminder}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/reminder-details',
+                        params: { reminder: reminder.id },
+                      })
+                    }
+                  />
+                ))
+              ) : (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyLabel}>No health reminders yet.</Text>
+                  <Text style={styles.emptyHint}>
+                    Set a next due date on a health record to create one.
+                  </Text>
                 </View>
-              ))}
+              )}
             </View>
           ) : (
             <>
               <MonthCalendar
                 viewDate={viewDate}
+                reminders={reminders}
                 selected={selected}
                 onShift={shiftMonth}
                 onSelectDay={setSelected}
@@ -291,7 +296,12 @@ export default function ViewReminderScreen() {
                         <ReminderRow
                           key={reminder.id}
                           reminder={reminder}
-                          onPress={() => router.push('/reminder-details')}
+                          onPress={() =>
+                            router.push({
+                              pathname: '/reminder-details',
+                              params: { reminder: reminder.id },
+                            })
+                          }
                         />
                       ))}
                     </View>
@@ -572,8 +582,16 @@ const styles = StyleSheet.create({
   emptyLabel: {
     fontFamily: Fonts.sans,
     fontSize: 13,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  emptyHint: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
     color: Palette.inkMuted,
     textAlign: 'center',
+    marginTop: Spacing.one,
   },
   pressed: {
     opacity: 0.85,

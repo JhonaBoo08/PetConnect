@@ -13,6 +13,21 @@ const shortMonths = [
   'Dec',
 ];
 
+const fullMonths = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
 function pad(value: number): string {
   return value.toString().padStart(2, '0');
 }
@@ -57,6 +72,16 @@ export function isoToShortDate(iso: string): string {
   return `${shortMonths[parts.month - 1]} ${pad(parts.day)}`;
 }
 
+export function dateToIso(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function isoToFullMonthDay(iso: string): string {
+  const parts = parseIso(iso);
+  if (!parts) return '';
+  return `${fullMonths[parts.month - 1]} ${parts.day}`;
+}
+
 export function parseDisplayDate(value: string): Date | null {
   const parts = value.split('/').map((part) => Number(part));
   if (parts.length !== 3) return null;
@@ -91,6 +116,48 @@ export function isoToDisplayDate(iso: string): string {
 
 export function toDisplayDate(date: Date): string {
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+export function parseTime(value: string): Date | null {
+  const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*([AP]M)?$/i);
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = match[2] ? Number(match[2]) : 0;
+  const meridian = match[3]?.toUpperCase();
+  if (hours < 1 || hours > 12 || minutes < 0 || minutes > 59) return null;
+  if (meridian) {
+    if (meridian === 'PM' && hours !== 12) hours += 12;
+    if (meridian === 'AM' && hours === 12) hours = 0;
+  } else if (hours > 23) {
+    return null;
+  }
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
+
+export function formatTime(date: Date): string {
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const meridian = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  return `${hours}:${pad(minutes)} ${meridian}`;
+}
+
+export function toTimeInput(date: Date): string {
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function timeInputToDisplay(input: string): string {
+  const parts = input.split(':').map((part) => Number(part));
+  if (parts.length !== 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) return input;
+  const [hours24, minutes] = parts;
+  if (hours24 < 0 || hours24 > 23 || minutes < 0 || minutes > 59) return input;
+  const meridian = hours24 >= 12 ? 'PM' : 'AM';
+  let hours = hours24 % 12;
+  if (hours === 0) hours = 12;
+  return `${hours}:${pad(minutes)} ${meridian}`;
 }
 
 export function isValidMobile(value: string): boolean {
