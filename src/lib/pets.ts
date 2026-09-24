@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
 
-import { getSessionSync } from "@/lib/session";
+import { getSessionSync, isLocalTesting } from "@/lib/session";
 
 export type Pet = {
   id: string;
@@ -32,7 +32,28 @@ export type NewPetInput = Omit<
 
 const STORAGE_KEY = "petconnect.pets.v1";
 
-export const seedPets: Pet[] = [];
+export const seedPets: Pet[] = isLocalTesting
+  ? [
+      {
+        id: "PC-TEST-10001",
+        ownerId: "local-test-owner",
+        name: "Test Pet",
+        species: "Dog",
+        sex: "Female",
+        breed: "Mixed breed",
+        color: "Brown",
+        birthdate: "2021-05-12",
+        photo: "",
+        details: "Local emulator test pet",
+        collar: "Red collar",
+        finderContactVisible: true,
+        contactName: "Local Test Owner",
+        contactMobile: "+63 917 111 1111",
+        contactLocation: "Tagum City",
+        createdAt: Date.now(),
+      },
+    ]
+  : [];
 
 type PetQrPayload = Pick<
   Pet,
@@ -175,6 +196,14 @@ export function getPetByIdSync(id: string): Pet | null {
 
 export async function getPetById(id: string): Promise<Pet | null> {
   return (await readPets()).find((p) => p.id === id) ?? null;
+}
+
+export function cacheScannedPet(pet: Pet): Promise<void> {
+  return mutate(async () => {
+    const pets = await readPets();
+    if (pets.some((candidate) => candidate.id === pet.id)) return;
+    await persist([...pets, pet]);
+  });
 }
 
 export function createPet(input: NewPetInput): Promise<Pet> {

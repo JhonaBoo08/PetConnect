@@ -38,6 +38,12 @@ export type AuthAccount = {
   password: string;
 };
 
+export const LOCAL_TEST_VET_EMAIL = "vet.test@petconnect.local";
+export const LOCAL_TEST_VET_PASSWORD = "petconnect-test";
+export const LOCAL_TEST_VET_ID = "local-test-vet";
+export const isLocalTesting =
+  (process.env.EXPO_PUBLIC_FIREBASE_ENV ?? "emulator") === "emulator";
+
 const SESSION_KEY = "petconnect.session.v1";
 const ACCOUNTS_KEY = "petconnect.accounts.v1";
 const PROFILES_KEY = "petconnect.profiles.v1";
@@ -146,6 +152,27 @@ async function load(): Promise<void> {
     delete preferences["demo-clinic"];
     if (sessionUserId === "demo-owner" || sessionUserId === "demo-clinic") {
       sessionUserId = null;
+    }
+
+    if (isLocalTesting) {
+      accounts[LOCAL_TEST_VET_EMAIL] = {
+        userId: LOCAL_TEST_VET_ID,
+        email: LOCAL_TEST_VET_EMAIL,
+        password: LOCAL_TEST_VET_PASSWORD,
+      };
+      profiles[LOCAL_TEST_VET_ID] = {
+        userId: LOCAL_TEST_VET_ID,
+        fullName: "Local Test Vet Clinic",
+        email: LOCAL_TEST_VET_EMAIL,
+        accountType: "vet",
+        city: "Tagum City",
+        province: "Davao del Norte",
+        phoneNumber: "+63 917 000 0000",
+        profilePhoto: "",
+      };
+      preferences[LOCAL_TEST_VET_ID] = {
+        ...defaultPreferences,
+      };
     }
 
     ready = true;

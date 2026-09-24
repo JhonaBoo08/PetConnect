@@ -1,47 +1,63 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+    ActivityIndicator,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { BackArrow, BellIcon, CheckIcon, PawIcon, ShieldIcon, SyringeIcon } from '@/components/app-icons';
-import { BottomNav } from '@/components/bottom-nav';
-import { DateField } from '@/components/date-field';
-import { Palette } from '@/constants/palette';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { getClinicAccessSync } from '@/lib/clinic-access';
-import { useClinicGate, useClinicProfile } from '@/lib/clinic';
-import { addClinicNotification } from '@/lib/clinic-notifications';
-import { isoToLongDate, isoToDisplayDate, parseDisplayDate, toIsoDate } from '@/lib/date';
-import { createHealthRecord, useHealthRecords } from '@/lib/health';
-import { goBack } from '@/lib/navigation';
-import { addNotification } from '@/lib/notifications';
-import { usePetById } from '@/lib/pets';
+import {
+    BackArrow,
+    BellIcon,
+    CheckIcon,
+    PawIcon,
+    ShieldIcon,
+    SyringeIcon,
+} from "@/components/app-icons";
+import { BottomNav } from "@/components/bottom-nav";
+import { DateField } from "@/components/date-field";
+import { Palette } from "@/constants/palette";
+import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
+import { useClinicGate, useClinicProfile } from "@/lib/clinic";
+import { getClinicAccessSync } from "@/lib/clinic-access";
+import { addClinicNotification } from "@/lib/clinic-notifications";
+import {
+    isoToDisplayDate,
+    isoToLongDate,
+    parseDisplayDate,
+    toIsoDate,
+} from "@/lib/date";
+import { createHealthRecord, useHealthRecords } from "@/lib/health";
+import { goBack } from "@/lib/navigation";
+import { addNotification } from "@/lib/notifications";
+import { usePetById } from "@/lib/pets";
 
-type FormErrors = Partial<Record<'name' | 'date', string>>;
+type FormErrors = Partial<Record<"name" | "date", string>>;
 
 export default function ClinicAddRecordScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ pet?: string }>();
-  const petIdParam = Array.isArray(params.pet) ? params.pet[0] : (params.pet ?? '');
+  const petIdParam = Array.isArray(params.pet)
+    ? params.pet[0]
+    : (params.pet ?? "");
   const pet = usePetById(petIdParam);
   const clinic = useClinicProfile();
   const records = useHealthRecords();
   useClinicGate();
 
-  const access = clinic ? getClinicAccessSync(clinic.clinicId, petIdParam) : null;
+  const access = clinic
+    ? getClinicAccessSync(clinic.clinicId, petIdParam)
+    : null;
 
-  const [name, setName] = useState('');
-  const [date, setDate] = useState('');
-  const [nextDue, setNextDue] = useState('');
-  const [notes, setNotes] = useState('');
+  const [name, setName] = useState("");
+  const [date, setDate] = useState("");
+  const [nextDue, setNextDue] = useState("");
+  const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<FormErrors>({});
   const [discardOpen, setDiscardOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -49,8 +65,11 @@ export default function ClinicAddRecordScreen() {
   const hydrated = useRef(false);
 
   useEffect(() => {
-    if (clinic && pet && access && access.status !== 'active') {
-      router.replace({ pathname: '/clinic-scan-result', params: { pet: pet.id } });
+    if (clinic && pet && access && access.status !== "active") {
+      router.replace({
+        pathname: "/clinic-scan-result",
+        params: { pet: pet.id },
+      });
     }
   }, [clinic, pet, access, router]);
 
@@ -88,8 +107,17 @@ export default function ClinicAddRecordScreen() {
             </Text>
             <Pressable
               accessibilityRole="button"
-              onPress={() => goBack({ pathname: '/clinic-records', params: { pet: petIdParam } })}
-              style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+              onPress={() =>
+                goBack({
+                  pathname: "/clinic-records",
+                  params: { pet: petIdParam },
+                })
+              }
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed && styles.pressed,
+              ]}
+            >
               <Text style={styles.backLabel}>Go back</Text>
             </Pressable>
           </View>
@@ -99,7 +127,7 @@ export default function ClinicAddRecordScreen() {
     );
   }
 
-  if (!access || access.status !== 'active') {
+  if (!access || access.status !== "active") {
     return (
       <View style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
@@ -109,12 +137,19 @@ export default function ClinicAddRecordScreen() {
             </View>
             <Text style={styles.emptyTitle}>Access not yet granted.</Text>
             <Text style={styles.emptyText}>
-              You need owner-approved access to update {pet.name}&apos;s records.
+              You need owner-approved access to update {pet.name}&apos;s
+              records.
             </Text>
             <Pressable
               accessibilityRole="button"
-              onPress={() => goBack({ pathname: '/clinic-records', params: { pet: pet.id } })}
-              style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+              onPress={() =>
+                goBack({ pathname: "/clinic-records", params: { pet: pet.id } })
+              }
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed && styles.pressed,
+              ]}
+            >
               <Text style={styles.backLabel}>Back to records</Text>
             </Pressable>
           </View>
@@ -130,7 +165,7 @@ export default function ClinicAddRecordScreen() {
   const vaccineSuggestions = Array.from(
     new Set(
       records
-        .filter((record) => record.recordType === 'Vaccination')
+        .filter((record) => record.recordType === "Vaccination")
         .map((record) => record.recordName.trim())
         .filter((value) => value && value !== name.trim()),
     ),
@@ -143,14 +178,14 @@ export default function ClinicAddRecordScreen() {
       setDiscardOpen(true);
       return;
     }
-    goBack({ pathname: '/clinic-records', params: { pet: pet.id } });
+    goBack({ pathname: "/clinic-records", params: { pet: pet.id } });
   };
 
   const save = async () => {
     const next: FormErrors = {};
-    if (!name.trim()) next.name = 'Vaccine name is required.';
-    if (!date) next.date = 'Date is required.';
-    else if (!parseDisplayDate(date)) next.date = 'Please enter a valid date.';
+    if (!name.trim()) next.name = "Vaccine name is required.";
+    if (!date) next.date = "Date is required.";
+    else if (!parseDisplayDate(date)) next.date = "Please enter a valid date.";
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
@@ -159,7 +194,7 @@ export default function ClinicAddRecordScreen() {
       const record = await createHealthRecord({
         petId: pet.id,
         petName: pet.name,
-        recordType: 'Vaccination',
+        recordType: "Vaccination",
         recordName: name.trim(),
         recordDate: toIsoDate(date),
         veterinaryClinic: clinic.clinicName,
@@ -169,25 +204,31 @@ export default function ClinicAddRecordScreen() {
       });
 
       await addNotification({
-        kind: 'record',
+        kind: "record",
         title: `${pet.name}'s vaccine updated`,
         description:
           `${clinic.clinicName} updated ${record.recordName} on ` +
           `${isoToLongDate(record.recordDate)}.`,
-        timestamp: 'Just now',
-        route: { pathname: '/record-details', params: { record: record.id, name: pet.name } },
+        timestamp: "Just now",
+        route: {
+          pathname: "/record-details",
+          params: { record: record.id, name: pet.name },
+        },
       });
 
       await addClinicNotification({
-        kind: 'record',
-        title: 'Vaccine updated',
+        kind: "record",
+        title: "Vaccine updated",
         description: `${pet.name}'s ${record.recordName} was logged for ${clinic.clinicName}.`,
-        timestamp: 'Just now',
+        timestamp: "Just now",
       });
 
       setSuccess(true);
       setTimeout(() => {
-        router.replace({ pathname: '/clinic-records', params: { pet: pet.id } });
+        router.replace({
+          pathname: "/clinic-records",
+          params: { pet: pet.id },
+        });
       }, 1200);
     } finally {
       setSaving(false);
@@ -200,21 +241,30 @@ export default function ClinicAddRecordScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.topBar}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
               onPress={onBack}
-              style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.pressed,
+              ]}
+            >
               <BackArrow />
             </Pressable>
 
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() => router.push('/clinic-notifications')}
-              style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+              onPress={() => router.push("/clinic-notifications")}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.pressed,
+              ]}
+            >
               <BellIcon />
               <View style={styles.bellDot} />
             </Pressable>
@@ -223,8 +273,8 @@ export default function ClinicAddRecordScreen() {
           <Text style={styles.category}>CLINIC · UPDATE VACCINE</Text>
           <Text style={styles.heading}>Update {pet.name}&apos;s vaccine</Text>
           <Text style={styles.supporting}>
-            Log a vaccination from {clinic.clinicName}. The owner is notified when a record
-            is updated.
+            Log a vaccination from {clinic.clinicName}. The owner is notified
+            when a record is updated.
           </Text>
 
           <Text style={styles.label}>Vaccine name</Text>
@@ -232,7 +282,7 @@ export default function ClinicAddRecordScreen() {
             value={name}
             onChangeText={(value) => {
               setName(value);
-              if (value.trim()) clearError('name');
+              if (value.trim()) clearError("name");
             }}
             placeholder="e.g. Anti-Rabies"
             placeholderTextColor={Palette.placeholder}
@@ -246,7 +296,11 @@ export default function ClinicAddRecordScreen() {
                   key={option}
                   accessibilityRole="button"
                   onPress={() => setName(option)}
-                  style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}>
+                  style={({ pressed }) => [
+                    styles.suggestionChip,
+                    pressed && styles.pressed,
+                  ]}
+                >
                   <Text style={styles.suggestionLabel}>{option}</Text>
                 </Pressable>
               ))}
@@ -263,7 +317,7 @@ export default function ClinicAddRecordScreen() {
             accessibilityLabel="Select date administered"
             onChange={(value) => {
               setDate(value);
-              if (value) clearError('date');
+              if (value) clearError("date");
             }}
           />
           {errors.date ? <Text style={styles.error}>{errors.date}</Text> : null}
@@ -275,9 +329,11 @@ export default function ClinicAddRecordScreen() {
             placeholder="e.g. Sep 20, 2027 (optional)"
             format="long"
             accessibilityLabel="Select next due date"
-            onClear={() => setNextDue('')}
+            onClear={() => setNextDue("")}
           />
-          <Text style={styles.hint}>A booster reminder is created automatically if set.</Text>
+          <Text style={styles.hint}>
+            A booster reminder is created automatically if set.
+          </Text>
 
           <Text style={styles.label}>Notes</Text>
           <TextInput
@@ -296,9 +352,12 @@ export default function ClinicAddRecordScreen() {
             style={({ pressed }) => [
               styles.saveButton,
               (pressed || saving) && styles.pressed,
-            ]}>
+            ]}
+          >
             <SyringeIcon size={16} color={Palette.forestDark} />
-            <Text style={styles.saveLabel}>Update {pet.name}&apos;s vaccine</Text>
+            <Text style={styles.saveLabel}>
+              Update {pet.name}&apos;s vaccine
+            </Text>
           </Pressable>
         </ScrollView>
 
@@ -309,20 +368,33 @@ export default function ClinicAddRecordScreen() {
         <View style={styles.overlay}>
           <View style={styles.discardSheet}>
             <Text style={styles.discardTitle}>Discard vaccine update?</Text>
-            <Text style={styles.discardText}>Your changes haven&apos;t been saved.</Text>
+            <Text style={styles.discardText}>
+              Your changes haven&apos;t been saved.
+            </Text>
             <Pressable
               accessibilityRole="button"
               onPress={() => setDiscardOpen(false)}
-              style={({ pressed }) => [styles.keepButton, pressed && styles.pressed]}>
+              style={({ pressed }) => [
+                styles.keepButton,
+                pressed && styles.pressed,
+              ]}
+            >
               <Text style={styles.keepLabel}>Keep editing</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={() => {
                 setDiscardOpen(false);
-                goBack({ pathname: '/clinic-records', params: { pet: pet.id } });
+                goBack({
+                  pathname: "/clinic-records",
+                  params: { pet: pet.id },
+                });
               }}
-              style={({ pressed }) => [styles.discardButton, pressed && styles.pressed]}>
+              style={({ pressed }) => [
+                styles.discardButton,
+                pressed && styles.pressed,
+              ]}
+            >
               <Text style={styles.discardLabel}>Discard</Text>
             </Pressable>
           </View>
@@ -337,8 +409,8 @@ export default function ClinicAddRecordScreen() {
             </View>
             <Text style={styles.successTitle}>Vaccine updated</Text>
             <Text style={styles.successText}>
-              {pet.name}&apos;s {name.trim()} record has been logged. The owner has been
-              notified.
+              {pet.name}&apos;s {name.trim()} record has been logged. The owner
+              has been notified.
             </Text>
           </View>
         </View>
@@ -348,20 +420,67 @@ export default function ClinicAddRecordScreen() {
 }
 
 const styles = StyleSheet.create({
+  centerWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.four,
+  },
+  centerIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Palette.sage,
+    marginBottom: Spacing.three,
+  },
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: "800",
+    color: Palette.forestDark,
+    textAlign: "center",
+  },
+  emptyText: {
+    maxWidth: 300,
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 19,
+    color: Palette.inkMuted,
+    textAlign: "center",
+    marginTop: Spacing.one,
+  },
+  backButton: {
+    minWidth: 150,
+    alignItems: "center",
+    justifyContent: "center",
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Palette.gold,
+    marginTop: Spacing.four,
+    paddingHorizontal: Spacing.four,
+  },
+  backLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
   container: {
     flex: 1,
     backgroundColor: Palette.cream,
     borderWidth: 1,
     borderColor: Palette.border,
     borderRadius: 32,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    overflow: "hidden",
+    flexDirection: "row",
+    justifyContent: "center",
   },
   safeArea: {
     flex: 1,
     maxWidth: MaxContentWidth,
-    width: '100%',
+    width: "100%",
   },
   content: {
     flexGrow: 1,
@@ -369,9 +488,9 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
   },
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: Spacing.two,
   },
   iconButton: {
@@ -381,11 +500,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   bellDot: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     right: 11,
     width: 8,
@@ -398,7 +517,7 @@ const styles = StyleSheet.create({
   category: {
     fontFamily: Fonts.sans,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 1.6,
     color: Palette.forestDark,
     marginTop: Spacing.five,
@@ -407,7 +526,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 27,
     lineHeight: 34,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: -0.5,
     color: Palette.forestDark,
     marginTop: Spacing.one,
@@ -422,7 +541,7 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: Fonts.sans,
     fontSize: 13.5,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Palette.forestDark,
     marginTop: Spacing.four,
     marginBottom: Spacing.two,
@@ -445,7 +564,7 @@ const styles = StyleSheet.create({
     minHeight: 96,
     paddingTop: Spacing.three,
     paddingBottom: Spacing.three,
-    textAlignVertical: 'top',
+    textAlignVertical: "top",
   },
   hint: {
     fontFamily: Fonts.sans,
@@ -460,8 +579,8 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one,
   },
   suggestionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: Spacing.two,
     marginTop: Spacing.two,
   },
@@ -476,59 +595,59 @@ const styles = StyleSheet.create({
   suggestionLabel: {
     fontFamily: Fonts.sans,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Palette.forestDark,
   },
   saveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: Spacing.one,
     height: 48,
     borderRadius: 22,
     backgroundColor: Palette.gold,
     marginTop: Spacing.five,
-    boxShadow: '0 4px 10px rgba(242, 182, 50, 0.30)',
+    boxShadow: "0 4px 10px rgba(242, 182, 50, 0.30)",
   },
   saveLabel: {
     fontFamily: Fonts.sans,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   overlay: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: 'rgba(20,40,28,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(20,40,28,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: Spacing.four,
   },
   discardSheet: {
-    width: '100%',
+    width: "100%",
     maxWidth: 340,
     backgroundColor: Palette.cream,
     borderRadius: 18,
     padding: Spacing.four,
-    alignItems: 'stretch',
+    alignItems: "stretch",
     gap: Spacing.two,
   },
   discardTitle: {
     fontFamily: Fonts.sans,
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
-    textAlign: 'center',
+    textAlign: "center",
   },
   discardText: {
     fontFamily: Fonts.sans,
     fontSize: 13,
     lineHeight: 19,
     color: Palette.inkMuted,
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: Spacing.two,
   },
   keepButton: {
@@ -537,36 +656,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: Spacing.two,
   },
   keepLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Palette.forestDark,
   },
   discardButton: {
     height: 44,
     borderRadius: 12,
     backgroundColor: Palette.gold,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   discardLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   successSheet: {
-    width: '100%',
+    width: "100%",
     maxWidth: 300,
     backgroundColor: Palette.cream,
     borderRadius: 18,
     padding: Spacing.four,
-    alignItems: 'center',
+    alignItems: "center",
     gap: Spacing.two,
   },
   successIcon: {
@@ -574,23 +693,23 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     backgroundColor: Palette.forestDark,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: Spacing.one,
   },
   successTitle: {
     fontFamily: Fonts.sans,
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
-    textAlign: 'center',
+    textAlign: "center",
   },
   successText: {
     fontFamily: Fonts.sans,
     fontSize: 13,
     lineHeight: 19,
     color: Palette.inkMuted,
-    textAlign: 'center',
+    textAlign: "center",
   },
   pressed: {
     opacity: 0.85,

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { addClinicNotification } from '@/lib/clinic-notifications';
 import { addNotification } from '@/lib/notifications';
 import { type Pet } from '@/lib/pets';
+import { isLocalTesting } from '@/lib/session';
 
 export type AccessStatus = 'active' | 'requested' | 'declined';
 
@@ -68,6 +69,18 @@ async function load(): Promise<void> {
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, ClinicAccess>;
       if (parsed && typeof parsed === 'object') accessCache = parsed;
+    }
+    if (isLocalTesting) {
+      accessCache[accessKey('local-test-clinic', 'PC-TEST-10001')] = {
+        clinicId: 'local-test-clinic',
+        clinicName: 'Local Test Vet Clinic',
+        petId: 'PC-TEST-10001',
+        petName: 'Test Pet',
+        status: 'active',
+        ownerName: 'Local Test Owner',
+        updatedAt: Date.now(),
+      };
+      await persist();
     }
   } catch {
     // Fall through to empty state.

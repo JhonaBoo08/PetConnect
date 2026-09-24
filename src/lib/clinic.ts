@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 
-import { getSessionSync, useSession } from "@/lib/session";
+import { getSessionSync, isLocalTesting, LOCAL_TEST_VET_ID, useSession } from "@/lib/session";
 import {
     clinicBridgeAvailable,
     fetchRemoteClinicProfile,
@@ -105,6 +105,25 @@ async function load(): Promise<void> {
       }
     }
     if (!profilesCache) profilesCache = [];
+    if (
+      isLocalTesting &&
+      !profilesCache.some((profile) => profile.userId === LOCAL_TEST_VET_ID)
+    ) {
+      profilesCache.push({
+        clinicId: "local-test-clinic",
+        userId: LOCAL_TEST_VET_ID,
+        clinicName: "Local Test Vet Clinic",
+        email: "vet.test@petconnect.local",
+        phone: "+63 917 000 0000",
+        city: "Tagum City",
+        province: "Davao del Norte",
+        address: "Local emulator clinic",
+        veterinarianInCharge: "Dr. Test User",
+        license: "TEST-0001",
+        staff: ["Dr. Test User"],
+        verificationStatus: "verified",
+      });
+    }
 
     const rawPrefs = values.get(PREFS_KEY);
     if (rawPrefs) {

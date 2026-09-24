@@ -33,7 +33,7 @@ import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
-import { decodePetQr, getPetById } from "@/lib/pets";
+import { cacheScannedPet, decodePetQr, getPetById } from "@/lib/pets";
 import { useSession } from "@/lib/session";
 
 const PET_ID_PATTERN = /^PC-TAG-\d{4,}$/;
@@ -110,6 +110,7 @@ export default function ScanScreen() {
           setScanState("notfound");
           return;
         }
+        if (qrPet) await cacheScannedPet(qrPet);
         if (isClinic) {
           router.push({
             pathname: "/clinic-scan-result",

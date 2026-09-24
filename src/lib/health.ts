@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
 
 import { dateToIso, isoToFullMonthDay, parseIsoDate } from "@/lib/date";
+import { isLocalTesting } from "@/lib/session";
 
 export type HealthRecordType =
   "Vaccination" | "Checkup" | "Medication" | "Other";
@@ -116,7 +117,24 @@ function normalizeReminder(reminder: StoredReminder): HealthReminder {
   };
 }
 
-export const seedHealthRecords: HealthRecord[] = [];
+export const seedHealthRecords: HealthRecord[] = isLocalTesting
+  ? [
+      {
+        id: "local-test-record",
+        petId: "PC-TEST-10001",
+        petName: "Test Pet",
+        recordType: "Vaccination",
+        recordName: "Anti-Rabies",
+        recordDate: new Date().toISOString().slice(0, 10),
+        veterinaryClinic: "Local Test Vet Clinic",
+        clinicId: "local-test-clinic",
+        notes: "Local emulator test record.",
+        nextDueDate: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]
+  : [];
 
 export const seedHealthReminders: HealthReminder[] = [];
 
