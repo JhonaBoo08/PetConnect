@@ -230,7 +230,10 @@ export default function DashboardScreen() {
               onPress={() => router.push("/add-pet")}
               onPressIn={() => fadeAddPet(1)}
               onPressOut={() => fadeAddPet(0)}
-              style={styles.addPet}
+              style={({ pressed }) => [
+                styles.addPet,
+                pressed && styles.addPetPressed,
+              ]}
             >
               <Animated.View
                 pointerEvents="none"
@@ -470,6 +473,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
     borderRadius: 999,
+  },
+  addPetPressed: {
+    backgroundColor: Palette.gold,
   },
   addPetGlow: {
     position: "absolute",
