@@ -58,7 +58,6 @@ export const seedPets: Pet[] = isLocalTesting
 type PetQrPayload = Pick<
   Pet,
   | "id"
-  | "ownerId"
   | "name"
   | "species"
   | "sex"
@@ -68,15 +67,11 @@ type PetQrPayload = Pick<
   | "details"
   | "collar"
   | "finderContactVisible"
-  | "contactName"
-  | "contactMobile"
-  | "contactLocation"
 >;
 
 export function encodePetQr(pet: Pet): string {
   const payload: PetQrPayload = {
     id: pet.id,
-    ownerId: pet.ownerId,
     name: pet.name,
     species: pet.species,
     sex: pet.sex,
@@ -86,9 +81,6 @@ export function encodePetQr(pet: Pet): string {
     details: pet.details,
     collar: pet.collar,
     finderContactVisible: pet.finderContactVisible,
-    contactName: pet.contactName,
-    contactMobile: pet.contactMobile,
-    contactLocation: pet.contactLocation,
   };
   return JSON.stringify({ version: 1, pet: payload });
 }
@@ -103,7 +95,7 @@ export function decodePetQr(value: string): Pet | null {
     if (!payload?.id || !/^PC-TAG-\d{4,}$/.test(payload.id)) return null;
     return {
       id: payload.id,
-      ownerId: payload.ownerId ?? "",
+      ownerId: "",
       name: payload.name ?? "Pet",
       species: payload.species ?? "",
       sex: payload.sex ?? "",
@@ -114,9 +106,9 @@ export function decodePetQr(value: string): Pet | null {
       details: payload.details ?? "",
       collar: payload.collar ?? "",
       finderContactVisible: payload.finderContactVisible !== false,
-      contactName: payload.contactName ?? "",
-      contactMobile: payload.contactMobile ?? "",
-      contactLocation: payload.contactLocation ?? "",
+      contactName: "",
+      contactMobile: "",
+      contactLocation: "",
       createdAt: 0,
     };
   } catch {
