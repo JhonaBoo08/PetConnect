@@ -225,16 +225,16 @@ export default function DashboardScreen() {
             <Text style={styles.sectionTitle}>Your pets</Text>
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Add a pet"
+              hitSlop={8}
               onPress={() => router.push("/add-pet")}
               onPressIn={() => fadeAddPet(1)}
               onPressOut={() => fadeAddPet(0)}
               style={styles.addPet}
             >
               <Animated.View
-                style={[
-                  styles.addPetGlow,
-                  { opacity: addGlow, pointerEvents: "none" },
-                ]}
+                pointerEvents="none"
+                style={[styles.addPetGlow, { opacity: addGlow }]}
               />
               <PlusIcon size={14} />
               <Text style={styles.addPetLabel}>Add pet</Text>
