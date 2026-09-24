@@ -1,21 +1,29 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackArrow, BellIcon, CheckIcon, SyringeIcon } from '@/components/app-icons';
+import { BackArrow, BellIcon, CheckIcon, PawIcon, ShieldIcon, SyringeIcon } from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
 import { DateField } from '@/components/date-field';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { getClinicAccessSync } from '@/lib/clinic-access';
-import { useClinicProfile } from '@/lib/clinic';
+import { useClinicGate, useClinicProfile } from '@/lib/clinic';
 import { addClinicNotification } from '@/lib/clinic-notifications';
 import { isoToLongDate, isoToDisplayDate, parseDisplayDate, toIsoDate } from '@/lib/date';
 import { createHealthRecord, useHealthRecords } from '@/lib/health';
 import { goBack } from '@/lib/navigation';
 import { addNotification } from '@/lib/notifications';
-import { usePets } from '@/lib/pets';
+import { usePetById } from '@/lib/pets';
 
 type FormErrors = Partial<Record<'name' | 'date', string>>;
 
@@ -23,10 +31,10 @@ export default function ClinicAddRecordScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ pet?: string }>();
   const petIdParam = Array.isArray(params.pet) ? params.pet[0] : (params.pet ?? '');
-  const pets = usePets();
-  const pet = pets.find((candidate) => candidate.id === petIdParam) ?? null;
+  const pet = usePetById(petIdParam);
   const clinic = useClinicProfile();
   const records = useHealthRecords();
+  useClinicGate();
 
   const access = clinic ? getClinicAccessSync(clinic.clinicId, petIdParam) : null;
 
@@ -52,8 +60,68 @@ export default function ClinicAddRecordScreen() {
     setDate(isoToDisplayDate(new Date().toISOString().slice(0, 10)));
   }, [clinic]);
 
-  if (!pet || !clinic || !access || access.status !== 'active') {
-    return null;
+  if (pet === undefined || !clinic) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centerWrap}>
+            <ActivityIndicator color={Palette.forestDark} />
+            <Text style={styles.emptyText}>Loading pet records…</Text>
+          </View>
+          <BottomNav variant="clinic" active="scan" />
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (!pet) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centerWrap}>
+            <View style={styles.centerIcon}>
+              <PawIcon size={28} color={Palette.forestDark} />
+            </View>
+            <Text style={styles.emptyTitle}>Pet profile not found.</Text>
+            <Text style={styles.emptyText}>
+              This Pet-Connect ID could not be matched to a pet profile.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => goBack({ pathname: '/clinic-records', params: { pet: petIdParam } })}
+              style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+              <Text style={styles.backLabel}>Go back</Text>
+            </Pressable>
+          </View>
+          <BottomNav variant="clinic" active="scan" />
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (!access || access.status !== 'active') {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centerWrap}>
+            <View style={styles.centerIcon}>
+              <ShieldIcon size={28} color={Palette.forestDark} />
+            </View>
+            <Text style={styles.emptyTitle}>Access not yet granted.</Text>
+            <Text style={styles.emptyText}>
+              You need owner-approved access to update {pet.name}&apos;s records.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => goBack({ pathname: '/clinic-records', params: { pet: pet.id } })}
+              style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+              <Text style={styles.backLabel}>Back to records</Text>
+            </Pressable>
+          </View>
+          <BottomNav variant="clinic" active="scan" />
+        </SafeAreaView>
+      </View>
+    );
   }
 
   const clearError = (key: keyof FormErrors) =>

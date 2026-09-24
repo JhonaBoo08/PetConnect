@@ -49,3 +49,15 @@ export const getSession = onCall(options, (request) =>
     return accounts.session(token.uid, token);
   }),
 );
+export const registerClinicProfile = onCall(options, (request) =>
+  safe(async () => {
+    const token = await identity(request);
+    return accounts.registerClinicProfile(token.uid, request.data);
+  }),
+);
+export const getClinicProfile = onCall(options, (request) =>
+  safe(async () => {
+    const token = await identity(request);
+    return accounts.clinicProfileForVet(token.uid);
+  }),
+);

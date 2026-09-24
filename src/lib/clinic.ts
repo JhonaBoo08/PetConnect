@@ -1,6 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 
+import {
+  clinicBridgeAvailable,
+  fetchRemoteClinicProfile,
+  submitClinicProfile,
+} from '@/services/clinic';
 import { demoClinicUserId, getSessionSync, useSession } from '@/lib/session';
 
 export type VerificationStatus = 'verified' | 'pending' | 'rejected';
@@ -136,10 +142,66 @@ async function load(): Promise<void> {
     }
     if (!feedbackCache) feedbackCache = [];
 
+    void syncRemoteStatus();
     await persist();
   } finally {
     ready = true;
     notifyAll();
+  }
+}
+
+/** Best-effort sync of the signed-in clinic's verification status from the backend. */
+async function syncRemoteStatus(): Promise<void> {
+  try {
+    if (!(await clinicBridgeAvailable())) return;
+    const remote = await fetchRemoteClinicProfile();
+    if (!remote || !profilesCache) return;
+    const userId = getSessionSync().user?.userId;
+    if (!userId) return;
+    const local = profilesCache.find((profile) => profile.userId === userId);
+    if (!local) return;
+    const updated: ClinicProfile = {
+      ...local,
+      clinicId: remote.clinicId,
+      clinicName: remote.clinicName?.trim() || local.clinicName,
+      verificationStatus: remote.status,
+    };
+    profilesCache = profilesCache.map((profile) =>
+      profile.userId === userId ? updated : profile,
+    );
+    await persist();
+  } catch {
+    // Offline or unreachable backend; local state remains authoritative.
+  }
+}
+
+/** Best-effort push of clinic details to the backend so it is queued for review. */
+async function pushToBackend(profile: ClinicProfile): Promise<void> {
+  try {
+    if (!(await clinicBridgeAvailable())) return;
+    const result = await submitClinicProfile({
+      clinicName: profile.clinicName,
+      phone: profile.phone,
+      city: profile.city,
+      province: profile.province,
+      address: profile.address,
+      veterinarianInCharge: profile.veterinarianInCharge,
+      license: profile.license,
+      staff: profile.staff,
+    });
+    profilesCache = (profilesCache ?? []).map((item) =>
+      item.userId === profile.userId
+        ? {
+            ...item,
+            clinicId: result.clinicId,
+            clinicName: result.clinicName || item.clinicName,
+            verificationStatus: result.status,
+          }
+        : item,
+    );
+    await persist();
+  } catch {
+    // Local-only registration when the backend is unreachable.
   }
 }
 
@@ -222,6 +284,25 @@ export function useClinicProfile(): ClinicProfile | null {
   return profiles.find((profile) => profile.userId === userId) ?? null;
 }
 
+/**
+ * Verification gate for clinic workspace screens. Redirects a signed-in clinic
+ * user to the verification screen whenever their profile is missing or not yet
+ * verified. Screens in the workspace call this at the top of their component.
+ */
+export function useClinicGate(): void {
+  const router = useRouter();
+  const session = useSession();
+  const { ready } = useClinicProfiles();
+  const clinic = useClinicProfile();
+  const evaluated = session.ready && ready;
+
+  useEffect(() => {
+    if (!evaluated || session.user?.accountType !== 'vet') return;
+    if (clinic && clinic.verificationStatus === 'verified') return;
+    router.replace('/clinic-verification');
+  }, [evaluated, session.user?.accountType, clinic, router]);
+}
+
 export type ClinicDetailsInput = {
   phone: string;
   city: string;
@@ -274,6 +355,7 @@ export function registerClinicDetails(input: ClinicDetailsInput): Promise<Clinic
     };
     profilesCache = [...(profilesCache ?? []).filter((item) => item.clinicId !== updated.clinicId), updated];
     await persist();
+    await pushToBackend(updated);
     return updated;
   });
 }
@@ -295,6 +377,7 @@ export function updateClinicInfo(input: ClinicDetailsInput): Promise<ClinicProfi
       item.clinicId === updated.clinicId ? updated : item,
     );
     await persist();
+    await pushToBackend(updated);
     return updated;
   });
 }

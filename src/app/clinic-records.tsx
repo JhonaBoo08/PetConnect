@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   NotebookIcon,
+  PawIcon,
   PillIcon,
   ShieldIcon,
   StethoscopeIcon,
@@ -24,11 +26,11 @@ import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { getClinicAccessSync } from '@/lib/clinic-access';
-import { useClinicProfile } from '@/lib/clinic';
+import { useClinicGate, useClinicProfile } from '@/lib/clinic';
 import { isoToLongDate } from '@/lib/date';
 import { type HealthRecordType, useHealthRecords } from '@/lib/health';
 import { goBack } from '@/lib/navigation';
-import { usePets } from '@/lib/pets';
+import { usePetById } from '@/lib/pets';
 
 function RecordIcon({ type }: { type: HealthRecordType }) {
   switch (type) {
@@ -47,10 +49,10 @@ export default function ClinicRecordsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ pet?: string }>();
   const petIdParam = Array.isArray(params.pet) ? params.pet[0] : (params.pet ?? '');
-  const pets = usePets();
-  const pet = pets.find((candidate) => candidate.id === petIdParam) ?? null;
+  const pet = usePetById(petIdParam);
   const clinic = useClinicProfile();
   const records = useHealthRecords();
+  useClinicGate();
 
   const access = clinic ? getClinicAccessSync(clinic.clinicId, petIdParam) : null;
 
@@ -60,8 +62,121 @@ export default function ClinicRecordsScreen() {
     }
   }, [clinic, pet, access, router]);
 
-  if (!pet || !clinic || !access || access.status !== 'active') {
-    return null;
+  if (pet === undefined || !clinic) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centerWrap}>
+            <ActivityIndicator color={Palette.forestDark} />
+            <Text style={styles.emptyText}>Loading pet records…</Text>
+          </View>
+          <BottomNav variant="clinic" active="scan" />
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (!pet) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.topBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => goBack({ pathname: '/clinic-scan-result', params: { pet: petIdParam } })}
+              style={styles.iconButton}>
+              <BackArrow />
+            </Pressable>
+          </View>
+          <View style={styles.centerWrap}>
+            <View style={styles.centerIcon}>
+              <PawIcon size={28} color={Palette.forestDark} />
+            </View>
+            <Text style={styles.emptyTitle}>Pet profile not found.</Text>
+            <Text style={styles.emptyText}>
+              This Pet-Connect ID could not be matched to a pet profile.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => goBack({ pathname: '/clinic-scan-result', params: { pet: petIdParam } })}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+              <Text style={styles.primaryLabel}>Back to scan result</Text>
+            </Pressable>
+          </View>
+          <BottomNav variant="clinic" active="scan" />
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (!access) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.topBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => goBack({ pathname: '/clinic-scan-result', params: { pet: pet.id } })}
+              style={styles.iconButton}>
+              <BackArrow />
+            </Pressable>
+          </View>
+          <View style={styles.centerWrap}>
+            <View style={styles.centerIcon}>
+              <ShieldIcon size={28} color={Palette.forestDark} />
+            </View>
+            <Text style={styles.emptyTitle}>Access not yet granted.</Text>
+            <Text style={styles.emptyText}>
+              You do not have owner-approved access to {pet.name}&apos;s records. Go back to the
+              scan result to request access.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => goBack({ pathname: '/clinic-scan-result', params: { pet: pet.id } })}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+              <Text style={styles.primaryLabel}>Back to scan result</Text>
+            </Pressable>
+          </View>
+          <BottomNav variant="clinic" active="scan" />
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (access.status !== 'active') {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.topBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => goBack({ pathname: '/clinic-scan-result', params: { pet: pet.id } })}
+              style={styles.iconButton}>
+              <BackArrow />
+            </Pressable>
+          </View>
+          <View style={styles.centerWrap}>
+            <View style={styles.centerIcon}>
+              <ShieldIcon size={28} color={Palette.forestDark} />
+            </View>
+            <Text style={styles.emptyTitle}>Access {access.status}.</Text>
+            <Text style={styles.emptyText}>
+              Owner approval for {pet.name}&apos;s records is still pending.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => goBack({ pathname: '/clinic-scan-result', params: { pet: pet.id } })}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+              <Text style={styles.primaryLabel}>Back to scan result</Text>
+            </Pressable>
+          </View>
+          <BottomNav variant="clinic" active="scan" />
+        </SafeAreaView>
+      </View>
+    );
   }
 
   const petRecords = records
@@ -356,5 +471,35 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.85,
+  },
+  centerWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.four,
+  },
+  centerIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: Palette.sage,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+    marginTop: Spacing.one,
+  },
+  emptyText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: Palette.inkMuted,
+    textAlign: 'center',
   },
 });

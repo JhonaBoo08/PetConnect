@@ -5,6 +5,72 @@ import { parseProfile, Session } from "./contracts";
 
 const denied = () =>
   new HttpsError("permission-denied", "Account access is unavailable.");
+
+export type ClinicStatus = "verified" | "pending" | "rejected";
+
+export type ClinicInfoInput = {
+  clinicName: string;
+  phone: string;
+  city: string;
+  province: string;
+  address: string;
+  veterinarianInCharge: string;
+  license: string;
+  staff: string[];
+};
+
+function parseClinicInfo(value: unknown): ClinicInfoInput {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new HttpsError("invalid-argument", "Invalid clinic profile.");
+  const data = value as Record<string, unknown>;
+  const allowed = new Set([
+    "clinicName",
+    "phone",
+    "city",
+    "province",
+    "address",
+    "veterinarianInCharge",
+    "license",
+    "staff",
+  ]);
+  if (Object.keys(data).some((key) => !allowed.has(key)))
+    throw new HttpsError("invalid-argument", "Invalid clinic profile.");
+  const text = (value: unknown, max: number): string => {
+    if (typeof value !== "string" || !value.trim() || value.trim().length > max)
+      throw new HttpsError("invalid-argument", "Invalid clinic profile.");
+    return value.trim();
+  };
+  const optional = (value: unknown, max: number): string => {
+    if (value === undefined) return "";
+    if (typeof value !== "string" || value.length > max)
+      throw new HttpsError("invalid-argument", "Invalid clinic profile.");
+    return value.trim();
+  };
+  const staff = Array.isArray(data.staff)
+    ? data.staff.map((member) => {
+        if (typeof member !== "string" || !member.trim() || member.length > 80)
+          throw new HttpsError("invalid-argument", "Invalid clinic profile.");
+        return member.trim();
+      })
+    : [];
+  return {
+    clinicName: text(data.clinicName, 80),
+    phone: text(data.phone, 30),
+    city: text(data.city, 80),
+    province: optional(data.province, 80),
+    address: optional(data.address, 300),
+    veterinarianInCharge: optional(data.veterinarianInCharge, 80),
+    license: optional(data.license, 40),
+    staff,
+  };
+}
+
+function clinicStatusLabel(status: string | undefined): ClinicStatus {
+  if (status === "ACTIVE") return "verified";
+  if (status === "DISABLED") return "rejected";
+  return "pending";
+}
+
 export class Accounts {
   constructor(
     private auth: Auth,
@@ -264,5 +330,96 @@ export class Accounts {
     });
     await this.auth.updateUser(uid, { disabled: true });
     await this.auth.revokeRefreshTokens(uid);
+  }
+
+  /** Self-serve clinic registration submitted from the app while awaiting review. */
+  async registerClinicProfile(uid: string, input: unknown): Promise<{
+    clinicId: string;
+    clinicName: string;
+    status: ClinicStatus;
+  }> {
+    const info = parseClinicInfo(input);
+    const user = await this.auth.getUser(uid);
+    if (
+      user.disabled ||
+      !user.email ||
+      !user.providerData.some((p) => p.providerId === "password") ||
+      (user.customClaims?.role && user.customClaims.role !== "CLINIC")
+    )
+      throw denied();
+    const clinicId = uid;
+    const userRef = this.db.doc(`users/${uid}`);
+    const clinicRef = this.db.doc(`clinics/${clinicId}`);
+    await this.db.runTransaction(async (tx) => {
+      const profile = await tx.get(userRef);
+      const clinic = await tx.get(clinicRef);
+      if (
+        profile.exists &&
+        (profile.get("role") !== "CLINIC" ||
+          profile.get("clinicId") !== clinicId ||
+          profile.get("email") !== user.email ||
+          profile.get("status") === "DISABLED")
+      )
+        throw denied();
+      if (clinic.exists && clinic.get("status") === "DISABLED") throw denied();
+      if (!profile.exists)
+        tx.create(userRef, {
+          role: "CLINIC",
+          clinicId,
+          email: user.email,
+          displayName: info.clinicName,
+          status: "PENDING",
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      else
+        tx.update(userRef, {
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      if (!clinic.exists)
+        tx.create(clinicRef, {
+          ...info,
+          status: "PENDING",
+          provisionedUserIds: [uid],
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      else
+        tx.update(clinicRef, {
+          ...info,
+          provisionedUserIds: FieldValue.arrayUnion(uid),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+    });
+    if (user.customClaims?.role !== "CLINIC" || user.customClaims?.clinicId !== clinicId)
+      await this.auth.setCustomUserClaims(uid, {
+        ...user.customClaims,
+        role: "CLINIC",
+        clinicId,
+      });
+    const clinic = (await clinicRef.get()).data();
+    return {
+      clinicId,
+      clinicName: clinic?.name ?? info.clinicName,
+      status: clinicStatusLabel(clinic?.status),
+    };
+  }
+
+  async clinicProfileForVet(uid: string): Promise<{
+    clinicId: string;
+    clinicName: string;
+    status: ClinicStatus;
+  } | null> {
+    const profile = (await this.db.doc(`users/${uid}`).get()).data();
+    if (!profile || profile.role !== "CLINIC" || !profile.clinicId) return null;
+    const clinic = (
+      await this.db.doc(`clinics/${profile.clinicId}`).get()
+    ).data();
+    if (!clinic) return null;
+    return {
+      clinicId: profile.clinicId,
+      clinicName: clinic.name ?? profile.displayName ?? "",
+      status: clinicStatusLabel(clinic.status),
+    };
   }
 }

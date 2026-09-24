@@ -26,7 +26,15 @@ export default function ClinicVerificationScreen() {
     }
   }, [ready, clinicReady, clinic, router]);
 
-  if (status !== 'ready' || !clinic) {
+  const signOut = async () => {
+    try {
+      await logout();
+    } finally {
+      router.replace('/');
+    }
+  };
+
+  if (status !== 'ready') {
     return (
       <View style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
@@ -35,6 +43,45 @@ export default function ClinicVerificationScreen() {
               <ShieldIcon size={30} color={Palette.forestDark} />
             </View>
             <Text style={styles.stateTitle}>Loading verification status…</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void signOut()}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+              <LogoutIcon />
+              <Text style={styles.secondaryLabel}>Sign out</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (!clinic) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centerWrap}>
+            <View style={styles.stateIcon}>
+              <ShieldIcon size={30} color={Palette.forestDark} />
+            </View>
+            <Text style={styles.title}>Clinic profile not found</Text>
+            <Text style={styles.text}>
+              We couldn&apos;t find your clinic details. Complete your clinic registration to
+              continue, or sign out and try again.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.replace('/vet-details')}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+              <Text style={styles.primaryLabel}>Complete clinic details</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void signOut()}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+              <LogoutIcon />
+              <Text style={styles.secondaryLabel}>Sign out</Text>
+            </Pressable>
           </View>
         </SafeAreaView>
       </View>
@@ -92,13 +139,7 @@ export default function ClinicVerificationScreen() {
 
             <Pressable
               accessibilityRole="button"
-              onPress={async () => {
-                try {
-                  await logout();
-                } finally {
-                  router.replace('/');
-                }
-              }}
+              onPress={() => void signOut()}
               style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
               <LogoutIcon />
               <Text style={styles.secondaryLabel}>Sign out</Text>

@@ -1,5 +1,4 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -23,9 +22,9 @@ import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useClinicAccess, requestPetAccess } from '@/lib/clinic-access';
-import { useClinicProfile, useClinicProfiles } from '@/lib/clinic';
+import { useClinicGate, useClinicProfile, useClinicProfiles } from '@/lib/clinic';
 import { goBack } from '@/lib/navigation';
-import { getPetByIdSync, petAge, usePets } from '@/lib/pets';
+import { petAge, usePetById } from '@/lib/pets';
 import { useSession } from '@/lib/session';
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -46,11 +45,8 @@ export default function ClinicScanResultScreen() {
   const clinic = useClinicProfile();
   const { ready: clinicReady } = useClinicProfiles();
   const accessList = useClinicAccess();
-  const pets = usePets();
-  const pet =
-    pets.find((candidate) => candidate.id === petIdParam) ??
-    getPetByIdSync(petIdParam) ??
-    null;
+  const pet = usePetById(petIdParam);
+  useClinicGate();
 
   const access = clinic
     ? (accessList.find(
@@ -58,13 +54,22 @@ export default function ClinicScanResultScreen() {
       ) ?? null)
     : null;
 
-  useEffect(() => {
-    if (session.ready && clinicReady && clinic && clinic.verificationStatus !== 'verified') {
-      router.replace('/clinic-verification');
-    }
-  }, [session.ready, clinicReady, clinic, router]);
-
+  const loading = !session.ready || !clinicReady || pet === undefined;
   const status = access?.status ?? null;
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centerWrap}>
+            <ActivityIndicator color={Palette.forestDark} />
+            <Text style={styles.emptyText}>Loading pet profile…</Text>
+          </View>
+          <BottomNav variant="clinic" active="scan" />
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   if (!pet) {
     return (
@@ -93,20 +98,6 @@ export default function ClinicScanResultScreen() {
               style={({ pressed }) => [styles.fullButton, pressed && styles.pressed]}>
               <Text style={styles.fullButtonLabel}>Scan again</Text>
             </Pressable>
-          </View>
-          <BottomNav variant="clinic" active="scan" />
-        </SafeAreaView>
-      </View>
-    );
-  }
-
-  if (!session.ready || !clinicReady) {
-    return (
-      <View style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.centerWrap}>
-            <ActivityIndicator color={Palette.forestDark} />
-            <Text style={styles.emptyText}>Loading pet profile…</Text>
           </View>
           <BottomNav variant="clinic" active="scan" />
         </SafeAreaView>

@@ -225,6 +225,29 @@ export function usePets(): Pet[] {
   return pets;
 }
 
+/**
+ * Returns the pet for `id`, or `undefined` while it is still loading from
+ * storage, and `null` when no matching pet exists.
+ */
+export function usePetById(id: string): Pet | null | undefined {
+  const [pet, setPet] = useState<Pet | null | undefined>(
+    getPetByIdSync(id) ?? undefined,
+  );
+
+  useEffect(() => {
+    let active = true;
+    setPet(getPetByIdSync(id) ?? undefined);
+    getPetById(id).then((found) => {
+      if (active) setPet(found ?? null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  return pet;
+}
+
 export function useMyPets(userId?: string | null): Pet[] {
   const pets = usePets();
   if (!userId) return [];
