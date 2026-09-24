@@ -1,53 +1,58 @@
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Easing,
-  Linking,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  Vibration,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+    CameraView,
+    useCameraPermissions,
+    type BarcodeScanningResult,
+} from "expo-camera";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+    ActivityIndicator,
+    Animated,
+    Easing,
+    Linking,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    Vibration,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
-  BackArrow,
-  BellIcon,
-  CameraIcon,
-  CheckIcon,
-  PawIcon,
-  QrIcon,
-  WarningIcon,
-} from '@/components/app-icons';
-import { BottomNav } from '@/components/bottom-nav';
-import { Palette } from '@/constants/palette';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { goBack } from '@/lib/navigation';
-import { getPetById } from '@/lib/pets';
-import { useSession } from '@/lib/session';
+    BackArrow,
+    BellIcon,
+    CameraIcon,
+    CheckIcon,
+    PawIcon,
+    QrIcon,
+    WarningIcon,
+} from "@/components/app-icons";
+import { BottomNav } from "@/components/bottom-nav";
+import { Palette } from "@/constants/palette";
+import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
+import { goBack } from "@/lib/navigation";
+import { getPetById } from "@/lib/pets";
+import { useSession } from "@/lib/session";
 
 const PET_ID_PATTERN = /^PC-TAG-\d{4,}$/;
-type ScanState = 'idle' | 'confirm' | 'searching' | 'invalid' | 'notfound' | 'error';
+type ScanState =
+  "idle" | "confirm" | "searching" | "invalid" | "notfound" | "error";
 
 export default function ScanScreen() {
   const [permission, requestPermission, getPermission] = useCameraPermissions();
-  const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scanState, setScanState] = useState<ScanState>("idle");
   const processingRef = useRef(false);
   const router = useRouter();
   const session = useSession();
-  const isClinic = session.user?.accountType === 'vet';
+  const isClinic = session.user?.accountType === "vet";
 
   const scanAnim = useState(() => new Animated.Value(0))[0];
-  const useNative = Platform.OS !== 'web';
+  const useNative = Platform.OS !== "web";
   const resetScan = useCallback(() => {
     processingRef.current = false;
-    setScanState('idle');
+    setScanState("idle");
   }, []);
 
   useFocusEffect(
@@ -88,28 +93,31 @@ export default function ScanScreen() {
       if (processingRef.current) return;
       processingRef.current = true;
       Vibration.vibrate(30);
-      setScanState('confirm');
+      setScanState("confirm");
       await new Promise((resolve) => setTimeout(resolve, 700));
-      setScanState('searching');
+      setScanState("searching");
 
-      const value = String(data ?? '').trim();
+      const value = String(data ?? "").trim();
       if (!PET_ID_PATTERN.test(value)) {
-        setScanState('invalid');
+        setScanState("invalid");
         return;
       }
       try {
         const pet = await getPetById(value);
         if (!pet) {
-          setScanState('notfound');
+          setScanState("notfound");
           return;
         }
         if (isClinic) {
-          router.push({ pathname: '/clinic-scan-result', params: { pet: pet.id } });
+          router.push({
+            pathname: "/clinic-scan-result",
+            params: { pet: pet.id },
+          });
         } else {
-          router.push({ pathname: '/scan-result', params: { pet: pet.id } });
+          router.push({ pathname: "/scan-result", params: { pet: pet.id } });
         }
       } catch {
-        setScanState('error');
+        setScanState("error");
       }
     },
     [router, isClinic],
@@ -117,7 +125,7 @@ export default function ScanScreen() {
 
   const handleBarcodeScanned = useCallback(
     (result: BarcodeScanningResult) => {
-      if (result.type !== 'qr') return;
+      if (result.type !== "qr") return;
       void handleScan(result.data);
     },
     [handleScan],
@@ -128,37 +136,48 @@ export default function ScanScreen() {
       <SafeAreaView style={styles.safeArea}>
         <ScrollView
           contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}>
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.topBar}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => goBack(isClinic ? '/clinic' : '/dashboard')}
-              style={styles.iconButton}>
+              onPress={() => goBack(isClinic ? "/clinic" : "/dashboard")}
+              style={styles.iconButton}
+            >
               <BackArrow />
             </Pressable>
 
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() => router.push(isClinic ? '/clinic-notifications' : '/notifications')}
-              style={styles.iconButton}>
+              onPress={() =>
+                router.push(
+                  isClinic ? "/clinic-notifications" : "/notifications",
+                )
+              }
+              style={styles.iconButton}
+            >
               <BellIcon />
               <View style={styles.bellDot} />
             </Pressable>
           </View>
 
-          <Text style={styles.category}>{isClinic ? 'CLINIC · PET SCAN' : 'PET RECOVERY'}</Text>
+          <Text style={styles.category}>
+            {isClinic ? "CLINIC · PET SCAN" : "PET RECOVERY"}
+          </Text>
           <Text style={styles.heading}>Scan Pet QR ID</Text>
-          <Text style={styles.instruction}>Place the Pet-Connect code inside the frame.</Text>
+          <Text style={styles.instruction}>
+            Place the Pet-Connect code inside the frame.
+          </Text>
 
-          {scanState === 'idle' || scanState === 'confirm' ? (
+          {scanState === "idle" || scanState === "confirm" ? (
             <View style={styles.scanner}>
               {permission?.granted ? (
                 <CameraView
                   style={styles.camera}
                   facing="back"
-                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                  barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
                   onBarcodeScanned={handleBarcodeScanned}
                 />
               ) : null}
@@ -168,12 +187,14 @@ export default function ScanScreen() {
                 <View style={[styles.bracket, styles.bracketBL]} />
                 <View style={[styles.bracket, styles.bracketBR]} />
                 {permission?.granted ? (
-                  <Animated.View style={[styles.scanLine, { transform: [{ translateY }] }]} />
+                  <Animated.View
+                    style={[styles.scanLine, { transform: [{ translateY }] }]}
+                  />
                 ) : (
                   <CameraIcon />
                 )}
               </View>
-              {scanState === 'confirm' ? (
+              {scanState === "confirm" ? (
                 <View style={styles.confirmPill}>
                   <CheckIcon size={12} color={Palette.forestDark} />
                   <Text style={styles.confirmPillLabel}>Pet ID found</Text>
@@ -182,7 +203,7 @@ export default function ScanScreen() {
             </View>
           ) : (
             <View style={styles.statusCard}>
-              {scanState === 'searching' ? (
+              {scanState === "searching" ? (
                 <>
                   <ActivityIndicator color={Palette.forestDark} size="small" />
                   <Text style={styles.statusTitle}>Finding pet...</Text>
@@ -192,7 +213,7 @@ export default function ScanScreen() {
                 </>
               ) : null}
 
-              {scanState === 'invalid' ? (
+              {scanState === "invalid" ? (
                 <View style={styles.statusContent}>
                   <View style={styles.statusIcon}>
                     <QrIcon size={24} color={Palette.forestDark} />
@@ -204,44 +225,58 @@ export default function ScanScreen() {
                   <Pressable
                     accessibilityRole="button"
                     onPress={resetScan}
-                    style={({ pressed }) => [styles.statusButton, pressed && styles.pressed]}>
+                    style={({ pressed }) => [
+                      styles.statusButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
                     <Text style={styles.statusButtonLabel}>Try again</Text>
                   </Pressable>
                 </View>
               ) : null}
 
-              {scanState === 'notfound' ? (
+              {scanState === "notfound" ? (
                 <View style={styles.statusContent}>
                   <View style={styles.statusIcon}>
                     <PawIcon size={24} color={Palette.forestDark} />
                   </View>
-                  <Text style={styles.statusTitle}>Pet profile unavailable</Text>
+                  <Text style={styles.statusTitle}>
+                    Pet profile unavailable
+                  </Text>
                   <Text style={styles.statusText}>
                     This Pet-Connect ID could not be found.
                   </Text>
                   <Pressable
                     accessibilityRole="button"
                     onPress={resetScan}
-                    style={({ pressed }) => [styles.statusButton, pressed && styles.pressed]}>
+                    style={({ pressed }) => [
+                      styles.statusButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
                     <Text style={styles.statusButtonLabel}>Scan again</Text>
                   </Pressable>
                 </View>
               ) : null}
 
-              {scanState === 'error' ? (
+              {scanState === "error" ? (
                 <View style={styles.statusContent}>
                   <View style={styles.statusIcon}>
                     <WarningIcon size={24} color={Palette.forestDark} />
                   </View>
                   <Text style={styles.statusTitle}>Unable to connect</Text>
                   <Text style={styles.statusText}>
-                    We couldn&apos;t retrieve the pet profile. Check your connection and try
-                    again.
+                    We couldn&apos;t retrieve the pet profile. Check your
+                    connection and try again.
                   </Text>
                   <Pressable
                     accessibilityRole="button"
                     onPress={resetScan}
-                    style={({ pressed }) => [styles.statusButton, pressed && styles.pressed]}>
+                    style={({ pressed }) => [
+                      styles.statusButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
                     <Text style={styles.statusButtonLabel}>Try again</Text>
                   </Pressable>
                 </View>
@@ -252,12 +287,14 @@ export default function ScanScreen() {
           {permission && !permission.granted ? (
             <View style={styles.permissionCard}>
               <Text style={styles.permissionTitle}>
-                {permission.canAskAgain ? 'Camera access needed' : 'Camera permission denied'}
+                {permission.canAskAgain
+                  ? "Camera access needed"
+                  : "Camera permission denied"}
               </Text>
               <Text style={styles.permissionText}>
                 {permission.canAskAgain
-                  ? 'Allow camera access to scan a Pet-Connect QR ID.'
-                  : 'Enable camera access in your device settings to scan a Pet-Connect ID.'}
+                  ? "Allow camera access to scan a Pet-Connect QR ID."
+                  : "Enable camera access in your device settings to scan a Pet-Connect ID."}
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -268,18 +305,24 @@ export default function ScanScreen() {
                     Linking.openSettings();
                   }
                 }}
-                style={({ pressed }) => [styles.permissionButton, pressed && styles.pressed]}>
+                style={({ pressed }) => [
+                  styles.permissionButton,
+                  pressed && styles.pressed,
+                ]}
+              >
                 <Text style={styles.permissionButtonLabel}>
-                  {permission.canAskAgain ? 'Allow camera' : 'Open Settings'}
+                  {permission.canAskAgain ? "Allow camera" : "Open Settings"}
                 </Text>
               </Pressable>
             </View>
           ) : null}
 
-          <Text style={styles.helper}>Camera access is used only while scanning.</Text>
+          <Text style={styles.helper}>
+            Camera access is used only while scanning.
+          </Text>
         </ScrollView>
 
-        <BottomNav variant={isClinic ? 'clinic' : 'owner'} active="scan" />
+        <BottomNav variant={isClinic ? "clinic" : "owner"} active="scan" />
       </SafeAreaView>
     </View>
   );
@@ -292,14 +335,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.border,
     borderRadius: 32,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    overflow: "hidden",
+    flexDirection: "row",
+    justifyContent: "center",
   },
   safeArea: {
     flex: 1,
     maxWidth: MaxContentWidth,
-    width: '100%',
+    width: "100%",
   },
   content: {
     flexGrow: 1,
@@ -307,9 +350,9 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
   },
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: Spacing.two,
   },
   iconButton: {
@@ -319,11 +362,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   bellDot: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     right: 11,
     width: 8,
@@ -336,7 +379,7 @@ const styles = StyleSheet.create({
   category: {
     fontFamily: Fonts.sans,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 1.6,
     color: Palette.forestDark,
     marginTop: Spacing.five,
@@ -344,7 +387,7 @@ const styles = StyleSheet.create({
   heading: {
     fontFamily: Fonts.sans,
     fontSize: 28,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: -0.5,
     color: Palette.forestDark,
     marginTop: Spacing.one,
@@ -356,17 +399,17 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
   },
   scanner: {
-    width: '100%',
+    width: "100%",
     maxWidth: 336,
     height: 325,
-    alignSelf: 'center',
+    alignSelf: "center",
     marginTop: Spacing.five,
     backgroundColor: Palette.forestDark,
     borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    boxShadow: '0px 6px 14px rgba(27,67,50,0.22)',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0px 6px 14px rgba(27,67,50,0.22)",
+    overflow: "hidden",
   },
   camera: {
     ...StyleSheet.absoluteFill,
@@ -375,15 +418,15 @@ const styles = StyleSheet.create({
     width: 260,
     height: 260,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: "rgba(255,255,255,0.35)",
     borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    pointerEvents: 'none',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    pointerEvents: "none",
   },
   bracket: {
-    position: 'absolute',
+    position: "absolute",
     width: 34,
     height: 34,
     borderColor: Palette.gold,
@@ -417,7 +460,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 6,
   },
   scanLine: {
-    position: 'absolute',
+    position: "absolute",
     left: 12,
     right: 12,
     top: 0,
@@ -427,10 +470,10 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   confirmPill: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.one,
     backgroundColor: Palette.gold,
     paddingHorizontal: Spacing.three,
@@ -440,26 +483,26 @@ const styles = StyleSheet.create({
   confirmPillLabel: {
     fontFamily: Fonts.sans,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   statusCard: {
-    width: '100%',
+    width: "100%",
     maxWidth: 336,
     minHeight: 325,
-    alignSelf: 'center',
+    alignSelf: "center",
     marginTop: Spacing.five,
     backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     padding: Spacing.four,
-    boxShadow: '0px 4px 12px rgba(27,67,50,0.12)',
+    boxShadow: "0px 4px 12px rgba(27,67,50,0.12)",
   },
   statusContent: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: Spacing.two,
   },
   statusIcon: {
@@ -467,28 +510,28 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: Spacing.one,
   },
   statusTitle: {
     fontFamily: Fonts.sans,
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
-    textAlign: 'center',
+    textAlign: "center",
   },
   statusText: {
     fontFamily: Fonts.sans,
     fontSize: 13,
     lineHeight: 19,
     color: Palette.inkMuted,
-    textAlign: 'center',
+    textAlign: "center",
   },
   statusButton: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
     height: 44,
     borderRadius: 12,
     backgroundColor: Palette.gold,
@@ -497,7 +540,7 @@ const styles = StyleSheet.create({
   statusButtonLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   permissionCard: {
@@ -507,27 +550,27 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: Spacing.three,
     marginTop: Spacing.four,
-    alignItems: 'center',
+    alignItems: "center",
     gap: Spacing.two,
   },
   permissionTitle: {
     fontFamily: Fonts.sans,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
-    textAlign: 'center',
+    textAlign: "center",
   },
   permissionText: {
     fontFamily: Fonts.sans,
     fontSize: 12.5,
     lineHeight: 18,
     color: Palette.inkMuted,
-    textAlign: 'center',
+    textAlign: "center",
   },
   permissionButton: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
     height: 42,
     borderRadius: 12,
     backgroundColor: Palette.gold,
@@ -536,14 +579,14 @@ const styles = StyleSheet.create({
   permissionButtonLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   helper: {
     fontFamily: Fonts.sans,
     fontSize: 11.5,
     color: Palette.inkMuted,
-    textAlign: 'center',
+    textAlign: "center",
     marginTop: Spacing.three,
   },
   pressed: {

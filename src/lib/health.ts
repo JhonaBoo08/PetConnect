@@ -1,11 +1,13 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useState } from "react";
 
-import { dateToIso, isoToFullMonthDay, parseIsoDate } from '@/lib/date';
+import { dateToIso, isoToFullMonthDay, parseIsoDate } from "@/lib/date";
 
-export type HealthRecordType = 'Vaccination' | 'Checkup' | 'Medication' | 'Other';
+export type HealthRecordType =
+  "Vaccination" | "Checkup" | "Medication" | "Other";
 
-export type ReminderNotificationTiming = '1 week before' | '1 day before' | 'On the due date';
+export type ReminderNotificationTiming =
+  "1 week before" | "1 day before" | "On the due date";
 
 export type HealthRecord = {
   id: string;
@@ -24,7 +26,7 @@ export type HealthRecord = {
 
 export type NewHealthRecordInput = Omit<
   HealthRecord,
-  'id' | 'createdAt' | 'updatedAt'
+  "id" | "createdAt" | "updatedAt"
 >;
 
 export type NewHealthReminderInput = {
@@ -58,53 +60,53 @@ export type HealthReminder = {
   updatedAt: number;
 };
 
-const RECORDS_KEY = 'petconnect.healthRecords.v1';
-const REMINDERS_KEY = 'petconnect.healthReminders.v1';
+const RECORDS_KEY = "petconnect.healthRecords.v1";
+const REMINDERS_KEY = "petconnect.healthReminders.v1";
 
-export const defaultClinicName = 'Tagum Pet Care Clinic';
+export const defaultClinicName = "Tagum Pet Care Clinic";
 
 export const recordTypes: HealthRecordType[] = [
-  'Vaccination',
-  'Checkup',
-  'Medication',
-  'Other',
+  "Vaccination",
+  "Checkup",
+  "Medication",
+  "Other",
 ];
 
-export const reminderTimes = ['9:30 AM', '10:00 AM', '2:00 PM'];
+export const reminderTimes = ["9:30 AM", "10:00 AM", "2:00 PM"];
 
 export const reminderNotificationTimings: ReminderNotificationTiming[] = [
-  '1 week before',
-  '1 day before',
-  'On the due date',
+  "1 week before",
+  "1 day before",
+  "On the due date",
 ];
 
 type StoredReminder = Omit<
   HealthReminder,
-  | 'type'
-  | 'description'
-  | 'notificationTiming'
-  | 'clinicId'
-  | 'clinicName'
-  | 'completedAt'
-  | 'rescheduledAt'
+  | "type"
+  | "description"
+  | "notificationTiming"
+  | "clinicId"
+  | "clinicName"
+  | "completedAt"
+  | "rescheduledAt"
 > &
   Partial<
     Pick<
       HealthReminder,
-      | 'type'
-      | 'description'
-      | 'notificationTiming'
-      | 'clinicId'
-      | 'clinicName'
-      | 'completedAt'
-      | 'rescheduledAt'
+      | "type"
+      | "description"
+      | "notificationTiming"
+      | "clinicId"
+      | "clinicName"
+      | "completedAt"
+      | "rescheduledAt"
     >
   >;
 
 function normalizeReminder(reminder: StoredReminder): HealthReminder {
   return {
-    type: 'Vaccination',
-    description: '',
+    type: "Vaccination",
+    description: "",
     notificationTiming: reminderNotificationTimings[1],
     clinicId: null,
     clinicName: defaultClinicName,
@@ -118,7 +120,7 @@ export const seedHealthRecords: HealthRecord[] = [];
 
 export const seedHealthReminders: HealthReminder[] = [];
 
-const legacyDemoPetIds = new Set(['PC-TAG-10482', 'PC-TAG-10483']);
+const legacyDemoPetIds = new Set(["PC-TAG-10482", "PC-TAG-10483"]);
 
 let recordsCache: HealthRecord[] | null = null;
 let remindersCache: HealthReminder[] | null = null;
@@ -171,7 +173,9 @@ async function readRecords(): Promise<HealthRecord[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as HealthRecord[];
       if (Array.isArray(parsed)) {
-        recordsCache = parsed.filter((record) => !legacyDemoPetIds.has(record.petId));
+        recordsCache = parsed.filter(
+          (record) => !legacyDemoPetIds.has(record.petId),
+        );
         await persistRecords(recordsCache);
         return recordsCache;
       }
@@ -237,7 +241,9 @@ export function subscribeHealthReminders(listener: () => void): () => void {
 }
 
 export function useHealthRecords(): HealthRecord[] {
-  const [records, setRecords] = useState<HealthRecord[]>(getHealthRecordsSync());
+  const [records, setRecords] = useState<HealthRecord[]>(
+    getHealthRecordsSync(),
+  );
 
   useEffect(() => {
     let active = true;
@@ -257,7 +263,9 @@ export function useHealthRecords(): HealthRecord[] {
 }
 
 export function useHealthReminders(): HealthReminder[] {
-  const [reminders, setReminders] = useState<HealthReminder[]>(getHealthRemindersSync());
+  const [reminders, setReminders] = useState<HealthReminder[]>(
+    getHealthRemindersSync(),
+  );
 
   useEffect(() => {
     let active = true;
@@ -286,15 +294,16 @@ export function reminderDaysUntil(dueDate: string): number {
   return Math.round((due.getTime() - today.getTime()) / DAY_MS);
 }
 
-export type ReminderStatus = 'Completed' | 'Overdue' | 'Due today' | 'Due soon' | 'Upcoming';
+export type ReminderStatus =
+  "Completed" | "Overdue" | "Due today" | "Due soon" | "Upcoming";
 
 export function reminderStatus(reminder: HealthReminder): ReminderStatus {
-  if (reminder.completedAt) return 'Completed';
+  if (reminder.completedAt) return "Completed";
   const daysUntil = reminderDaysUntil(reminder.dueDate);
-  if (daysUntil < 0) return 'Overdue';
-  if (daysUntil === 0) return 'Due today';
-  if (daysUntil <= 30) return 'Due soon';
-  return 'Upcoming';
+  if (daysUntil < 0) return "Overdue";
+  if (daysUntil === 0) return "Due today";
+  if (daysUntil <= 30) return "Due soon";
+  return "Upcoming";
 }
 
 export function reminderWhen(reminder: HealthReminder): string {
@@ -305,13 +314,13 @@ export function describeReminder(reminder: HealthReminder): string {
   const pet = reminder.petName;
   const title = reminder.title;
   switch (reminder.type) {
-    case 'Checkup':
+    case "Checkup":
       return `${pet}'s ${title} is a scheduled checkup to help keep ${pet} in good health.`;
-    case 'Medication':
+    case "Medication":
       return `${pet}'s ${title} is scheduled as part of a medication routine.`;
-    case 'Other':
+    case "Other":
       return `${pet}'s ${title} is scheduled on your pet's health calendar.`;
-    case 'Vaccination':
+    case "Vaccination":
     default:
       return `${pet}'s ${title} is scheduled to help keep vaccinations up to date.`;
   }
@@ -325,11 +334,13 @@ async function upsertRecordReminder(record: HealthRecord) {
   if (!record.nextDueDate) return;
   const id = `rem-${record.id}`;
   const reminders = await readReminders();
-  const existing =
-    reminders.find((reminder) => reminder.id === id) ?? null;
-  const dueDateChanged = existing !== null && existing.dueDate !== record.nextDueDate;
+  const existing = reminders.find((reminder) => reminder.id === id) ?? null;
+  const dueDateChanged =
+    existing !== null && existing.dueDate !== record.nextDueDate;
   const completedAt = dueDateChanged ? null : (existing?.completedAt ?? null);
-  const rescheduledAt = dueDateChanged ? Date.now() : (existing?.rescheduledAt ?? null);
+  const rescheduledAt = dueDateChanged
+    ? Date.now()
+    : (existing?.rescheduledAt ?? null);
   const reminder: HealthReminder = {
     id,
     petId: record.petId,
@@ -337,10 +348,11 @@ async function upsertRecordReminder(record: HealthRecord) {
     recordId: record.id,
     title: record.recordName,
     type: record.recordType,
-    description: '',
+    description: "",
     dueDate: record.nextDueDate,
     time: existing?.time ?? reminderTimes[0],
-    notificationTiming: existing?.notificationTiming ?? reminderNotificationTimings[1],
+    notificationTiming:
+      existing?.notificationTiming ?? reminderNotificationTimings[1],
     clinicId: existing?.clinicId ?? null,
     clinicName: record.veterinaryClinic,
     completedAt,
@@ -364,7 +376,9 @@ async function removeRecordReminder(recordId: string) {
   );
 }
 
-export function createHealthRecord(input: NewHealthRecordInput): Promise<HealthRecord> {
+export function createHealthRecord(
+  input: NewHealthRecordInput,
+): Promise<HealthRecord> {
   return mutate(async () => {
     const records = await readRecords();
     const now = Date.now();
@@ -388,14 +402,16 @@ export function updateHealthRecord(
   return mutate(async () => {
     const records = await readRecords();
     const existing = records.find((record) => record.id === id);
-    if (!existing) throw new Error('Health record not found.');
+    if (!existing) throw new Error("Health record not found.");
     const updated: HealthRecord = {
       ...existing,
       ...input,
       id,
       updatedAt: Date.now(),
     };
-    await persistRecords(records.map((record) => (record.id === id ? updated : record)));
+    await persistRecords(
+      records.map((record) => (record.id === id ? updated : record)),
+    );
     if (updated.nextDueDate) {
       await upsertRecordReminder(updated);
     } else {
@@ -472,7 +488,9 @@ export function setReminderNotificationTiming(
 export function removeReminder(reminderId: string): Promise<void> {
   return mutate(async () => {
     const reminders = await readReminders();
-    await persistReminders(reminders.filter((reminder) => reminder.id !== reminderId));
+    await persistReminders(
+      reminders.filter((reminder) => reminder.id !== reminderId),
+    );
   });
 }
 
@@ -480,7 +498,9 @@ export function newReminderId(): string {
   return `rem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function createReminder(input: NewHealthReminderInput): Promise<HealthReminder> {
+export function createReminder(
+  input: NewHealthReminderInput,
+): Promise<HealthReminder> {
   return mutate(async () => {
     const reminders = await readReminders();
     const now = Date.now();
@@ -491,7 +511,7 @@ export function createReminder(input: NewHealthReminderInput): Promise<HealthRem
       recordId: null,
       title: input.title.trim(),
       type: input.type,
-      description: input.description?.trim() ?? '',
+      description: input.description?.trim() ?? "",
       dueDate: input.dueDate,
       time: input.time,
       notificationTiming: input.notificationTiming,
