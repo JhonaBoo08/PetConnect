@@ -16,6 +16,7 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { logout } from '@/services/auth';
 
 function SettingsCard({
   icon,
@@ -137,9 +138,13 @@ export default function ProfileScreen() {
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => {
+                onPress={async () => {
                   setConfirming(false);
-                  router.replace('/sign-in');
+                  try {
+                    await logout();
+                  } finally {
+                    router.replace('/');
+                  }
                 }}
                 style={({ pressed }) => [styles.dialogConfirm, pressed && styles.pressed]}>
                 <Text style={styles.dialogConfirmLabel}>Log out</Text>
