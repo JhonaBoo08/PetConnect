@@ -467,6 +467,7 @@ const styles = StyleSheet.create({
   addPet: {
     position: "relative",
     overflow: "hidden",
+    backgroundColor: Palette.gold,
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.one,
@@ -475,7 +476,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   addPetPressed: {
-    backgroundColor: Palette.gold,
+    backgroundColor: Palette.goldSoft,
   },
   addPetGlow: {
     position: "absolute",
