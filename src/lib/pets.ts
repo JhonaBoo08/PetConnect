@@ -34,6 +34,75 @@ const STORAGE_KEY = "petconnect.pets.v1";
 
 export const seedPets: Pet[] = [];
 
+type PetQrPayload = Pick<
+  Pet,
+  | "id"
+  | "ownerId"
+  | "name"
+  | "species"
+  | "sex"
+  | "breed"
+  | "color"
+  | "birthdate"
+  | "details"
+  | "collar"
+  | "finderContactVisible"
+  | "contactName"
+  | "contactMobile"
+  | "contactLocation"
+>;
+
+export function encodePetQr(pet: Pet): string {
+  const payload: PetQrPayload = {
+    id: pet.id,
+    ownerId: pet.ownerId,
+    name: pet.name,
+    species: pet.species,
+    sex: pet.sex,
+    breed: pet.breed,
+    color: pet.color,
+    birthdate: pet.birthdate,
+    details: pet.details,
+    collar: pet.collar,
+    finderContactVisible: pet.finderContactVisible,
+    contactName: pet.contactName,
+    contactMobile: pet.contactMobile,
+    contactLocation: pet.contactLocation,
+  };
+  return JSON.stringify({ version: 1, pet: payload });
+}
+
+export function decodePetQr(value: string): Pet | null {
+  try {
+    const parsed = JSON.parse(value) as {
+      version?: number;
+      pet?: Partial<PetQrPayload>;
+    };
+    const payload = parsed.version === 1 ? parsed.pet : null;
+    if (!payload?.id || !/^PC-TAG-\d{4,}$/.test(payload.id)) return null;
+    return {
+      id: payload.id,
+      ownerId: payload.ownerId ?? "",
+      name: payload.name ?? "Pet",
+      species: payload.species ?? "",
+      sex: payload.sex ?? "",
+      breed: payload.breed ?? "",
+      color: payload.color ?? "",
+      birthdate: payload.birthdate ?? "",
+      photo: "",
+      details: payload.details ?? "",
+      collar: payload.collar ?? "",
+      finderContactVisible: payload.finderContactVisible !== false,
+      contactName: payload.contactName ?? "",
+      contactMobile: payload.contactMobile ?? "",
+      contactLocation: payload.contactLocation ?? "",
+      createdAt: 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 let petsCache: Pet[] | null = null;
 const listeners = new Set<() => void>();
 

@@ -33,7 +33,7 @@ import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
-import { getPetById } from "@/lib/pets";
+import { decodePetQr, getPetById } from "@/lib/pets";
 import { useSession } from "@/lib/session";
 
 const PET_ID_PATTERN = /^PC-TAG-\d{4,}$/;
@@ -98,12 +98,14 @@ export default function ScanScreen() {
       setScanState("searching");
 
       const value = String(data ?? "").trim();
-      if (!PET_ID_PATTERN.test(value)) {
+      const qrPet = decodePetQr(value);
+      const petId = qrPet?.id ?? value;
+      if (!PET_ID_PATTERN.test(petId)) {
         setScanState("invalid");
         return;
       }
       try {
-        const pet = await getPetById(value);
+        const pet = (await getPetById(petId)) ?? qrPet;
         if (!pet) {
           setScanState("notfound");
           return;
@@ -116,7 +118,7 @@ export default function ScanScreen() {
         } else {
           router.push({
             pathname: "/scan-result",
-            params: { pet: pet.id, report: "1" },
+            params: { pet: pet.id, qr: qrPet ? value : undefined, report: "1" },
           });
         }
       } catch {

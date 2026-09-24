@@ -21,7 +21,13 @@ import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { timestampToFullDate } from "@/lib/date";
 import { activeLostAlertForPet, useLostPetAlerts } from "@/lib/lost-pets";
 import { goBack } from "@/lib/navigation";
-import { getPetByIdSync, petAge, usePets } from "@/lib/pets";
+import {
+    decodePetQr,
+    encodePetQr,
+    getPetByIdSync,
+    petAge,
+    usePets,
+} from "@/lib/pets";
 import { getPreferencesFor, useSession } from "@/lib/session";
 
 function maskMobile(mobile: string): string {
@@ -47,10 +53,15 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 export default function ScanResultScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ pet?: string; report?: string }>();
+  const params = useLocalSearchParams<{
+    pet?: string;
+    report?: string;
+    qr?: string;
+  }>();
   const petIdParam = Array.isArray(params.pet)
     ? params.pet[0]
     : (params.pet ?? "");
+  const qrPayload = Array.isArray(params.qr) ? params.qr[0] : params.qr;
   const shouldOpenReport = params.report === "1";
   const session = useSession();
   const pets = usePets();
@@ -58,6 +69,7 @@ export default function ScanResultScreen() {
   const pet =
     pets.find((candidate) => candidate.id === petIdParam) ??
     getPetByIdSync(petIdParam) ??
+    (qrPayload ? decodePetQr(qrPayload) : null) ??
     null;
   const lostAlert = pet ? activeLostAlertForPet(lostAlerts, pet.id) : null;
   const isLost = Boolean(lostAlert);
@@ -238,7 +250,7 @@ export default function ScanResultScreen() {
                       <Text style={styles.idLabel}>UNIQUE PET ID</Text>
                       <Text style={styles.idValue}>{pet.id}</Text>
                     </View>
-                    <QrCode seed={pet.id} size={72} />
+                    <QrCode seed={pet.id} value={encodePetQr(pet)} size={72} />
                   </View>
                 </View>
               </View>

@@ -25,13 +25,21 @@ function qrPath(seed: string, size: number) {
   return d;
 }
 
-export function QrCode({ seed, size = 72 }: { seed: string; size?: number }) {
+export function QrCode({
+  seed,
+  value = seed,
+  size = 72,
+}: {
+  seed: string;
+  value?: string;
+  size?: number;
+}) {
   const pad = size * 0.08;
   const inner = size - pad * 2;
   return (
     <View style={[styles.qrWrap, { width: size, height: size }]}>
       <Svg width={inner} height={inner} viewBox={`0 0 ${inner} ${inner}`}>
-        <Path d={qrPath(seed, inner)} fill={Palette.forestDark} />
+        <Path d={qrPath(value, inner)} fill={Palette.forestDark} />
       </Svg>
     </View>
   );
