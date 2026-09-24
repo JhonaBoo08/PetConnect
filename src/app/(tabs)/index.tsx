@@ -51,7 +51,8 @@ export default function WelcomeScreen() {
           <Text style={styles.finderLabel}>FOUND A PET?</Text>
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push('/scan')}
+            accessibilityLabel="I found a pet"
+            onPress={() => router.push({ pathname: '/scan', params: { mode: 'finder' } })}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
             <FinderIcon size={20} />
             <Text style={styles.secondaryLabel}>I Found a Pet</Text>

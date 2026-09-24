@@ -3,7 +3,7 @@ import {
     useCameraPermissions,
     type BarcodeScanningResult,
 } from "expo-camera";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -45,8 +45,10 @@ export default function ScanScreen() {
   const [scanState, setScanState] = useState<ScanState>("idle");
   const processingRef = useRef(false);
   const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string }>();
+  const finderMode = params.mode === "finder";
   const session = useSession();
-  const isClinic = session.user?.accountType === "vet";
+  const isClinic = session.user?.accountType === "vet" && !finderMode;
 
   const scanAnim = useState(() => new Animated.Value(0))[0];
   const useNative = Platform.OS !== "web";
