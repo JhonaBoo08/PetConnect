@@ -8,14 +8,22 @@ export type NotificationRoute =
   | { pathname: '/alert-details'; params: { id: string } }
   | { pathname: '/found-report'; params: { id: string } };
 
+export type ClinicAccessRequest = {
+  clinicId: string;
+  clinicName: string;
+  petId: string;
+  petName: string;
+};
+
 export type AppNotification = {
   id: string;
-  kind: 'booster' | 'lost-pet' | 'found' | 'record' | 'reunite';
+  kind: 'booster' | 'lost-pet' | 'found' | 'record' | 'reunite' | 'access-request';
   title: string;
   description: string;
   timestamp: string;
   unread: boolean;
-  route: NotificationRoute;
+  route?: NotificationRoute;
+  accessRequest?: ClinicAccessRequest;
 };
 
 const NOTIFICATIONS_KEY = 'petconnect.notifications.v1';
@@ -126,7 +134,7 @@ export function useNotifications(): AppNotification[] {
 }
 
 export async function addNotification(
-  notification: Omit<AppNotification, 'unread'>,
+  notification: Omit<AppNotification, 'unread' | 'id'> & { id?: string },
 ): Promise<void> {
   const notifications = await readNotifications();
   const id =
@@ -143,4 +151,11 @@ export async function readNotification(id: string): Promise<void> {
   await persist(
     notifications.map((n) => (n.id === id ? { ...n, unread: false } : n)),
   );
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  const notifications = await readNotifications();
+  if (notifications.some((n) => n.unread)) {
+    await persist(notifications.map((n) => ({ ...n, unread: false })));
+  }
 }

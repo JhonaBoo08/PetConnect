@@ -14,6 +14,7 @@ import { timestampToFullDate } from '@/lib/date';
 import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
 import { goBack } from '@/lib/navigation';
 import { getPetByIdSync, petAge, usePets } from '@/lib/pets';
+import { getPreferencesFor, useSession } from '@/lib/session';
 
 function maskMobile(mobile: string): string {
   const parts = mobile.trim().split(/\s+/).filter(Boolean);
@@ -40,6 +41,7 @@ export default function ScanResultScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ pet?: string }>();
   const petIdParam = Array.isArray(params.pet) ? params.pet[0] : (params.pet ?? '');
+  const session = useSession();
   const pets = usePets();
   const lostAlerts = useLostPetAlerts();
   const pet =
@@ -114,7 +116,10 @@ export default function ScanResultScreen() {
     );
   }
 
-  const contactVisible = pet.finderContactVisible;
+  const showRecoveryContact = session.ready
+    ? getPreferencesFor(pet.ownerId).showRecoveryContact
+    : true;
+  const contactVisible = pet.finderContactVisible && showRecoveryContact;
 
   return (
     <View style={styles.container}>
@@ -223,11 +228,15 @@ export default function ScanResultScreen() {
           ) : (
             <View style={styles.ownerCard}>
               <Text style={styles.ownerHidden}>
-                The owner has chosen not to share their recovery contact.
+                {showRecoveryContact
+                  ? 'The owner has chosen not to share their recovery contact.'
+                  : 'Contact information is protected. Please use Pet-Connect\u2019s recovery request.'}
               </Text>
-              <Text style={styles.ownerHiddenSub}>
-                Report the pet through the Lost &amp; Found feed instead.
-              </Text>
+              {showRecoveryContact ? (
+                <Text style={styles.ownerHiddenSub}>
+                  Report the pet through the Lost &amp; Found feed instead.
+                </Text>
+              ) : null}
             </View>
           )}
 

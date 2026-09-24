@@ -1,73 +1,46 @@
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   BackArrow,
   BellIcon,
-  CheckIcon,
   HealthIcon,
-  PinIcon,
   ShieldIcon,
   SyringeIcon,
 } from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { respondToAccessRequest } from '@/lib/clinic-access';
-import { goBack } from '@/lib/navigation';
 import {
-  type AppNotification,
-  markAllNotificationsRead,
-  readNotification,
-  useNotifications,
-} from '@/lib/notifications';
+  type ClinicNotification,
+  markAllClinicNotificationsRead,
+  readClinicNotification,
+  useClinicNotifications,
+} from '@/lib/clinic-notifications';
+import { goBack } from '@/lib/navigation';
 
-function iconFor(kind: AppNotification['kind']) {
+function iconFor(kind: ClinicNotification['kind']) {
   switch (kind) {
-    case 'booster':
-      return SyringeIcon;
-    case 'lost-pet':
-      return PinIcon;
-    case 'found':
-      return CheckIcon;
-    case 'reunite':
-      return CheckIcon;
+    case 'access':
+      return ShieldIcon;
     case 'record':
       return HealthIcon;
-    case 'access-request':
-      return ShieldIcon;
+    case 'system':
+    default:
+      return SyringeIcon;
   }
 }
 
-function NotificationCard({
-  notification,
-  onPress,
-}: {
-  notification: AppNotification;
-  onPress: () => void;
-}) {
+function NotificationCard({ notification }: { notification: ClinicNotification }) {
   const Icon = iconFor(notification.kind);
   const { title, description, timestamp, unread } = notification;
-  const [acting, setActing] = useState(false);
-
-  const approve = async (status: 'active' | 'declined') => {
-    if (!notification.accessRequest || acting) return;
-    setActing(true);
-    try {
-      await respondToAccessRequest(notification.accessRequest, status);
-      await readNotification(notification.id);
-    } finally {
-      setActing(false);
-    }
-  };
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={title}
-      onPress={onPress}
+      onPress={() => void readClinicNotification(notification.id)}
       style={({ pressed }) => [
         styles.notificationCard,
         unread && styles.notificationCardUnread,
@@ -83,38 +56,18 @@ function NotificationCard({
           </Text>
           <Text style={styles.timestamp}>{timestamp}</Text>
         </View>
-        <Text style={[styles.notificationDescription, unread && styles.notificationDescriptionUnread]}>
+        <Text
+          style={[styles.notificationDescription, unread && styles.notificationDescriptionUnread]}>
           {description}
         </Text>
-
-        {notification.kind === 'access-request' && notification.accessRequest &&
-        notification.accessRequest.petId ? (
-          <View style={styles.actionRow}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={acting}
-              onPress={() => void approve('declined')}
-              style={({ pressed }) => [styles.actionSecondary, pressed && styles.pressed]}>
-              <Text style={styles.actionSecondaryLabel}>Decline</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={acting}
-              onPress={() => void approve('active')}
-              style={({ pressed }) => [styles.actionPrimary, pressed && styles.pressed]}>
-              <Text style={styles.actionPrimaryLabel}>Allow</Text>
-            </Pressable>
-          </View>
-        ) : null}
       </View>
       {unread ? <View style={styles.unreadDot} /> : null}
     </Pressable>
   );
 }
 
-export default function NotificationsScreen() {
-  const router = useRouter();
-  const notifications = useNotifications();
+export default function ClinicNotificationsScreen() {
+  const notifications = useClinicNotifications();
   const unique = useMemo(
     () =>
       notifications.filter(
@@ -125,15 +78,8 @@ export default function NotificationsScreen() {
   );
 
   useEffect(() => {
-    void markAllNotificationsRead();
+    void markAllClinicNotificationsRead();
   }, []);
-
-  const open = (notification: AppNotification) => {
-    readNotification(notification.id);
-    if (notification.route) {
-      router.push(notification.route);
-    }
-  };
 
   return (
     <View style={styles.container}>
@@ -143,40 +89,38 @@ export default function NotificationsScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => goBack('/dashboard')}
+              onPress={() => goBack('/clinic')}
               style={styles.iconButton}>
               <BackArrow />
             </Pressable>
           </View>
 
-          <Text style={styles.category}>UPDATES</Text>
+          <Text style={styles.category}>CLINIC · UPDATES</Text>
           <Text style={styles.heading}>Notifications</Text>
-          <Text style={styles.supporting}>Health alerts, reminders, and recovery activity.</Text>
+          <Text style={styles.supporting}>
+            Access requests, health record activity, and clinic updates.
+          </Text>
 
           {unique.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyStateIcon}>
                 <BellIcon size={28} color={Palette.forestDark} />
               </View>
-              <Text style={styles.emptyStateTitle}>You're all caught up</Text>
+              <Text style={styles.emptyStateTitle}>You&apos;re all caught up</Text>
               <Text style={styles.emptyStateText}>
-                New pet updates and reminders will appear here.
+                New access requests and record updates will appear here.
               </Text>
             </View>
           ) : (
             <View style={styles.list}>
               {unique.map((notification) => (
-                <NotificationCard
-                  key={notification.id}
-                  notification={notification}
-                  onPress={() => open(notification)}
-                />
+                <NotificationCard key={notification.id} notification={notification} />
               ))}
             </View>
           )}
         </ScrollView>
 
-        <BottomNav active="home" />
+        <BottomNav variant="clinic" active="updates" />
       </SafeAreaView>
     </View>
   );
@@ -311,41 +255,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: Palette.gold,
     marginTop: 6,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-    marginTop: Spacing.three,
-  },
-  actionSecondary: {
-    flex: 1,
-    height: 38,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionSecondaryLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  actionPrimary: {
-    flex: 1,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: Palette.gold,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionPrimaryLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '800',
-    color: Palette.forestDark,
   },
   emptyState: {
     alignItems: 'center',

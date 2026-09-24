@@ -18,6 +18,14 @@ import { Palette } from '@/constants/palette';
 
 export type AccountType = 'owner' | 'vet';
 
+export type AuthFormValues = {
+  accountType: AccountType;
+  fullName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+};
+
 function BackArrow({ size = 22, color = Palette.forestDark }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -101,9 +109,11 @@ type AuthScreenProps = {
   showFullName?: boolean;
   showConfirmPassword?: boolean;
   clinicNote?: string;
+  note?: string;
+  error?: string | null;
   footer: ReactNode;
   onBack: () => void;
-  onSubmit: (type: AccountType) => void;
+  onSubmit: (values: AuthFormValues) => void;
 };
 
 export function AuthScreen({
@@ -113,6 +123,8 @@ export function AuthScreen({
   showFullName = false,
   showConfirmPassword = false,
   clinicNote,
+  note,
+  error,
   footer,
   onBack,
   onSubmit,
@@ -122,6 +134,38 @@ export function AuthScreen({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const handleSubmit = () => {
+    let message: string | null = null;
+    if (showFullName && !fullName.trim()) {
+      message = 'Please enter your name.';
+    } else if (!email.trim()) {
+      message = 'Please enter your email address.';
+    } else if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+      message = 'Please enter a valid email address.';
+    } else if (!password) {
+      message = 'Please enter a password.';
+    } else if (showConfirmPassword && password.length < 6) {
+      message = 'Password must be at least 6 characters.';
+    } else if (showConfirmPassword && confirmPassword !== password) {
+      message = 'Passwords do not match.';
+    }
+    if (message) {
+      setValidationError(message);
+      return;
+    }
+    setValidationError(null);
+    onSubmit({
+      accountType,
+      fullName: fullName.trim(),
+      email: email.trim(),
+      password,
+      confirmPassword,
+    });
+  };
+
+  const formError = validationError ?? error;
 
   return (
     <View style={styles.container}>
@@ -190,9 +234,11 @@ export function AuthScreen({
               </Pressable>
             </View>
 
-            {clinicNote && accountType === 'vet' ? (
-              <Text style={styles.clinicNote}>{clinicNote}</Text>
-            ) : null}
+{clinicNote && accountType === 'vet' ? (
+                <Text style={styles.clinicNote}>{clinicNote}</Text>
+              ) : null}
+
+              {note ? <Text style={styles.note}>{note}</Text> : null}
 
             <View style={styles.form}>
               {showFullName ? (
@@ -253,9 +299,11 @@ export function AuthScreen({
               ) : null}
             </View>
 
+            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
             <Pressable
               accessibilityRole="button"
-              onPress={() => onSubmit(accountType)}
+              onPress={handleSubmit}
               style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
               <Text style={styles.primaryLabel}>{submitLabel}</Text>
             </Pressable>
@@ -396,6 +444,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: Palette.inkMuted,
+    marginTop: Spacing.three,
+  },
+  note: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: Palette.forestDark,
+    backgroundColor: Palette.sage,
+    borderRadius: 12,
+    padding: Spacing.three,
+    marginTop: Spacing.three,
+  },
+  formError: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Palette.danger,
+    backgroundColor: Palette.goldSoft,
+    borderRadius: 12,
+    padding: Spacing.three,
     marginTop: Spacing.three,
   },
   form: {

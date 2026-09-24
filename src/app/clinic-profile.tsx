@@ -1,30 +1,35 @@
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { type ReactNode, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
+  BackArrow,
   BellIcon,
   ChevronRightIcon,
   GearIcon,
+  ListIcon,
   LogoutIcon,
-  PawIcon,
-  PhoneIcon,
   ProfileIcon,
+  ShieldIcon,
 } from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useNotifications } from '@/lib/notifications';
-import { useMyPets } from '@/lib/pets';
-import {
-  ensureSessionLoaded,
-  logout,
-  maskPhone,
-  roleLabel,
-  useSession,
-} from '@/lib/session';
+import { useClinicProfile, useClinicProfiles } from '@/lib/clinic';
+import { useClinicNotifications } from '@/lib/clinic-notifications';
+import { goBack } from '@/lib/navigation';
+import { logout, useSession } from '@/lib/session';
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
 
 function SettingsCard({
   icon,
@@ -32,7 +37,7 @@ function SettingsCard({
   subtitle,
   onPress,
 }: {
-  icon: ReactNode;
+  icon: React.ReactNode;
   title: string;
   subtitle: string;
   onPress?: () => void;
@@ -52,77 +57,18 @@ function SettingsCard({
   );
 }
 
-export default function ProfileScreen() {
+export default function ClinicProfileScreen() {
   const router = useRouter();
-  const { ready, user, emergencyContact } = useSession();
-  const notifications = useNotifications();
-  const pets = useMyPets(user?.userId);
+  const { ready } = useSession();
+  const { ready: clinicReady } = useClinicProfiles();
+  const clinic = useClinicProfile();
+  const notifications = useClinicNotifications();
   const [confirming, setConfirming] = useState(false);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-
-  const load = async () => {
-    setStatus('loading');
-    try {
-      await ensureSessionLoaded();
-      setStatus('ready');
-    } catch {
-      setStatus('error');
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  if (status === 'loading' || (!ready && status === 'ready')) {
-    return (
-      <View style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.stateWrap}>
-            <View style={styles.stateIcon}>
-              <ProfileIcon size={28} color={Palette.forestDark} />
-            </View>
-            <Text style={styles.stateTitle}>Loading profile…</Text>
-            <Text style={styles.stateText}>
-              Just a moment while we load your account details.
-            </Text>
-          </View>
-          <BottomNav active="profile" />
-        </SafeAreaView>
-      </View>
-    );
-  }
-
-  if (status === 'error') {
-    return (
-      <View style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.stateWrap}>
-            <View style={styles.stateIcon}>
-              <ProfileIcon size={28} color={Palette.forestDark} />
-            </View>
-            <Text style={styles.stateTitle}>Unable to load your profile.</Text>
-            <Text style={styles.stateText}>
-              Please check your connection and try again.
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={load}
-              style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
-              <Text style={styles.retryLabel}>Try Again</Text>
-            </Pressable>
-          </View>
-          <BottomNav active="profile" />
-        </SafeAreaView>
-      </View>
-    );
-  }
-
-  if (!user) return null;
 
   const unread = notifications.filter((notification) => notification.unread).length;
-  const activeProfiles = pets.length;
-  const location = [user.city, user.province].filter(Boolean).join(', ') || 'Location not set';
+  const location = [clinic?.city, clinic?.province].filter(Boolean).join(', ') || 'Location not set';
+
+  if (!ready || !clinicReady || !clinic) return null;
 
   return (
     <View style={styles.container}>
@@ -130,26 +76,20 @@ export default function ProfileScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}>
-          <View style={styles.header}>
-            <View style={styles.brandRow}>
-              <View style={styles.brandMark}>
-                <Image
-                  source={require('@/assets/images/logo.png')}
-                  style={styles.brandMarkImage}
-                  contentFit="contain"
-                />
-              </View>
-              <View>
-                <Text style={styles.brandName}>Pet-Connect</Text>
-                <Text style={styles.brandTagline}>SCAN · PROTECT · RECONNECT</Text>
-              </View>
-            </View>
+          <View style={styles.topBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => goBack('/clinic')}
+              style={styles.iconButton}>
+              <BackArrow />
+            </Pressable>
 
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() => router.push('/notifications')}
-              style={styles.bellButton}>
+              onPress={() => router.push('/clinic-notifications')}
+              style={styles.iconButton}>
               <BellIcon />
               {unread > 0 ? (
                 <View style={styles.bellBadge}>
@@ -159,42 +99,73 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
 
-          <Text style={styles.category}>YOUR ACCOUNT</Text>
-          <Text style={styles.name}>{user.fullName}</Text>
-          <Text style={styles.email}>{user.email}</Text>
+          <Text style={styles.category}>CLINIC · PROFILE</Text>
+          <Text style={styles.name}>{clinic.clinicName}</Text>
+          <Text style={styles.email}>{clinic.email}</Text>
+          {clinic.verificationStatus === 'verified' ? (
+            <View style={styles.verifiedPill}>
+              <ShieldIcon size={16} />
+              <Text style={styles.verifiedPillLabel}>VERIFIED CLINIC</Text>
+            </View>
+          ) : (
+            <View style={styles.pendingPill}>
+              <Text style={styles.pendingPillLabel}>PENDING VERIFICATION</Text>
+            </View>
+          )}
 
           <View style={styles.profileCard}>
             <View style={styles.avatar}>
-              <ProfileIcon size={28} color={Palette.white} />
+              <ShieldIcon size={26} color={Palette.white} />
             </View>
             <View>
-              <Text style={styles.profileRole}>{roleLabel(user.accountType)}</Text>
+              <Text style={styles.profileRole}>Veterinary Clinic</Text>
               <Text style={styles.profileLocation}>{location}</Text>
             </View>
           </View>
 
+          <Text style={styles.sectionLabel}>CLINIC DETAILS</Text>
+          <View style={styles.detailCard}>
+            <DetailRow label="Email" value={clinic.email} />
+            <DetailRow label="Phone" value={clinic.phone} />
+            <DetailRow label="Address" value={clinic.address} />
+            <DetailRow label="Veterinarian in charge" value={clinic.veterinarianInCharge} />
+            <DetailRow label="License" value={clinic.license} />
+          </View>
+
+          <Text style={styles.sectionLabel}>STAFF</Text>
+          <View style={styles.staffCard}>
+            {clinic.staff.length > 0 ? (
+              clinic.staff.map((member) => (
+                <View key={member} style={styles.staffRow}>
+                  <View style={styles.staffIcon}>
+                    <ProfileIcon size={18} color={Palette.forestDark} />
+                  </View>
+                  <Text style={styles.staffName}>{member}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.staffEmpty}>No staff members added yet.</Text>
+            )}
+          </View>
+
           <View style={styles.cardList}>
             <SettingsCard
-              icon={<PhoneIcon />}
-              title="Emergency contact"
-              subtitle={
-                emergencyContact?.mobile
-                  ? maskPhone(emergencyContact.mobile)
-                  : 'Not set yet'
-              }
-              onPress={() => router.push('/emergency-contact')}
+              icon={<ProfileIcon size={22} />}
+              title="Edit clinic info"
+              subtitle="Clinic details, contact, license"
+              onPress={() => router.push('/clinic-edit')}
             />
             <SettingsCard
-              icon={<PawIcon size={22} />}
-              title="Linked pets"
-              subtitle={`${activeProfiles} ${activeProfiles === 1 ? 'active profile' : 'active profiles'}`}
-              onPress={() => router.push('/linked-pets')}
+              icon={<ListIcon size={20} />}
+              title="Manage staff"
+              subtitle={`${clinic.staff.length} ${clinic.staff.length === 1 ? 'member' : 'members'}`}
+              onPress={() => router.push('/clinic-staff')}
             />
             <SettingsCard
               icon={<GearIcon />}
               title="Preferences"
-              subtitle="Alerts, privacy, permissions"
-              onPress={() => router.push('/preferences')}
+              subtitle="Alerts and notifications"
+              onPress={() => router.push('/clinic-preferences')}
             />
           </View>
 
@@ -207,7 +178,7 @@ export default function ProfileScreen() {
           </Pressable>
         </ScrollView>
 
-        <BottomNav active="profile" />
+        <BottomNav variant="clinic" active="profile" />
       </SafeAreaView>
 
       {confirming ? (
@@ -215,7 +186,7 @@ export default function ProfileScreen() {
           <View style={styles.dialog}>
             <Text style={styles.dialogTitle}>Log out?</Text>
             <Text style={styles.dialogText}>
-              Are you sure you want to log out of your Pet-Connect account?
+              Are you sure you want to log out of the {clinic.clinicName} workspace?
             </Text>
             <View style={styles.dialogButtons}>
               <Pressable
@@ -266,47 +237,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.five,
   },
-  header: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: Spacing.two,
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  brandMark: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Palette.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  brandMarkImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 22,
-  },
-  brandName: {
-    fontFamily: Fonts.sans,
-    fontSize: 19,
-    fontWeight: '800',
-    color: Palette.forestDark,
-    letterSpacing: -0.3,
-  },
-  brandTagline: {
-    fontFamily: Fonts.sans,
-    fontSize: 10,
-    fontWeight: '600',
-    color: Palette.inkMuted,
-    letterSpacing: 1.2,
-    marginTop: 2,
-  },
-  bellButton: {
+  iconButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
@@ -347,6 +284,7 @@ const styles = StyleSheet.create({
   name: {
     fontFamily: Fonts.sans,
     fontSize: 28,
+    lineHeight: 33,
     fontWeight: '800',
     letterSpacing: -0.5,
     color: Palette.forestDark,
@@ -357,6 +295,39 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Palette.inkMuted,
     marginTop: 2,
+  },
+  verifiedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: Palette.gold,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 6,
+    marginTop: Spacing.three,
+  },
+  verifiedPillLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: Palette.forestDark,
+  },
+  pendingPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: Palette.goldTrack,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 6,
+    marginTop: Spacing.three,
+  },
+  pendingPillLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: Palette.forestDark,
   },
   profileCard: {
     flexDirection: 'row',
@@ -389,6 +360,78 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#C9DBC6',
     marginTop: 3,
+  },
+  sectionLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 1.3,
+    color: Palette.forestDark,
+    marginTop: Spacing.five,
+    marginBottom: Spacing.two,
+  },
+  detailCard: {
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 15,
+    padding: Spacing.three,
+    gap: Spacing.three,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.three,
+  },
+  detailLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: Palette.inkMuted,
+  },
+  detailValue: {
+    flex: 1,
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: Palette.forestDark,
+    textAlign: 'right',
+  },
+  staffCard: {
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 15,
+    padding: Spacing.two,
+    gap: Spacing.two,
+  },
+  staffRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.one,
+    paddingVertical: Spacing.one,
+  },
+  staffIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Palette.sage,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  staffName: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.forestDark,
+  },
+  staffEmpty: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    color: Palette.inkMuted,
+    padding: Spacing.three,
   },
   cardList: {
     gap: Spacing.three,
@@ -450,56 +493,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: Palette.danger,
-  },
-  stateWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.two,
-  },
-  stateIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.one,
-  },
-  stateTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 17,
-    fontWeight: '800',
-    color: Palette.forestDark,
-    textAlign: 'center',
-  },
-  stateText: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    lineHeight: 19,
-    color: Palette.inkMuted,
-    textAlign: 'center',
-    maxWidth: 300,
-  },
-  retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: Palette.gold,
-    paddingHorizontal: Spacing.four,
-    marginTop: Spacing.two,
-  },
-  retryLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '800',
-    color: Palette.forestDark,
   },
   overlay: {
     position: 'absolute',

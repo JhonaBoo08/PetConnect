@@ -21,8 +21,9 @@ import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { isoToFullMonthDay } from '@/lib/date';
 import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
-import { petAge, usePets } from '@/lib/pets';
+import { petAge, useMyPets } from '@/lib/pets';
 import { reminderDaysUntil, reminderStatus, useHealthReminders } from '@/lib/health';
+import { useSession } from '@/lib/session';
 
 function PetCard({
   photo,
@@ -115,7 +116,8 @@ export default function DashboardScreen() {
   const { dateLabel, greeting } = useNow();
   const router = useRouter();
   const addGlow = useState(() => new Animated.Value(0))[0];
-  const pets = usePets();
+  const session = useSession();
+  const pets = useMyPets(session.user?.userId);
   const alerts = useLostPetAlerts();
   const reminders = useHealthReminders();
   const primaryPet = pets[0]?.name;

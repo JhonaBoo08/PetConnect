@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -17,7 +17,9 @@ import Svg, { Path } from 'react-native-svg';
 import { BackArrow, CheckIcon, ShieldIcon } from '@/components/app-icons';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { isValidMobile } from '@/lib/date';
 import { goBack } from '@/lib/navigation';
+import { completeOwnerDetails, useSession } from '@/lib/session';
 
 function ProgressArrow({ size = 12 }: { size?: number }) {
   return (
@@ -35,10 +37,61 @@ function ProgressArrow({ size = 12 }: { size?: number }) {
 
 export default function OwnerDetailsScreen() {
   const router = useRouter();
+  const { user, emergencyContact, ready } = useSession();
   const [mobile, setMobile] = useState('');
   const [city, setCity] = useState('');
+  const [province, setProvince] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
+  const [relationship, setRelationship] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (user?.phoneNumber) setMobile(user.phoneNumber);
+    if (user?.city) setCity(user.city);
+    if (user?.province) setProvince(user.province);
+    if (emergencyContact?.name) setContactName(emergencyContact.name);
+    if (emergencyContact?.mobile) setContactNumber(emergencyContact.mobile);
+    if (emergencyContact?.relationship) setRelationship(emergencyContact.relationship);
+  }, [ready, user, emergencyContact]);
+
+  const continueFlow = async () => {
+    let message: string | null = null;
+    if (!isValidMobile(mobile)) {
+      message = 'Please enter a valid mobile number.';
+    } else if (!city.trim()) {
+      message = 'Please enter your city / area.';
+    } else if (contactName.trim() && !isValidMobile(contactNumber)) {
+      message = 'Please enter a valid emergency contact number.';
+    } else if (!contactName.trim() && contactNumber.trim()) {
+      message = 'Please enter an emergency contact name.';
+    }
+    if (message) {
+      setError(message);
+      return;
+    }
+    setSaving(true);
+    try {
+      await completeOwnerDetails({
+        phoneNumber: mobile,
+        city: city.trim(),
+        province: province.trim(),
+        contactName: contactName.trim() || '',
+        contactMobile: contactNumber.trim() || '',
+        relationship: contactName.trim() ? relationship.trim() || 'Family' : '',
+        secondaryName: '',
+        secondaryMobile: '',
+        secondaryRelationship: '',
+      });
+      router.replace('/add-pet');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to save your details right now.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -106,22 +159,34 @@ export default function OwnerDetailsScreen() {
                 />
               </View>
 
-              <View style={styles.field}>
-                <Text style={styles.label}>City / Area</Text>
-                <TextInput
-                  value={city}
-                  onChangeText={setCity}
-                  placeholder="e.g. Tagum City"
-                  placeholderTextColor={Palette.placeholder}
-                  style={styles.input}
-                />
+              <View style={styles.fieldsRow}>
+                <View style={styles.fieldWrap}>
+                  <Text style={styles.label}>City / Area</Text>
+                  <TextInput
+                    value={city}
+                    onChangeText={setCity}
+                    placeholder="e.g. Tagum City"
+                    placeholderTextColor={Palette.placeholder}
+                    style={styles.input}
+                  />
+                </View>
+                <View style={styles.fieldWrap}>
+                  <Text style={styles.label}>Province</Text>
+                  <TextInput
+                    value={province}
+                    onChangeText={setProvince}
+                    placeholder="e.g. Davao del Norte"
+                    placeholderTextColor={Palette.placeholder}
+                    style={styles.input}
+                  />
+                </View>
               </View>
             </View>
 
             <View style={styles.emergencyPanel}>
               <Text style={styles.emergencyHeading}>Emergency contact</Text>
               <Text style={styles.emergencySupporting}>
-                Someone we can contact if your pet needs help.
+                Someone we can contact if your pet needs help. You can update this later.
               </Text>
 
               <View style={styles.field}>
@@ -146,6 +211,17 @@ export default function OwnerDetailsScreen() {
                   style={styles.input}
                 />
               </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Relationship (optional)</Text>
+                <TextInput
+                  value={relationship}
+                  onChangeText={setRelationship}
+                  placeholder="e.g. Mother, Partner, Friend"
+                  placeholderTextColor={Palette.placeholder}
+                  style={styles.input}
+                />
+              </View>
             </View>
 
             <View style={styles.privacyNote}>
@@ -156,11 +232,16 @@ export default function OwnerDetailsScreen() {
               </Text>
             </View>
 
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/add-pet')}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-              <Text style={styles.primaryLabel}>Continue</Text>
+              onPress={continueFlow}
+              disabled={saving}
+              style={({ pressed }) => [styles.primaryButton, (pressed || saving) && styles.pressed]}>
+              <Text style={styles.primaryLabel}>
+                {saving ? 'Saving…' : 'Continue'}
+              </Text>
             </Pressable>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -298,6 +379,13 @@ const styles = StyleSheet.create({
     marginTop: Spacing.four,
     gap: Spacing.four,
   },
+  fieldsRow: {
+    flexDirection: 'row',
+    gap: Spacing.three,
+  },
+  fieldWrap: {
+    flex: 1,
+  },
   field: {
     gap: Spacing.two,
   },
@@ -353,6 +441,16 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 17,
     color: Palette.inkMuted,
+  },
+  error: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Palette.danger,
+    backgroundColor: Palette.goldSoft,
+    borderRadius: 12,
+    padding: Spacing.three,
+    marginTop: Spacing.four,
   },
   primaryButton: {
     height: 48,

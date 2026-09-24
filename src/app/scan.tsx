@@ -30,6 +30,7 @@ import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { goBack } from '@/lib/navigation';
 import { getPetById } from '@/lib/pets';
+import { useSession } from '@/lib/session';
 
 const PET_ID_PATTERN = /^PC-TAG-\d{4,}$/;
 const SIMULATED_PET_ID = 'PC-TAG-10482';
@@ -41,6 +42,8 @@ export default function ScanScreen() {
   const [scanState, setScanState] = useState<ScanState>('idle');
   const processingRef = useRef(false);
   const router = useRouter();
+  const session = useSession();
+  const isClinic = session.user?.accountType === 'vet';
 
   const scanAnim = useState(() => new Animated.Value(0))[0];
   const useNative = Platform.OS !== 'web';
@@ -105,12 +108,16 @@ export default function ScanScreen() {
           setScanState('notfound');
           return;
         }
-        router.push({ pathname: '/scan-result', params: { pet: pet.id } });
+        if (isClinic) {
+          router.push({ pathname: '/clinic-scan-result', params: { pet: pet.id } });
+        } else {
+          router.push({ pathname: '/scan-result', params: { pet: pet.id } });
+        }
       } catch {
         setScanState('error');
       }
     },
-    [router],
+    [router, isClinic],
   );
 
   const handleBarcodeScanned = useCallback(
@@ -135,7 +142,7 @@ export default function ScanScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => goBack('/dashboard')}
+              onPress={() => goBack(isClinic ? '/clinic' : '/dashboard')}
               style={styles.iconButton}>
               <BackArrow />
             </Pressable>
@@ -143,14 +150,14 @@ export default function ScanScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() => router.push('/notifications')}
+              onPress={() => router.push(isClinic ? '/clinic-notifications' : '/notifications')}
               style={styles.iconButton}>
               <BellIcon />
               <View style={styles.bellDot} />
             </Pressable>
           </View>
 
-          <Text style={styles.category}>PET RECOVERY</Text>
+          <Text style={styles.category}>{isClinic ? 'CLINIC · PET SCAN' : 'PET RECOVERY'}</Text>
           <Text style={styles.heading}>Scan Pet QR ID</Text>
           <Text style={styles.instruction}>Place the Pet-Connect code inside the frame.</Text>
 
@@ -291,7 +298,7 @@ export default function ScanScreen() {
           <Text style={styles.helper}>Camera access is used only while scanning.</Text>
         </ScrollView>
 
-        <BottomNav active="scan" />
+        <BottomNav variant={isClinic ? 'clinic' : 'owner'} active="scan" />
       </SafeAreaView>
     </View>
   );

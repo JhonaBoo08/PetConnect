@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -25,9 +25,10 @@ import { BottomNav } from '@/components/bottom-nav';
 import { DateField } from '@/components/date-field';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { isValidBirthdate, isValidMobile, toIsoDate } from '@/lib/date';
+import { isValidBirthdate, isValidMobile, isoToDisplayDate, toIsoDate } from '@/lib/date';
 import { goBack } from '@/lib/navigation';
-import { createPet } from '@/lib/pets';
+import { createPet, getPetById, updatePet } from '@/lib/pets';
+import { useSession } from '@/lib/session';
 
 const speciesOptions = ['Dog', 'Cat', 'Other'];
 const sexOptions = ['Male', 'Female', 'Unknown'];
@@ -105,6 +106,9 @@ function DropdownField({
 
 export default function AddPetScreen() {
   const router = useRouter();
+  const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
+  const editing = Boolean(id);
+  const session = useSession();
   const [photo, setPhoto] = useState('');
   const [name, setName] = useState('');
   const [species, setSpecies] = useState('');
@@ -126,6 +130,34 @@ export default function AddPetScreen() {
 
   const clearError = (key: keyof FormErrors) =>
     setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+
+  useEffect(() => {
+    if (editing && id) {
+      void getPetById(id).then((pet) => {
+        if (!pet) return;
+        setPhoto(pet.photo);
+        setName(pet.name);
+        setSpecies(pet.species);
+        setSex(pet.sex);
+        setBreed(pet.breed);
+        setColor(pet.color);
+        setBirthdate(isoToDisplayDate(pet.birthdate));
+        setDetails(pet.details);
+        setCollar(pet.collar);
+        setContactName(pet.contactName);
+        setContactMobile(pet.contactMobile);
+        setContactLocation(pet.contactLocation);
+        setFinderContactVisible(pet.finderContactVisible);
+      });
+      return;
+    }
+    if (session.ready && session.user && !name.trim()) {
+      if (!contactName && session.user.fullName) setContactName(session.user.fullName);
+      if (!contactMobile && session.user.phoneNumber) setContactMobile(session.user.phoneNumber);
+      if (!contactLocation && session.user.city) setContactLocation(session.user.city);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, id, session.ready]);
 
   const pickPhoto = async () => {
     try {
@@ -161,24 +193,30 @@ export default function AddPetScreen() {
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
+    const input = {
+      name: name.trim(),
+      species,
+      sex,
+      breed: breed.trim(),
+      color: color.trim(),
+      birthdate: toIsoDate(birthdate),
+      photo,
+      details: details.trim(),
+      collar: collar.trim(),
+      finderContactVisible,
+      contactName: contactName.trim(),
+      contactMobile: contactMobile.trim(),
+      contactLocation: contactLocation.trim(),
+    };
+
     setSaving(true);
     try {
-      await createPet({
-        name: name.trim(),
-        species,
-        sex,
-        breed: breed.trim(),
-        color: color.trim(),
-        birthdate: toIsoDate(birthdate),
-        photo,
-        details: details.trim(),
-        collar: collar.trim(),
-        finderContactVisible,
-        contactName: contactName.trim(),
-        contactMobile: contactMobile.trim(),
-        contactLocation: contactLocation.trim(),
-      });
-      router.replace('/my-pets');
+      if (editing && id) {
+        await updatePet(id, input);
+      } else {
+        await createPet(input);
+      }
+      router.replace(from === 'linked-pets' ? '/linked-pets' : '/my-pets');
     } finally {
       setSaving(false);
     }
@@ -204,7 +242,7 @@ export default function AddPetScreen() {
       setDiscardOpen(true);
       return;
     }
-    goBack('/dashboard');
+    goBack(editing ? '/linked-pets' : '/dashboard');
   };
 
   return (
@@ -233,10 +271,14 @@ export default function AddPetScreen() {
             </Pressable>
           </View>
 
-          <Text style={styles.category}>NEW DIGITAL PET ID</Text>
-          <Text style={styles.heading}>Add a pet</Text>
+          <Text style={styles.category}>
+            {editing ? 'EDIT DIGITAL PET ID' : 'NEW DIGITAL PET ID'}
+          </Text>
+          <Text style={styles.heading}>{editing ? 'Edit pet' : 'Add a pet'}</Text>
           <Text style={styles.supporting}>
-            Their QR tag and recovery profile are created automatically.
+            {editing
+              ? 'Update the details behind this pet\u2019s QR tag and recovery profile.'
+              : 'Their QR tag and recovery profile are created automatically.'}
           </Text>
 
           <Text style={styles.label}>Pet photo</Text>
@@ -453,7 +495,7 @@ export default function AddPetScreen() {
               (pressed || saving) && styles.pressed,
             ]}>
             <PlusIcon size={16} />
-            <Text style={styles.saveLabel}>Add pet</Text>
+            <Text style={styles.saveLabel}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Add pet'}</Text>
           </Pressable>
         </ScrollView>
 
@@ -475,7 +517,7 @@ export default function AddPetScreen() {
               accessibilityRole="button"
               onPress={() => {
                 setDiscardOpen(false);
-                goBack('/dashboard');
+                goBack(editing ? '/linked-pets' : '/dashboard');
               }}
               style={({ pressed }) => [styles.discardButton, pressed && styles.pressed]}>
               <Text style={styles.discardLabel}>Discard</Text>

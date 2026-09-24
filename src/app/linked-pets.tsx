@@ -7,6 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   BackArrow,
   BellIcon,
+  GearIcon,
+  HealthIcon,
   PawIcon,
   PlusIcon,
   QrIcon,
@@ -14,46 +16,21 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
 import { goBack } from '@/lib/navigation';
-import { getPets, petAge, type Pet, useMyPets } from '@/lib/pets';
+import { getPets, type Pet, useMyPets } from '@/lib/pets';
 import { useSession } from '@/lib/session';
 
-function PetCard({ pet, onViewQr }: { pet: Pet; onViewQr: () => void }) {
-  return (
-    <View style={styles.petCard}>
-      <View style={styles.petTopRow}>
-        <View style={styles.petThumb}>
-          {pet.photo ? (
-            <Image source={{ uri: pet.photo }} style={styles.petPhoto} contentFit="cover" />
-          ) : (
-            <PawIcon size={28} color={Palette.forestDark} />
-          )}
-        </View>
-        <View style={styles.petInfo}>
-          <Text style={styles.petName}>{pet.name}</Text>
-          <Text style={styles.petDetails}>
-            {`${pet.breed} \u00b7 ${pet.sex} \u00b7 ${petAge(pet)}`}
-          </Text>
-          <Text style={styles.petId}>{pet.id}</Text>
-        </View>
-      </View>
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`View ${pet.name}'s QR code`}
-        onPress={onViewQr}
-        style={({ pressed }) => [styles.viewQrButton, pressed && styles.pressed]}>
-        <QrIcon size={16} color={Palette.forestDark} />
-        <Text style={styles.viewQrLabel}>View QR</Text>
-      </Pressable>
-    </View>
-  );
+function petStatusLabel(pet: Pet, lostAlerts: ReturnType<typeof activeLostAlertForPet>) {
+  if (lostAlerts) return { label: 'Lost · active report', tone: Palette.danger };
+  return { label: 'Healthy', tone: Palette.forestDark };
 }
 
-export default function MyPetsScreen() {
+export default function LinkedPetsScreen() {
   const router = useRouter();
-  const session = useSession();
-  const pets = useMyPets(session.user?.userId);
+  const { user, ready } = useSession();
+  const pets = useMyPets(user?.userId);
+  const lostAlerts = useLostPetAlerts();
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   const load = useCallback(async () => {
@@ -70,8 +47,12 @@ export default function MyPetsScreen() {
     void load();
   }, [load]);
 
-  const openPet = (pet: Pet) =>
+  const openPetId = (pet: Pet) =>
     router.push({ pathname: '/pet-id', params: { name: pet.name } });
+  const openHealth = (pet: Pet) =>
+    router.push({ pathname: '/health-records', params: { name: pet.name } });
+  const openEdit = (pet: Pet) =>
+    router.push({ pathname: '/add-pet', params: { id: pet.id, from: 'linked-pets' } });
 
   return (
     <View style={styles.container}>
@@ -83,7 +64,7 @@ export default function MyPetsScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => goBack('/dashboard')}
+              onPress={() => goBack('/profile')}
               style={styles.iconButton}>
               <BackArrow />
             </Pressable>
@@ -99,22 +80,20 @@ export default function MyPetsScreen() {
           </View>
 
           <Text style={styles.category}>YOUR PETS</Text>
-          <Text style={styles.heading}>My Pets</Text>
-          <Text style={styles.supporting}>View and share your pets&apos; Pet-Connect QR IDs.</Text>
+          <Text style={styles.heading}>Linked pets</Text>
+          <Text style={styles.supporting}>
+            View digital IDs, health records, and profile details for every pet linked to your
+            account.
+          </Text>
 
-          {status === 'loading' ? (
+          {!ready ? (
             <View style={styles.stateCard}>
               <Text style={styles.stateTitle}>Loading your pets…</Text>
-              <Text style={styles.stateText}>
-                Just a moment while we fetch your Pet-Connect IDs.
-              </Text>
             </View>
           ) : status === 'error' ? (
             <View style={styles.stateCard}>
               <Text style={styles.stateTitle}>Unable to load your pets.</Text>
-              <Text style={styles.stateText}>
-                Please check your connection and try again.
-              </Text>
+              <Text style={styles.stateText}>Please check your connection and try again.</Text>
               <Pressable
                 accessibilityRole="button"
                 onPress={load}
@@ -127,13 +106,13 @@ export default function MyPetsScreen() {
               <View style={styles.stateIcon}>
                 <PawIcon size={26} color={Palette.forestDark} />
               </View>
-              <Text style={styles.stateTitle}>No pets registered yet.</Text>
+              <Text style={styles.stateTitle}>No pets linked yet.</Text>
               <Text style={styles.stateText}>
                 Add your first pet to create a Pet-Connect ID and QR code.
               </Text>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.push('/add-pet')}
+                onPress={() => router.push('/add-pet?from=linked-pets')}
                 style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
                 <PlusIcon size={16} color={Palette.forestDark} />
                 <Text style={styles.primaryLabel}>Add Pet</Text>
@@ -142,14 +121,74 @@ export default function MyPetsScreen() {
           ) : (
             <>
               <View style={styles.list}>
-                {pets.map((pet) => (
-                  <PetCard key={pet.id} pet={pet} onViewQr={() => openPet(pet)} />
-                ))}
+                {pets.map((pet) => {
+                  const lost = activeLostAlertForPet(lostAlerts, pet.id);
+                  const statusLabel = petStatusLabel(pet, lost);
+                  return (
+                    <View key={pet.id} style={styles.petCard}>
+                      <View style={styles.petTopRow}>
+                        <View style={styles.petThumb}>
+                          {pet.photo ? (
+                            <Image
+                              source={{ uri: pet.photo }}
+                              style={styles.petPhoto}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <PawIcon size={26} color={Palette.forestDark} />
+                          )}
+                        </View>
+                        <View style={styles.petInfo}>
+                          <Text style={styles.petName}>{pet.name}</Text>
+                          <Text style={styles.petDetails}>
+                            {`${pet.species} \u00b7 ${pet.breed} \u00b7 ${pet.sex}`}
+                          </Text>
+                          <Text style={styles.petId}>{pet.id}</Text>
+                          <View
+                            style={[
+                              styles.statusChip,
+                              { borderColor: statusLabel.tone },
+                            ]}>
+                            <Text style={[styles.statusLabel, { color: statusLabel.tone }]}>
+                              {statusLabel.label}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <View style={styles.actionRow}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`View ${pet.name}'s digital pet ID`}
+                          onPress={() => openPetId(pet)}
+                          style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
+                          <QrIcon size={16} color={Palette.forestDark} />
+                          <Text style={styles.actionLabel}>Digital Pet ID</Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`View ${pet.name}'s health records`}
+                          onPress={() => openHealth(pet)}
+                          style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
+                          <HealthIcon size={16} color={Palette.forestDark} />
+                          <Text style={styles.actionLabel}>Health</Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Edit ${pet.name}`}
+                          onPress={() => openEdit(pet)}
+                          style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
+                          <GearIcon size={16} color={Palette.forestDark} />
+                          <Text style={styles.actionLabel}>Edit</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
 
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.push('/add-pet')}
+                onPress={() => router.push('/add-pet?from=linked-pets')}
                 style={({ pressed }) => [styles.addAnotherButton, pressed && styles.pressed]}>
                 <PlusIcon size={16} color={Palette.forestDark} />
                 <Text style={styles.addAnotherLabel}>Add another pet</Text>
@@ -158,7 +197,7 @@ export default function MyPetsScreen() {
           )}
         </ScrollView>
 
-        <BottomNav active="home" />
+        <BottomNav active="profile" />
       </SafeAreaView>
     </View>
   );
@@ -254,8 +293,8 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   petThumb: {
-    width: 56,
-    height: 56,
+    width: 60,
+    height: 60,
     borderRadius: 16,
     backgroundColor: Palette.sage,
     alignItems: 'center',
@@ -290,20 +329,38 @@ const styles = StyleSheet.create({
     color: Palette.forestDark,
     marginTop: 2,
   },
-  viewQrButton: {
+  statusChip: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 3,
+    paddingHorizontal: Spacing.two,
+    marginTop: 4,
+  },
+  statusLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  actionButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.two,
-    height: 42,
-    borderRadius: 12,
+    gap: 6,
+    height: 38,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     backgroundColor: Palette.cream,
   },
-  viewQrLabel: {
+  actionLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
     color: Palette.forestDark,
   },

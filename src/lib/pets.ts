@@ -1,8 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
+import { demoUserId, getSessionSync } from '@/lib/session';
+
 export type Pet = {
   id: string;
+  ownerId: string;
   name: string;
   species: string;
   sex: string;
@@ -19,8 +22,9 @@ export type Pet = {
   createdAt: number;
 };
 
-export type NewPetInput = Omit<Pet, 'id' | 'contactLocation' | 'createdAt'> & {
+export type NewPetInput = Omit<Pet, 'id' | 'ownerId' | 'contactLocation' | 'createdAt'> & {
   contactLocation?: string;
+  ownerId?: string;
 };
 
 const STORAGE_KEY = 'petconnect.pets.v1';
@@ -28,6 +32,7 @@ const STORAGE_KEY = 'petconnect.pets.v1';
 export const seedPets: Pet[] = [
   {
     id: 'PC-TAG-10482',
+    ownerId: demoUserId,
     name: 'Bantay',
     species: 'Dog',
     sex: 'Male',
@@ -45,6 +50,7 @@ export const seedPets: Pet[] = [
   },
   {
     id: 'PC-TAG-10483',
+    ownerId: demoUserId,
     name: 'Mingming',
     species: 'Cat',
     sex: 'Female',
@@ -113,6 +119,7 @@ async function readPets(): Promise<Pet[]> {
 function normalizePet(pet: Pet): Pet {
   return {
     ...pet,
+    ownerId: pet.ownerId ?? demoUserId,
     details: pet.details ?? '',
     collar: pet.collar ?? '',
     finderContactVisible: pet.finderContactVisible !== false,
@@ -148,6 +155,7 @@ export function createPet(input: NewPetInput): Promise<Pet> {
     const pet: Pet = {
       ...input,
       id,
+      ownerId: input.ownerId ?? getSessionSync().user?.userId ?? demoUserId,
       details: input.details?.trim() || '',
       collar: input.collar?.trim() || '',
       finderContactVisible: input.finderContactVisible !== false,
@@ -156,6 +164,37 @@ export function createPet(input: NewPetInput): Promise<Pet> {
     };
     await persist([...pets, pet]);
     return pet;
+  });
+}
+
+export function updatePet(
+  id: string,
+  input: Omit<NewPetInput, 'ownerId'>,
+): Promise<Pet> {
+  return mutate(async () => {
+    const pets = await readPets();
+    const existing = pets.find((p) => p.id === id);
+    if (!existing) {
+      throw new Error('Pet not found.');
+    }
+    const updated: Pet = {
+      ...existing,
+      name: input.name.trim(),
+      species: input.species,
+      sex: input.sex,
+      breed: input.breed.trim(),
+      color: input.color.trim(),
+      birthdate: input.birthdate,
+      photo: input.photo,
+      details: input.details.trim(),
+      collar: input.collar.trim(),
+      finderContactVisible: input.finderContactVisible !== false,
+      contactName: input.contactName.trim(),
+      contactMobile: input.contactMobile.trim(),
+      contactLocation: input.contactLocation?.trim() || existing.contactLocation,
+    };
+    await persist(pets.map((p) => (p.id === id ? updated : p)));
+    return updated;
   });
 }
 
@@ -184,6 +223,12 @@ export function usePets(): Pet[] {
   }, []);
 
   return pets;
+}
+
+export function useMyPets(userId?: string | null): Pet[] {
+  const pets = usePets();
+  if (!userId) return [];
+  return pets.filter((pet) => pet.ownerId === userId);
 }
 
 export function formatBirthdate(birthdate: string): string {

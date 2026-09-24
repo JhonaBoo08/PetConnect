@@ -17,6 +17,7 @@ import Svg, { Path } from 'react-native-svg';
 import { BackArrow, CheckIcon, ShieldIcon } from '@/components/app-icons';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { registerClinicDetails } from '@/lib/clinic';
 import { goBack } from '@/lib/navigation';
 
 function ProgressArrow({ size = 12 }: { size?: number }) {
@@ -39,6 +40,40 @@ export default function VetDetailsScreen() {
   const [city, setCity] = useState('');
   const [vetInCharge, setVetInCharge] = useState('');
   const [license, setLicense] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const onContinue = async () => {
+    if (saving) return;
+    if (!phone.trim()) {
+      setSubmitError('Please enter your clinic phone number.');
+      return;
+    }
+    if (!city.trim()) {
+      setSubmitError('Please enter your city or area.');
+      return;
+    }
+    setSaving(true);
+    setSubmitError(null);
+    try {
+      await registerClinicDetails({
+        phone: phone.trim(),
+        city: city.trim(),
+        province: '',
+        address: '',
+        veterinarianInCharge: vetInCharge.trim(),
+        license: license.trim(),
+        staff: vetInCharge.trim() ? [vetInCharge.trim()] : [],
+      });
+      router.replace('/clinic-verification');
+    } catch (e) {
+      setSubmitError(
+        e instanceof Error ? e.message : 'Unable to save your clinic details.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -148,11 +183,19 @@ export default function VetDetailsScreen() {
               </Text>
             </View>
 
+            {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
+
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/dashboard')}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-              <Text style={styles.primaryLabel}>Continue</Text>
+              disabled={saving}
+              onPress={() => void onContinue()}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                (pressed || saving) && styles.pressed,
+              ]}>
+              <Text style={styles.primaryLabel}>
+                {saving ? 'Submitting…' : 'Continue'}
+              </Text>
             </Pressable>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -325,6 +368,16 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 17,
     color: Palette.inkMuted,
+  },
+  errorText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Palette.danger,
+    backgroundColor: Palette.goldSoft,
+    borderRadius: 12,
+    padding: Spacing.three,
+    marginTop: Spacing.four,
   },
   primaryButton: {
     height: 48,

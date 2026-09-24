@@ -17,6 +17,7 @@ export type HealthRecord = {
   veterinaryClinic: string;
   notes: string;
   nextDueDate: string | null;
+  clinicId?: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -122,6 +123,7 @@ export const seedHealthRecords: HealthRecord[] = [
     recordName: '5-in-1 Vaccine',
     recordDate: '2026-09-20',
     veterinaryClinic: 'Tagum Pet Care Clinic',
+    clinicId: 'demo-clinic',
     notes: 'Second dose of the 5-in-1 vaccine. Bantay tolerated the shot well.',
     nextDueDate: '2027-09-20',
     createdAt: 2,
@@ -135,6 +137,7 @@ export const seedHealthRecords: HealthRecord[] = [
     recordName: 'Anti-Rabies',
     recordDate: '2026-08-14',
     veterinaryClinic: 'Tagum Pet Care Clinic',
+    clinicId: 'demo-clinic',
     notes: 'First rabies vaccination. No adverse reactions were observed after administration.',
     nextDueDate: null,
     createdAt: 1,
@@ -148,6 +151,7 @@ export const seedHealthRecords: HealthRecord[] = [
     recordName: 'Annual Checkup',
     recordDate: '2026-06-03',
     veterinaryClinic: 'Tagum Pet Care Clinic',
+    clinicId: 'demo-clinic',
     notes: 'Healthy weight · 26.4 kg',
     nextDueDate: null,
     createdAt: 0,
@@ -441,6 +445,7 @@ export function createHealthRecord(input: NewHealthRecordInput): Promise<HealthR
     const record: HealthRecord = {
       ...input,
       id: newRecordId(),
+      clinicId: input.clinicId ?? null,
       createdAt: now,
       updatedAt: now,
     };
