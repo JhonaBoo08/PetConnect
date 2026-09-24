@@ -20,6 +20,7 @@ export default function RootLayout() {
         <Stack.Screen name="dashboard" />
         <Stack.Screen name="scan" />
         <Stack.Screen name="alerts" />
+        <Stack.Screen name="alert-details" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="pet-id" />
         <Stack.Screen name="add-pet" />

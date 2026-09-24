@@ -19,6 +19,7 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
 import { petAge, usePets } from '@/lib/pets';
 
 function PetCard({
@@ -113,6 +114,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const addGlow = useState(() => new Animated.Value(0))[0];
   const pets = usePets();
+  const alerts = useLostPetAlerts();
   const primaryPet = pets[0]?.name;
 
   const fadeAddPet = (toValue: number) =>
@@ -178,6 +180,8 @@ export default function DashboardScreen() {
 
           <View style={styles.petList}>
             {pets.map((pet) => {
+              const lostAlert = activeLostAlertForPet(alerts, pet.id);
+              const isLost = Boolean(lostAlert);
               const isMingming = pet.name === 'Mingming';
               return (
                 <PetCard
@@ -185,10 +189,15 @@ export default function DashboardScreen() {
                   photo={pet.photo}
                   name={pet.name}
                   details={`${pet.breed} · ${petAge(pet)}`}
-                  status={isMingming ? 'Booster due' : 'Healthy'}
-                  statusTone={isMingming ? 'warning' : 'healthy'}
+                  status={isLost ? 'Lost · Alert active' : isMingming ? 'Booster due' : 'Healthy'}
+                  statusTone={isLost || isMingming ? 'warning' : 'healthy'}
                   onPress={() =>
-                    router.push({ pathname: '/pet-id', params: { name: pet.name } })
+                    lostAlert
+                      ? router.push({
+                          pathname: '/alert-details',
+                          params: { id: lostAlert.id },
+                        })
+                      : router.push({ pathname: '/pet-id', params: { name: pet.name } })
                   }
                 />
               );
@@ -224,6 +233,7 @@ export default function DashboardScreen() {
 
           <Pressable
             accessibilityRole="button"
+            onPress={() => router.push('/alerts')}
             style={({ pressed }) => [styles.lostButton, pressed && styles.pressed]}>
             <PinIcon />
             <Text style={styles.lostLabel}>Report Lost Pet</Text>

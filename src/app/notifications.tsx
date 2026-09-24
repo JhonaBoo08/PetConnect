@@ -1,11 +1,11 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   BackArrow,
   BellIcon,
+  CheckIcon,
   HealthIcon,
   PinIcon,
   SyringeIcon,
@@ -14,59 +14,34 @@ import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { goBack } from '@/lib/navigation';
+import {
+  type AppNotification,
+  readNotification,
+  useNotifications,
+} from '@/lib/notifications';
 
-type Notification = {
-  id: string;
-  Icon: typeof SyringeIcon;
-  title: string;
-  description: string;
-  timestamp: string;
-  unread: boolean;
-  route:
-    | '/reminder-details'
-    | '/alerts'
-    | { pathname: '/record-details'; params: { record: string; name: string } }
-    | { pathname: '/reminder-details'; params: { reminder: string } };
-};
-
-const initialNotifications: Notification[] = [
-  {
-    id: 'booster',
-    Icon: SyringeIcon,
-    title: 'Booster due soon',
-    description: "Mingming's FVRCP booster is due in 3 days.",
-    timestamp: '2h',
-    unread: true,
-    route: { pathname: '/reminder-details', params: { reminder: 'rem-fvrcp' } },
-  },
-  {
-    id: 'lost-pet',
-    Icon: PinIcon,
-    title: 'Lost pet nearby',
-    description: 'A brown Aspin was last seen near Mankilam.',
-    timestamp: '4h',
-    unread: true,
-    route: '/alerts',
-  },
-  {
-    id: 'verified-record',
-    Icon: HealthIcon,
-    title: 'Health record verified',
-    description: "Tagum Pet Care verified Bantay's anti-rabies record.",
-    timestamp: 'Yesterday',
-    unread: false,
-    route: { pathname: '/record-details', params: { record: 'anti-rabies', name: 'Bantay' } },
-  },
-];
+function iconFor(kind: AppNotification['kind']) {
+  switch (kind) {
+    case 'booster':
+      return SyringeIcon;
+    case 'lost-pet':
+      return PinIcon;
+    case 'found':
+      return CheckIcon;
+    case 'record':
+      return HealthIcon;
+  }
+}
 
 function NotificationCard({
   notification,
   onPress,
 }: {
-  notification: Notification;
+  notification: AppNotification;
   onPress: () => void;
 }) {
-  const { Icon, title, description, timestamp, unread } = notification;
+  const Icon = iconFor(notification.kind);
+  const { title, description, timestamp, unread } = notification;
   return (
     <Pressable
       accessibilityRole="button"
@@ -98,10 +73,10 @@ function NotificationCard({
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const [notifications, setNotifications] = useState<Notification[]>(initialNotifications);
+  const notifications = useNotifications();
 
-  const open = (notification: Notification) => {
-    setNotifications((prev) => prev.map((n) => (n.id === notification.id ? { ...n, unread: false } : n)));
+  const open = (notification: AppNotification) => {
+    readNotification(notification.id);
     router.push(notification.route);
   };
 
