@@ -32,7 +32,13 @@ export function DateField({
 }: DateFieldProps) {
   const [show, setShow] = useState(false);
   const parsed = parseDisplayDate(value);
-  const selected = parsed ?? (minimumDate && minimumDate > new Date(2020, 0, 1) ? minimumDate : new Date(2020, 0, 1));
+  const fallback = (() => {
+    const today = new Date();
+    if (minimumDate && today < minimumDate) return minimumDate;
+    if (maximumDate && today > maximumDate) return maximumDate;
+    return today;
+  })();
+  const selected = parsed ?? fallback;
   const displayValue = format === 'long' && parsed ? toLongDate(parsed) : value;
 
   return (
@@ -62,19 +68,30 @@ export function DateField({
       </Pressable>
 
       {show ? (
-        <DateTimePicker
-          value={selected}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          maximumDate={maximumDate}
-          minimumDate={minimumDate}
-          onChange={(event, picked) => {
-            if (Platform.OS === 'android') setShow(false);
-            if (event.type === 'set' && picked) {
-              onChange(toDisplayDate(picked));
-            }
-          }}
-        />
+        <View style={styles.pickerWrap}>
+          <DateTimePicker
+            value={selected}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            maximumDate={maximumDate}
+            minimumDate={minimumDate}
+            onChange={(event, picked) => {
+              if (Platform.OS === 'android') setShow(false);
+              if (event.type === 'set' && picked) {
+                onChange(toDisplayDate(picked));
+              }
+            }}
+          />
+          {Platform.OS === 'ios' ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+              onPress={() => setShow(false)}
+              style={({ pressed }) => [styles.doneButton, pressed && styles.pressed]}>
+              <Text style={styles.doneLabel}>Done</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -125,5 +142,18 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.85,
+  },
+  pickerWrap: {
+    alignItems: 'flex-end',
+  },
+  doneButton: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  doneLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Palette.forestDark,
   },
 });

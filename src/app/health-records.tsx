@@ -98,7 +98,7 @@ function summaryValues(records: HealthRecord[]): { lastCheckup: string; nextBoos
   const boosters = records
     .filter(
       (record) =>
-        record.recordType === 'Vaccination' && record.nextDueDate && record.nextDueDate,
+        record.recordType === 'Vaccination' && record.nextDueDate,
     )
     .map((record) => record.nextDueDate as string);
   const upcoming = boosters

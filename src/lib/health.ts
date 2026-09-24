@@ -195,6 +195,17 @@ function notifyReminders() {
   reminderListeners.forEach((listener) => listener());
 }
 
+let mutationQueue: Promise<unknown> = Promise.resolve();
+
+function mutate<T>(task: () => Promise<T>): Promise<T> {
+  const run = mutationQueue.then(task, task);
+  mutationQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 async function persistRecords(records: HealthRecord[]) {
   recordsCache = records;
   try {
@@ -368,11 +379,15 @@ export function newRecordId(): string {
   return `rec-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function upsertRecordReminder(record: HealthRecord) {
+async function upsertRecordReminder(record: HealthRecord) {
   if (!record.nextDueDate) return;
   const id = `rem-${record.id}`;
+  const reminders = await readReminders();
   const existing =
-    remindersCache?.find((reminder) => reminder.id === id) ?? null;
+    reminders.find((reminder) => reminder.id === id) ?? null;
+  const dueDateChanged = existing !== null && existing.dueDate !== record.nextDueDate;
+  const completedAt = dueDateChanged ? null : (existing?.completedAt ?? null);
+  const rescheduledAt = dueDateChanged ? Date.now() : (existing?.rescheduledAt ?? null);
   const reminder: HealthReminder = {
     id,
     petId: record.petId,
@@ -386,118 +401,134 @@ function upsertRecordReminder(record: HealthRecord) {
     notificationTiming: existing?.notificationTiming ?? reminderNotificationTimings[1],
     clinicId: existing?.clinicId ?? null,
     clinicName: record.veterinaryClinic,
-    completedAt: existing?.completedAt ?? null,
-    rescheduledAt: existing?.rescheduledAt ?? null,
+    completedAt,
+    rescheduledAt,
     createdAt: existing?.createdAt ?? Date.now(),
     updatedAt: Date.now(),
   };
-  const next = [
-    ...(remindersCache ?? []).filter((item) => item.id !== id),
+  await persistReminders([
+    ...reminders.filter((item) => item.id !== id),
     reminder,
-  ];
-  void persistReminders(next);
+  ]);
 }
 
-function removeRecordReminder(recordId: string) {
-  const next = (remindersCache ?? []).filter(
-    (reminder) => reminder.id !== `rem-${recordId}` && reminder.recordId !== recordId,
+async function removeRecordReminder(recordId: string) {
+  const reminders = await readReminders();
+  await persistReminders(
+    reminders.filter(
+      (reminder) =>
+        reminder.id !== `rem-${recordId}` && reminder.recordId !== recordId,
+    ),
   );
-  void persistReminders(next);
 }
 
-export async function createHealthRecord(input: NewHealthRecordInput): Promise<HealthRecord> {
-  const records = await readRecords();
-  const now = Date.now();
-  const record: HealthRecord = {
-    ...input,
-    id: newRecordId(),
-    createdAt: now,
-    updatedAt: now,
-  };
-  await persistRecords([...records, record]);
-  if (record.nextDueDate) upsertRecordReminder(record);
-  return record;
+export function createHealthRecord(input: NewHealthRecordInput): Promise<HealthRecord> {
+  return mutate(async () => {
+    const records = await readRecords();
+    const now = Date.now();
+    const record: HealthRecord = {
+      ...input,
+      id: newRecordId(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await persistRecords([...records, record]);
+    if (record.nextDueDate) await upsertRecordReminder(record);
+    return record;
+  });
 }
 
-export async function updateHealthRecord(
+export function updateHealthRecord(
   id: string,
   input: NewHealthRecordInput,
 ): Promise<HealthRecord> {
-  const records = await readRecords();
-  const existing = records.find((record) => record.id === id);
-  if (!existing) throw new Error('Health record not found.');
-  const updated: HealthRecord = {
-    ...existing,
-    ...input,
-    id,
-    updatedAt: Date.now(),
-  };
-  await persistRecords(records.map((record) => (record.id === id ? updated : record)));
-  if (updated.nextDueDate) {
-    upsertRecordReminder(updated);
-  } else {
-    removeRecordReminder(id);
-  }
-  return updated;
-}
-
-export async function deleteHealthRecord(id: string): Promise<void> {
-  const records = await readRecords();
-  await persistRecords(records.filter((record) => record.id !== id));
-  removeRecordReminder(id);
-}
-
-export async function toggleReminderCompleted(reminderId: string): Promise<void> {
-  const reminders = await readReminders();
-  const now = Date.now();
-  const next = reminders.map((reminder) => {
-    if (reminder.id !== reminderId) return reminder;
-    return {
-      ...reminder,
-      completedAt: reminder.completedAt ? null : dateToIso(new Date()),
-      updatedAt: now,
+  return mutate(async () => {
+    const records = await readRecords();
+    const existing = records.find((record) => record.id === id);
+    if (!existing) throw new Error('Health record not found.');
+    const updated: HealthRecord = {
+      ...existing,
+      ...input,
+      id,
+      updatedAt: Date.now(),
     };
+    await persistRecords(records.map((record) => (record.id === id ? updated : record)));
+    if (updated.nextDueDate) {
+      await upsertRecordReminder(updated);
+    } else {
+      await removeRecordReminder(id);
+    }
+    return updated;
   });
-  await persistReminders(next);
 }
 
-export async function rescheduleReminder(
+export function deleteHealthRecord(id: string): Promise<void> {
+  return mutate(async () => {
+    const records = await readRecords();
+    await persistRecords(records.filter((record) => record.id !== id));
+    await removeRecordReminder(id);
+  });
+}
+
+export function toggleReminderCompleted(reminderId: string): Promise<void> {
+  return mutate(async () => {
+    const reminders = await readReminders();
+    const now = Date.now();
+    const next = reminders.map((reminder) => {
+      if (reminder.id !== reminderId) return reminder;
+      return {
+        ...reminder,
+        completedAt: reminder.completedAt ? null : dateToIso(new Date()),
+        updatedAt: now,
+      };
+    });
+    await persistReminders(next);
+  });
+}
+
+export function rescheduleReminder(
   reminderId: string,
   dueDate: string,
   time: string,
 ): Promise<void> {
-  const reminders = await readReminders();
-  const now = Date.now();
-  const next = reminders.map((reminder) =>
-    reminder.id === reminderId
-      ? {
-          ...reminder,
-          dueDate,
-          time,
-          completedAt: null,
-          rescheduledAt: now,
-          updatedAt: now,
-        }
-      : reminder,
-  );
-  await persistReminders(next);
+  return mutate(async () => {
+    const reminders = await readReminders();
+    const now = Date.now();
+    const next = reminders.map((reminder) =>
+      reminder.id === reminderId
+        ? {
+            ...reminder,
+            dueDate,
+            time,
+            completedAt: null,
+            rescheduledAt: now,
+            updatedAt: now,
+          }
+        : reminder,
+    );
+    await persistReminders(next);
+  });
 }
 
-export async function setReminderNotificationTiming(
+export function setReminderNotificationTiming(
   reminderId: string,
   notificationTiming: ReminderNotificationTiming,
 ): Promise<void> {
-  const reminders = await readReminders();
-  const now = Date.now();
-  const next = reminders.map((reminder) =>
-    reminder.id === reminderId
-      ? { ...reminder, notificationTiming, updatedAt: now }
-      : reminder,
-  );
-  await persistReminders(next);
+  return mutate(async () => {
+    const reminders = await readReminders();
+    const now = Date.now();
+    const next = reminders.map((reminder) =>
+      reminder.id === reminderId
+        ? { ...reminder, notificationTiming, updatedAt: now }
+        : reminder,
+    );
+    await persistReminders(next);
+  });
 }
 
-export async function removeReminder(reminderId: string): Promise<void> {
-  const reminders = await readReminders();
-  await persistReminders(reminders.filter((reminder) => reminder.id !== reminderId));
+export function removeReminder(reminderId: string): Promise<void> {
+  return mutate(async () => {
+    const reminders = await readReminders();
+    await persistReminders(reminders.filter((reminder) => reminder.id !== reminderId));
+  });
 }

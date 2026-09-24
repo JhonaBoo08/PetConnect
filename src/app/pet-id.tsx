@@ -29,17 +29,51 @@ export default function PetIdScreen() {
   const params = useLocalSearchParams<{ name?: string }>();
   const requested = Array.isArray(params.name) ? params.name[0] : params.name;
   const petName = requested ?? 'Bantay';
+  const pets = usePets();
   const pet =
-    usePets().find((candidate) => candidate.name === petName) ??
-    seedPets.find((candidate) => candidate.name === petName) ??
-    seedPets[0];
+    pets.find((candidate) => candidate.name === petName) ??
+    (pets.length === 0
+      ? seedPets.find((candidate) => candidate.name === petName) ?? null
+      : null);
   const lostAlerts = useLostPetAlerts();
-  const lostAlert = activeLostAlertForPet(lostAlerts, pet.id);
-  const isLost = Boolean(lostAlert);
 
   const [sharing, setSharing] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportSent, setReportSent] = useState(false);
+
+  if (!pet) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.topBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => goBack('/dashboard')}
+              style={styles.iconButton}>
+              <BackArrow />
+            </Pressable>
+          </View>
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Pet not found</Text>
+            <Text style={styles.emptyText}>
+              We could not find &quot;{petName}&quot;. It may have been removed or renamed.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => goBack('/dashboard')}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+              <Text style={styles.actionPrimaryLabel}>Back to dashboard</Text>
+            </Pressable>
+          </View>
+          <BottomNav active="home" />
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  const lostAlert = activeLostAlertForPet(lostAlerts, pet.id);
+  const isLost = Boolean(lostAlert);
 
   const contactVisible = pet.finderContactVisible;
 
@@ -396,6 +430,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.4,
     color: Palette.forestDark,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+    gap: Spacing.two,
+  },
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: Palette.inkMuted,
+    textAlign: 'center',
+    maxWidth: 300,
+    marginBottom: Spacing.two,
   },
   idCard: {
     marginTop: Spacing.four,

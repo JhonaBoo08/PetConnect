@@ -24,7 +24,7 @@ export function TimeField({
 }: TimeFieldProps) {
   const [show, setShow] = useState(false);
   const parsed = parseTime(value);
-  const selected = parsed ?? new Date(2000, 0, 1, 9, 30);
+  const selected = parsed ?? new Date();
 
   return (
     <View style={styles.wrap}>
@@ -44,17 +44,28 @@ export function TimeField({
       </Pressable>
 
       {show ? (
-        <DateTimePicker
-          value={selected}
-          mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={(event, picked) => {
-            if (Platform.OS === 'android') setShow(false);
-            if (event.type === 'set' && picked) {
-              onChange(formatTime(picked));
-            }
-          }}
-        />
+        <View style={styles.pickerWrap}>
+          <DateTimePicker
+            value={selected}
+            mode="time"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={(event, picked) => {
+              if (Platform.OS === 'android') setShow(false);
+              if (event.type === 'set' && picked) {
+                onChange(formatTime(picked));
+              }
+            }}
+          />
+          {Platform.OS === 'ios' ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+              onPress={() => setShow(false)}
+              style={({ pressed }) => [styles.doneButton, pressed && styles.pressed]}>
+              <Text style={styles.doneLabel}>Done</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -90,5 +101,18 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.85,
+  },
+  pickerWrap: {
+    alignItems: 'flex-end',
+  },
+  doneButton: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  doneLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Palette.forestDark,
   },
 });

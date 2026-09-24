@@ -25,7 +25,6 @@ import {
   reminderStatus,
   reminderWhen,
   rescheduleReminder,
-  seedHealthReminders,
   setReminderNotificationTiming,
   toggleReminderCompleted,
   useHealthReminders,
@@ -69,26 +68,56 @@ export default function ReminderDetailsScreen() {
   const reminderId = Array.isArray(params.reminder) ? params.reminder[0] : params.reminder ?? '';
 
   const reminders = useHealthReminders();
-  const reminder =
-    reminders.find((candidate) => candidate.id === reminderId) ??
-    seedHealthReminders.find((candidate) => candidate.id === reminderId) ??
-    seedHealthReminders[0];
+  const reminder = reminders.find((candidate) => candidate.id === reminderId) ?? null;
 
   const pets = usePets();
-  const pet = pets.find((candidate) => candidate.id === reminder.petId);
-  const petMeta = pet ? `${pet.breed} \u00b7 ${petAge(pet)}` : reminder.petName;
-
-  const status = reminderStatus(reminder);
-  const completed = reminder.completedAt !== null;
+  const pet = reminder ? pets.find((candidate) => candidate.id === reminder.petId) : undefined;
 
   const [removing, setRemoving] = useState(false);
   const [removingBusy, setRemovingBusy] = useState(false);
   const [marking, setMarking] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState('');
-  const [rescheduleTime, setRescheduleTime] = useState(reminder.time);
+  const [rescheduleTime, setRescheduleTime] = useState('');
   const [rescheduling, setRescheduling] = useState(false);
-  const [notify, setNotify] = useState<ReminderNotificationTiming>(reminder.notificationTiming);
+  const [notify, setNotify] = useState<ReminderNotificationTiming>(reminderNotificationTimings[1]);
+
+  if (!reminder) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.topBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => goBack('/health-reminders')}
+              style={styles.iconButton}>
+              <BackArrow />
+            </Pressable>
+          </View>
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Reminder not found</Text>
+            <Text style={styles.emptyText}>
+              This reminder may have been removed. Head back to your health reminders to keep
+              browsing.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => goBack('/health-reminders')}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+              <Text style={styles.primaryLabel}>Back to health reminders</Text>
+            </Pressable>
+          </View>
+          <BottomNav active="home" />
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  const petMeta = pet ? `${pet.breed} \u00b7 ${petAge(pet)}` : reminder.petName;
+
+  const status = reminderStatus(reminder);
+  const completed = reminder.completedAt !== null;
 
   const confirmComplete = async () => {
     setMarking(false);
@@ -676,6 +705,29 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: Palette.forestDark,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+    gap: Spacing.two,
+  },
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: Palette.inkMuted,
+    textAlign: 'center',
+    maxWidth: 300,
+    marginBottom: Spacing.two,
   },
   notifySection: {
     marginTop: Spacing.five,

@@ -19,8 +19,10 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { isoToFullMonthDay } from '@/lib/date';
 import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
 import { petAge, usePets } from '@/lib/pets';
+import { reminderDaysUntil, reminderStatus, useHealthReminders } from '@/lib/health';
 
 function PetCard({
   photo,
@@ -115,7 +117,21 @@ export default function DashboardScreen() {
   const addGlow = useState(() => new Animated.Value(0))[0];
   const pets = usePets();
   const alerts = useLostPetAlerts();
+  const reminders = useHealthReminders();
   const primaryPet = pets[0]?.name;
+
+  const boosterDueFor = (petId: string) =>
+    reminders.some(
+      (reminder) =>
+        reminder.petId === petId &&
+        !reminder.completedAt &&
+        reminderStatus(reminder) !== 'Upcoming',
+    );
+
+  const nextReminder =
+    reminders
+      .filter((reminder) => !reminder.completedAt)
+      .sort((a, b) => reminderDaysUntil(a.dueDate) - reminderDaysUntil(b.dueDate))[0] ?? null;
 
   const fadeAddPet = (toValue: number) =>
     Animated.timing(addGlow, {
@@ -182,15 +198,15 @@ export default function DashboardScreen() {
             {pets.map((pet) => {
               const lostAlert = activeLostAlertForPet(alerts, pet.id);
               const isLost = Boolean(lostAlert);
-              const isMingming = pet.name === 'Mingming';
+              const boosterDue = boosterDueFor(pet.id);
               return (
                 <PetCard
                   key={pet.id}
                   photo={pet.photo}
                   name={pet.name}
                   details={`${pet.breed} · ${petAge(pet)}`}
-                  status={isLost ? 'Lost · Alert active' : isMingming ? 'Booster due' : 'Healthy'}
-                  statusTone={isLost || isMingming ? 'warning' : 'healthy'}
+                  status={isLost ? 'Lost · Alert active' : boosterDue ? 'Booster due' : 'Healthy'}
+                  statusTone={isLost || boosterDue ? 'warning' : 'healthy'}
                   onPress={() =>
                     lostAlert
                       ? router.push({
@@ -239,21 +255,25 @@ export default function DashboardScreen() {
             <Text style={styles.lostLabel}>Report Lost Pet</Text>
           </Pressable>
 
-          <View style={styles.reminderCard}>
-            <View style={styles.reminderIcon}>
-              <BellIcon size={20} color={Palette.gold} />
+{nextReminder ? (
+            <View style={styles.reminderCard}>
+              <View style={styles.reminderIcon}>
+                <BellIcon size={20} color={Palette.gold} />
+              </View>
+              <Text style={styles.reminderTitle}>
+                {nextReminder.type === 'Vaccination' ? 'Booster is due' : 'Reminder is due'}
+              </Text>
+              <Text style={styles.reminderMeta}>
+                {`${nextReminder.title} · ${isoToFullMonthDay(nextReminder.dueDate)} at ${nextReminder.clinicName}`}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/view-reminder')}
+                style={({ pressed }) => [styles.reminderButton, pressed && styles.pressed]}>
+                <Text style={styles.reminderButtonLabel}>View reminder</Text>
+              </Pressable>
             </View>
-            <Text style={styles.reminderTitle}>Booster is due</Text>
-            <Text style={styles.reminderMeta}>
-              FVRCP booster · September 20 at Tagum Pet Care Clinic
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push('/view-reminder')}
-              style={({ pressed }) => [styles.reminderButton, pressed && styles.pressed]}>
-              <Text style={styles.reminderButtonLabel}>View reminder</Text>
-            </Pressable>
-          </View>
+          ) : null}
         </ScrollView>
 
         <BottomNav active="home" />

@@ -65,6 +65,17 @@ export const seedPets: Pet[] = [
 let petsCache: Pet[] | null = null;
 const listeners = new Set<() => void>();
 
+let mutationQueue: Promise<unknown> = Promise.resolve();
+
+function mutate<T>(task: () => Promise<T>): Promise<T> {
+  const run = mutationQueue.then(task, task);
+  mutationQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 function notify() {
   listeners.forEach((listener) => listener());
 }
@@ -124,26 +135,28 @@ export async function getPetById(id: string): Promise<Pet | null> {
   return (await readPets()).find((p) => p.id === id) ?? null;
 }
 
-export async function createPet(input: NewPetInput): Promise<Pet> {
-  const pets = await readPets();
-  let index = 10000 + Math.floor(Math.random() * 90000);
-  let id = `PC-TAG-${index}`;
-  const existing = new Set(pets.map((p) => p.id));
-  while (existing.has(id)) {
-    index = 10000 + Math.floor(Math.random() * 90000);
-    id = `PC-TAG-${index}`;
-  }
-  const pet: Pet = {
-    ...input,
-    id,
-    details: input.details?.trim() || '',
-    collar: input.collar?.trim() || '',
-    finderContactVisible: input.finderContactVisible !== false,
-    contactLocation: input.contactLocation?.trim() || 'Tagum City',
-    createdAt: Date.now(),
-  };
-  await persist([...pets, pet]);
-  return pet;
+export function createPet(input: NewPetInput): Promise<Pet> {
+  return mutate(async () => {
+    const pets = await readPets();
+    let index = 10000 + Math.floor(Math.random() * 90000);
+    let id = `PC-TAG-${index}`;
+    const existing = new Set(pets.map((p) => p.id));
+    while (existing.has(id)) {
+      index = 10000 + Math.floor(Math.random() * 90000);
+      id = `PC-TAG-${index}`;
+    }
+    const pet: Pet = {
+      ...input,
+      id,
+      details: input.details?.trim() || '',
+      collar: input.collar?.trim() || '',
+      finderContactVisible: input.finderContactVisible !== false,
+      contactLocation: input.contactLocation?.trim() || 'Tagum City',
+      createdAt: Date.now(),
+    };
+    await persist([...pets, pet]);
+    return pet;
+  });
 }
 
 export function subscribePets(listener: () => void): () => void {

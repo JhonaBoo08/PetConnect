@@ -17,7 +17,6 @@ import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { isoToLongDate } from '@/lib/date';
 import {
   deleteHealthRecord,
-  seedHealthRecords,
   type HealthRecord,
   type HealthRecordType,
   useHealthRecords,
@@ -53,13 +52,41 @@ export default function RecordDetailsScreen() {
   const petName = Array.isArray(params.name) ? params.name[0] : params.name ?? 'Bantay';
 
   const stored = useHealthRecords();
-  const record =
-    stored.find((candidate) => candidate.id === recordId) ??
-    seedHealthRecords.find((candidate) => candidate.id === recordId) ??
-    seedHealthRecords[0];
+  const record = stored.find((candidate) => candidate.id === recordId) ?? null;
 
   const [removing, setRemoving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  if (!record) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.topBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => goBack('/health-records')}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+              <BackArrow />
+            </Pressable>
+          </View>
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Health record not found</Text>
+            <Text style={styles.emptyText}>
+              This record may have been deleted. Head back to your health records to keep browsing.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => goBack('/health-records')}
+              style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+              <Text style={styles.editLabel}>Back to health records</Text>
+            </Pressable>
+          </View>
+          <BottomNav active="home" />
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   const remove = async () => {
     setDeleting(true);
@@ -364,6 +391,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: Palette.forestDark,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+    gap: Spacing.two,
+  },
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: Palette.inkMuted,
+    textAlign: 'center',
+    maxWidth: 300,
+    marginBottom: Spacing.two,
   },
   notesText: {
     fontFamily: Fonts.sans,
