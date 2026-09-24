@@ -163,7 +163,7 @@ export default function AddPetScreen() {
 
     setSaving(true);
     try {
-      const pet = await createPet({
+      await createPet({
         name: name.trim(),
         species,
         sex,
@@ -178,7 +178,7 @@ export default function AddPetScreen() {
         contactMobile: contactMobile.trim(),
         contactLocation: contactLocation.trim(),
       });
-      router.replace({ pathname: '/pet-id', params: { name: pet.name } });
+      router.replace('/my-pets');
     } finally {
       setSaving(false);
     }

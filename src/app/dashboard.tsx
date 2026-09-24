@@ -225,11 +225,7 @@ export default function DashboardScreen() {
             <QuickCareCard
               icon={<QrIcon />}
               label="View QR"
-              onPress={() =>
-                primaryPet
-                  ? router.push({ pathname: '/pet-id', params: { name: primaryPet } })
-                  : router.push('/pet-id')
-              }
+              onPress={() => router.push('/my-pets')}
             />
             <QuickCareCard
               icon={<HealthIcon />}
