@@ -1,29 +1,40 @@
-import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import { type ReactNode, useState } from 'react';
-import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from "expo-image";
+import { useRouter } from "expo-router";
+import { type ReactNode, useState } from "react";
+import {
+    Animated,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
-  BellIcon,
-  CalendarIcon,
-  CheckIcon,
-  ChevronRightIcon,
-  HealthIcon,
-  PawIcon,
-  PlusIcon,
-  PinIcon,
-  QrIcon,
-  WarningIcon,
-} from '@/components/app-icons';
-import { BottomNav } from '@/components/bottom-nav';
-import { Palette } from '@/constants/palette';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { isoToFullMonthDay } from '@/lib/date';
-import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
-import { petAge, useMyPets } from '@/lib/pets';
-import { reminderDaysUntil, reminderStatus, useHealthReminders } from '@/lib/health';
-import { useSession } from '@/lib/session';
+    BellIcon,
+    CalendarIcon,
+    CheckIcon,
+    ChevronRightIcon,
+    HealthIcon,
+    PawIcon,
+    PinIcon,
+    PlusIcon,
+    QrIcon,
+    WarningIcon,
+} from "@/components/app-icons";
+import { BottomNav } from "@/components/bottom-nav";
+import { Palette } from "@/constants/palette";
+import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
+import { isoToFullMonthDay } from "@/lib/date";
+import {
+    reminderDaysUntil,
+    reminderStatus,
+    useHealthReminders,
+} from "@/lib/health";
+import { activeLostAlertForPet, useLostPetAlerts } from "@/lib/lost-pets";
+import { petAge, useMyPets } from "@/lib/pets";
+import { useSession } from "@/lib/session";
 
 function PetCard({
   photo,
@@ -37,18 +48,23 @@ function PetCard({
   name: string;
   details: string;
   status: string;
-  statusTone: 'healthy' | 'warning';
+  statusTone: "healthy" | "warning";
   onPress: () => void;
 }) {
-  const isWarning = statusTone === 'warning';
+  const isWarning = statusTone === "warning";
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [styles.petCard, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.petCard, pressed && styles.pressed]}
+    >
       <View style={styles.petPhoto}>
         {photo ? (
-          <Image source={{ uri: photo }} style={styles.petPhotoImage} contentFit="cover" />
+          <Image
+            source={{ uri: photo }}
+            style={styles.petPhotoImage}
+            contentFit="cover"
+          />
         ) : (
           <PawIcon size={30} color={Palette.forestDark} />
         )}
@@ -57,7 +73,12 @@ function PetCard({
       <View style={styles.petInfo}>
         <Text style={styles.petName}>{name}</Text>
         <Text style={styles.petDetails}>{details}</Text>
-        <View style={[styles.statusPill, isWarning ? styles.statusWarning : styles.statusHealthy]}>
+        <View
+          style={[
+            styles.statusPill,
+            isWarning ? styles.statusWarning : styles.statusHealthy,
+          ]}
+        >
           {isWarning ? <WarningIcon /> : <CheckIcon />}
           <Text style={styles.statusText}>{status}</Text>
         </View>
@@ -81,34 +102,44 @@ function QuickCareCard({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}
+    >
       {icon}
       <Text style={styles.quickLabel}>{label}</Text>
     </Pressable>
   );
 }
 
-const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const weekdays = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 const months = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 function useNow() {
   const now = new Date();
   const dateLabel = `${weekdays[now.getDay()]}, ${months[now.getMonth()]} ${now.getDate()}`;
   const hour = now.getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   return { dateLabel, greeting };
 }
 
@@ -119,21 +150,28 @@ export default function DashboardScreen() {
   const session = useSession();
   const pets = useMyPets(session.user?.userId);
   const alerts = useLostPetAlerts();
-  const reminders = useHealthReminders();
+  const allReminders = useHealthReminders();
+  const petIds = new Set(pets.map((pet) => pet.id));
+  const reminders = allReminders.filter((reminder) =>
+    petIds.has(reminder.petId),
+  );
   const primaryPet = pets[0]?.name;
+  const firstName = session.user?.fullName.trim().split(/\s+/)[0] || "there";
 
   const boosterDueFor = (petId: string) =>
     reminders.some(
       (reminder) =>
         reminder.petId === petId &&
         !reminder.completedAt &&
-        reminderStatus(reminder) !== 'Upcoming',
+        reminderStatus(reminder) !== "Upcoming",
     );
 
   const nextReminder =
     reminders
       .filter((reminder) => !reminder.completedAt)
-      .sort((a, b) => reminderDaysUntil(a.dueDate) - reminderDaysUntil(b.dueDate))[0] ?? null;
+      .sort(
+        (a, b) => reminderDaysUntil(a.dueDate) - reminderDaysUntil(b.dueDate),
+      )[0] ?? null;
 
   const fadeAddPet = (toValue: number) =>
     Animated.timing(addGlow, {
@@ -148,27 +186,31 @@ export default function DashboardScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.header}>
             <View style={styles.brandRow}>
               <View style={styles.brandMark}>
                 <Image
-                  source={require('@/assets/images/logo.png')}
+                  source={require("@/assets/images/logo.png")}
                   style={styles.brandMarkImage}
                   contentFit="contain"
                 />
               </View>
               <View>
                 <Text style={styles.brandName}>Pet-Connect</Text>
-                <Text style={styles.brandTagline}>SCAN · PROTECT · RECONNECT</Text>
+                <Text style={styles.brandTagline}>
+                  SCAN · PROTECT · RECONNECT
+                </Text>
               </View>
             </View>
 
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() => router.push('/notifications')}
-              style={styles.bellButton}>
+              onPress={() => router.push("/notifications")}
+              style={styles.bellButton}
+            >
               <BellIcon />
               <View style={styles.bellDot} />
             </Pressable>
@@ -176,19 +218,23 @@ export default function DashboardScreen() {
 
           <Text style={styles.date}>{dateLabel}</Text>
           <Text style={styles.greeting}>
-            {greeting}, Raven!
+            {greeting}, {firstName}!
           </Text>
 
           <View style={styles.sectionRow}>
             <Text style={styles.sectionTitle}>Your pets</Text>
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/add-pet')}
+              onPress={() => router.push("/add-pet")}
               onPressIn={() => fadeAddPet(1)}
               onPressOut={() => fadeAddPet(0)}
-              style={styles.addPet}>
+              style={styles.addPet}
+            >
               <Animated.View
-                style={[styles.addPetGlow, { opacity: addGlow, pointerEvents: 'none' }]}
+                style={[
+                  styles.addPetGlow,
+                  { opacity: addGlow, pointerEvents: "none" },
+                ]}
               />
               <PlusIcon size={14} />
               <Text style={styles.addPetLabel}>Add pet</Text>
@@ -206,67 +252,91 @@ export default function DashboardScreen() {
                   photo={pet.photo}
                   name={pet.name}
                   details={`${pet.breed} · ${petAge(pet)}`}
-                  status={isLost ? 'Lost · Alert active' : boosterDue ? 'Booster due' : 'Healthy'}
-                  statusTone={isLost || boosterDue ? 'warning' : 'healthy'}
+                  status={
+                    isLost
+                      ? "Lost · Alert active"
+                      : boosterDue
+                        ? "Booster due"
+                        : "Healthy"
+                  }
+                  statusTone={isLost || boosterDue ? "warning" : "healthy"}
                   onPress={() =>
                     lostAlert
                       ? router.push({
-                          pathname: '/alert-details',
+                          pathname: "/alert-details",
                           params: { id: lostAlert.id },
                         })
-                      : router.push({ pathname: '/pet-id', params: { name: pet.name } })
+                      : router.push({
+                          pathname: "/pet-id",
+                          params: { name: pet.name },
+                        })
                   }
                 />
               );
             })}
           </View>
 
-          <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Quick care</Text>
+          <Text style={[styles.sectionTitle, styles.sectionSpacing]}>
+            Quick care
+          </Text>
           <View style={styles.quickRow}>
             <QuickCareCard
               icon={<QrIcon />}
               label="View QR"
-              onPress={() => router.push('/my-pets')}
+              onPress={() => router.push("/my-pets")}
             />
             <QuickCareCard
               icon={<HealthIcon />}
               label="Health"
               onPress={() =>
                 primaryPet
-                  ? router.push({ pathname: '/health-records', params: { name: primaryPet } })
-                  : router.push('/health-records')
+                  ? router.push({
+                      pathname: "/health-records",
+                      params: { name: primaryPet },
+                    })
+                  : router.push("/health-records")
               }
             />
             <QuickCareCard
               icon={<CalendarIcon />}
               label="Reminders"
-              onPress={() => router.push('/health-reminders')}
+              onPress={() => router.push("/health-reminders")}
             />
           </View>
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push('/alerts')}
-            style={({ pressed }) => [styles.lostButton, pressed && styles.pressed]}>
+            onPress={() => router.push("/alerts")}
+            style={({ pressed }) => [
+              styles.lostButton,
+              pressed && styles.pressed,
+            ]}
+          >
             <PinIcon />
             <Text style={styles.lostLabel}>Report Lost Pet</Text>
           </Pressable>
 
-{nextReminder ? (
+          {nextReminder ? (
             <View style={styles.reminderCard}>
               <View style={styles.reminderIcon}>
                 <BellIcon size={20} color={Palette.gold} />
               </View>
               <Text style={styles.reminderTitle}>
-                {nextReminder.type === 'Vaccination' ? 'Booster is due' : 'Reminder is due'}
+                {nextReminder.type === "Vaccination"
+                  ? "Booster is due"
+                  : "Reminder is due"}
               </Text>
               <Text style={styles.reminderMeta}>
                 {`${nextReminder.title} · ${isoToFullMonthDay(nextReminder.dueDate)} at ${nextReminder.clinicName}`}
               </Text>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.push('/view-reminder')}
-                style={({ pressed }) => [styles.reminderButton, pressed && styles.pressed]}>
+                onPress={() => router.push("/view-reminder")}
+                style={({ pressed }) => [
+                  styles.reminderButton,
+                  pressed && styles.pressed,
+                ]}
+              >
                 <Text style={styles.reminderButtonLabel}>View reminder</Text>
               </Pressable>
             </View>
@@ -286,14 +356,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.border,
     borderRadius: 32,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    overflow: "hidden",
+    flexDirection: "row",
+    justifyContent: "center",
   },
   safeArea: {
     flex: 1,
     maxWidth: MaxContentWidth,
-    width: '100%',
+    width: "100%",
   },
   content: {
     flexGrow: 1,
@@ -301,14 +371,14 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: Spacing.two,
   },
   brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.three,
   },
   brandMark: {
@@ -316,26 +386,26 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: Palette.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   brandMarkImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
     borderRadius: 22,
   },
   brandName: {
     fontFamily: Fonts.sans,
     fontSize: 19,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
     letterSpacing: -0.3,
   },
   brandTagline: {
     fontFamily: Fonts.sans,
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.inkMuted,
     letterSpacing: 1.2,
     marginTop: 2,
@@ -347,11 +417,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   bellDot: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     right: 11,
     width: 8,
@@ -371,38 +441,38 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 27,
     lineHeight: 34,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
     letterSpacing: -0.5,
     marginTop: Spacing.one,
   },
   sectionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: Spacing.five,
   },
   sectionTitle: {
     fontFamily: Fonts.sans,
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   sectionSpacing: {
     marginTop: Spacing.five,
   },
   addPet: {
-    position: 'relative',
-    overflow: 'hidden',
-    flexDirection: 'row',
-    alignItems: 'center',
+    position: "relative",
+    overflow: "hidden",
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.one,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
     borderRadius: 999,
   },
   addPetGlow: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     right: 0,
     bottom: 0,
@@ -413,7 +483,7 @@ const styles = StyleSheet.create({
   addPetLabel: {
     fontFamily: Fonts.sans,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Palette.forestDark,
   },
   petList: {
@@ -421,8 +491,8 @@ const styles = StyleSheet.create({
     marginTop: Spacing.three,
   },
   petCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.three,
     backgroundColor: Palette.surface,
     borderWidth: 1,
@@ -430,20 +500,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: Spacing.three,
     minHeight: 88,
-    boxShadow: '0px 3px 8px rgba(27,67,50,0.06)',
+    boxShadow: "0px 3px 8px rgba(27,67,50,0.06)",
   },
   petPhoto: {
     width: 65,
     height: 65,
     borderRadius: 12,
     backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   petPhotoImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   petInfo: {
     flex: 1,
@@ -452,7 +522,7 @@ const styles = StyleSheet.create({
   petName: {
     fontFamily: Fonts.sans,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   petDetails: {
@@ -461,9 +531,9 @@ const styles = StyleSheet.create({
     color: Palette.inkMuted,
   },
   statusPill: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     borderRadius: 999,
     paddingHorizontal: Spacing.two,
@@ -479,11 +549,11 @@ const styles = StyleSheet.create({
   statusText: {
     fontFamily: Fonts.sans,
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Palette.forestDark,
   },
   quickRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: Spacing.three,
     marginTop: Spacing.three,
   },
@@ -492,31 +562,31 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     backgroundColor: Palette.sage,
     borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     gap: Spacing.two,
   },
   quickLabel: {
     fontFamily: Fonts.sans,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Palette.forestDark,
   },
   lostButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: Spacing.two,
     height: 52,
     borderRadius: 999,
     backgroundColor: Palette.gold,
     marginTop: Spacing.five,
-    boxShadow: '0px 4px 10px rgba(242,182,50,0.3)',
+    boxShadow: "0px 4px 10px rgba(242,182,50,0.3)",
   },
   lostLabel: {
     fontFamily: Fonts.sans,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   reminderCard: {
@@ -530,25 +600,25 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: Spacing.one,
   },
   reminderTitle: {
     fontFamily: Fonts.sans,
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.white,
   },
   reminderMeta: {
     fontFamily: Fonts.sans,
     fontSize: 13,
     lineHeight: 19,
-    color: '#D8E2D6',
+    color: "#D8E2D6",
   },
   reminderButton: {
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     backgroundColor: Palette.gold,
     borderRadius: 999,
     paddingHorizontal: Spacing.three,
@@ -558,7 +628,7 @@ const styles = StyleSheet.create({
   reminderButtonLabel: {
     fontFamily: Fonts.sans,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   pressed: {
