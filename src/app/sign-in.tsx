@@ -1,10 +1,14 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRouter } from "expo-router";
+import { useState } from "react";
 
-import { AuthFooter, AuthScreen, type AuthFormValues } from '@/components/auth-screen';
-import { getClinicProfileForUserId } from '@/lib/clinic';
-import { goBack } from '@/lib/navigation';
-import { signIn } from '@/lib/session';
+import {
+    AuthFooter,
+    AuthScreen,
+    type AuthFormValues,
+} from "@/components/auth-screen";
+import { getClinicProfileForUserId } from "@/lib/clinic";
+import { goBack } from "@/lib/navigation";
+import { signIn } from "@/lib/session";
 
 export default function SignInScreen() {
   const router = useRouter();
@@ -17,18 +21,18 @@ export default function SignInScreen() {
     setError(null);
     try {
       const user = await signIn(values.email, values.password);
-      if (user.accountType === 'vet') {
+      if (user.accountType === "vet") {
         const clinic = await getClinicProfileForUserId(user.userId);
-        if (clinic && clinic.verificationStatus === 'verified') {
-          router.replace('/clinic');
+        if (clinic && clinic.verificationStatus === "verified") {
+          router.replace("/clinic");
         } else {
-          router.replace('/clinic-verification');
+          router.replace("/clinic-verification");
         }
       } else {
-        router.replace('/dashboard');
+        router.replace("/dashboard");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to sign in right now.');
+      setError(e instanceof Error ? e.message : "Unable to sign in right now.");
     } finally {
       setSubmitting(false);
     }
@@ -38,16 +42,15 @@ export default function SignInScreen() {
     <AuthScreen
       title="Welcome back"
       subtitle="Care follows wherever your pet goes."
-      submitLabel={submitting ? 'Signing in…' : 'Sign In'}
-      note="Demo owner: raven@petconnect.ph · Demo clinic: clinic@petconnect.ph · password: petconnect"
+      submitLabel={submitting ? "Signing in…" : "Sign In"}
       error={error}
-      onBack={() => goBack('/')}
+      onBack={() => goBack("/")}
       onSubmit={handleSubmit}
       footer={
         <AuthFooter
           text="New here? "
           linkLabel="Create an account"
-          onPress={() => router.push('/create-account')}
+          onPress={() => router.push("/create-account")}
         />
       }
     />

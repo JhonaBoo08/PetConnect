@@ -33,8 +33,6 @@ import { getPetById } from '@/lib/pets';
 import { useSession } from '@/lib/session';
 
 const PET_ID_PATTERN = /^PC-TAG-\d{4,}$/;
-const SIMULATED_PET_ID = 'PC-TAG-10482';
-const LIVE_ENVIRONMENTS = ['dev', 'staging'];
 type ScanState = 'idle' | 'confirm' | 'searching' | 'invalid' | 'notfound' | 'error';
 
 export default function ScanScreen() {
@@ -47,9 +45,6 @@ export default function ScanScreen() {
 
   const scanAnim = useState(() => new Animated.Value(0))[0];
   const useNative = Platform.OS !== 'web';
-  const allowSimulate =
-    !LIVE_ENVIRONMENTS.includes(process.env.EXPO_PUBLIC_FIREBASE_ENV ?? 'emulator');
-
   const resetScan = useCallback(() => {
     processingRef.current = false;
     setScanState('idle');
@@ -127,10 +122,6 @@ export default function ScanScreen() {
     },
     [handleScan],
   );
-
-  const simulateScan = useCallback(() => {
-    void handleScan(SIMULATED_PET_ID);
-  }, [handleScan]);
 
   return (
     <View style={styles.container}>
@@ -283,16 +274,6 @@ export default function ScanScreen() {
                 </Text>
               </Pressable>
             </View>
-          ) : null}
-
-          {scanState === 'idle' && allowSimulate ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={simulateScan}
-              style={({ pressed }) => [styles.simulateButton, pressed && styles.pressed]}>
-              <QrIcon size={16} color={Palette.forestDark} />
-              <Text style={styles.simulateLabel}>Simulate successful scan</Text>
-            </Pressable>
           ) : null}
 
           <Text style={styles.helper}>Camera access is used only while scanning.</Text>
@@ -555,23 +536,6 @@ const styles = StyleSheet.create({
   permissionButtonLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  simulateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Palette.gold,
-    marginTop: Spacing.four,
-    boxShadow: '0px 4px 10px rgba(242,182,50,0.3)',
-  },
-  simulateLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
     fontWeight: '800',
     color: Palette.forestDark,
   },

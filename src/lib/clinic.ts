@@ -1,15 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 
+import { getSessionSync, useSession } from "@/lib/session";
 import {
-  clinicBridgeAvailable,
-  fetchRemoteClinicProfile,
-  submitClinicProfile,
-} from '@/services/clinic';
-import { demoClinicUserId, getSessionSync, useSession } from '@/lib/session';
+    clinicBridgeAvailable,
+    fetchRemoteClinicProfile,
+    submitClinicProfile,
+} from "@/services/clinic";
 
-export type VerificationStatus = 'verified' | 'pending' | 'rejected';
+export type VerificationStatus = "verified" | "pending" | "rejected";
 
 export type ClinicProfile = {
   clinicId: string;
@@ -40,9 +40,9 @@ export type ClinicFeedback = {
   createdAt: number;
 };
 
-const PROFILES_KEY = 'petconnect.clinicProfiles.v1';
-const PREFS_KEY = 'petconnect.clinicPreferences.v1';
-const FEEDBACK_KEY = 'petconnect.clinicFeedback.v1';
+const PROFILES_KEY = "petconnect.clinicProfiles.v1";
+const PREFS_KEY = "petconnect.clinicPreferences.v1";
+const FEEDBACK_KEY = "petconnect.clinicFeedback.v1";
 
 export const defaultClinicPreferences: ClinicPreferences = {
   accessRequestAlerts: true,
@@ -50,27 +50,12 @@ export const defaultClinicPreferences: ClinicPreferences = {
 };
 
 export const feedbackTypes = [
-  'Bug',
-  'Suggestion',
-  'Scanner issue',
-  'Health record issue',
-  'Other',
+  "Bug",
+  "Suggestion",
+  "Scanner issue",
+  "Health record issue",
+  "Other",
 ];
-
-const demoClinicProfile: ClinicProfile = {
-  clinicId: 'demo-clinic',
-  userId: 'demo-clinic',
-  clinicName: 'Tagum Pet Care Clinic',
-  email: 'clinic@petconnect.ph',
-  phone: '+63 917 555 0042',
-  city: 'Tagum City',
-  province: 'Davao del Norte',
-  address: 'Gov. Duterte St., Mankilam',
-  veterinarianInCharge: 'Dr. Maria Santos',
-  license: 'PRC 0001234',
-  staff: ['Dr. Maria Santos', 'Dr. Paolo Reyes'],
-  verificationStatus: 'verified',
-};
 
 let profilesCache: ClinicProfile[] | null = null;
 let prefsCache: Record<string, ClinicPreferences> = {};
@@ -119,7 +104,7 @@ async function load(): Promise<void> {
         // Ignore corrupt data and fall through to defaults.
       }
     }
-    if (!profilesCache) profilesCache = [...seedProfiles()];
+    if (!profilesCache) profilesCache = [];
 
     const rawPrefs = values.get(PREFS_KEY);
     if (rawPrefs) {
@@ -129,7 +114,7 @@ async function load(): Promise<void> {
         // Ignore corrupt data and fall through to defaults.
       }
     }
-    if (typeof prefsCache !== 'object' || prefsCache === null) prefsCache = {};
+    if (typeof prefsCache !== "object" || prefsCache === null) prefsCache = {};
 
     const rawFeedback = values.get(FEEDBACK_KEY);
     if (rawFeedback) {
@@ -222,10 +207,6 @@ function ensureLoaded(): Promise<void> {
   return loadPromise;
 }
 
-function seedProfiles(): ClinicProfile[] {
-  return [demoClinicProfile];
-}
-
 export function newClinicId(): string {
   return `clinic-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -234,13 +215,17 @@ export function getClinicProfilesSync(): ClinicProfile[] {
   return profilesCache ?? [];
 }
 
-export function getClinicProfileSync(userId?: string | null): ClinicProfile | null {
+export function getClinicProfileSync(
+  userId?: string | null,
+): ClinicProfile | null {
   const id = userId ?? getSessionSync().user?.userId ?? null;
   if (!id) return null;
   return (profilesCache ?? []).find((profile) => profile.userId === id) ?? null;
 }
 
-export async function getClinicProfileForUserId(userId: string): Promise<ClinicProfile | null> {
+export async function getClinicProfileForUserId(
+  userId: string,
+): Promise<ClinicProfile | null> {
   if (profilesCache) return getClinicProfileSync(userId);
   await ensureLoaded();
   return getClinicProfileSync(userId);
@@ -254,8 +239,14 @@ export function reloadClinic(): Promise<void> {
   return ensureLoaded();
 }
 
-export function useClinicProfiles(): { profiles: ClinicProfile[]; ready: boolean } {
-  const [state, setState] = useState(() => ({ profiles: getClinicProfilesSync(), ready }));
+export function useClinicProfiles(): {
+  profiles: ClinicProfile[];
+  ready: boolean;
+} {
+  const [state, setState] = useState(() => ({
+    profiles: getClinicProfilesSync(),
+    ready,
+  }));
   const session = useSession();
 
   useEffect(() => {
@@ -297,9 +288,9 @@ export function useClinicGate(): void {
   const evaluated = session.ready && ready;
 
   useEffect(() => {
-    if (!evaluated || session.user?.accountType !== 'vet') return;
-    if (clinic && clinic.verificationStatus === 'verified') return;
-    router.replace('/clinic-verification');
+    if (!evaluated || session.user?.accountType !== "vet") return;
+    if (clinic && clinic.verificationStatus === "verified") return;
+    router.replace("/clinic-verification");
   }, [evaluated, session.user?.accountType, clinic, router]);
 }
 
@@ -313,33 +304,38 @@ export type ClinicDetailsInput = {
   staff?: string[];
 };
 
-async function currentClinicProfile(): Promise<{ profile: ClinicProfile | null; userId: string }> {
+async function currentClinicProfile(): Promise<{
+  profile: ClinicProfile | null;
+  userId: string;
+}> {
   await ensureLoaded();
   const userId = getSessionSync().user?.userId;
   if (!userId) {
-    throw new Error('You must be signed in to do this.');
+    throw new Error("You must be signed in to do this.");
   }
   return { profile: getClinicProfileSync(userId), userId };
 }
 
 /** Persist clinic details for a newly registered vet clinic (marking it pending). */
-export function registerClinicDetails(input: ClinicDetailsInput): Promise<ClinicProfile> {
+export function registerClinicDetails(
+  input: ClinicDetailsInput,
+): Promise<ClinicProfile> {
   return mutate(async () => {
     const { profile, userId } = await currentClinicProfile();
     const user = getSessionSync().user;
     const existing: ClinicProfile = profile ?? {
       clinicId: newClinicId(),
       userId,
-      clinicName: user?.fullName?.trim() || 'My Clinic',
-      email: user?.email ?? '',
-      phone: '',
-      city: '',
-      province: '',
-      address: '',
-      veterinarianInCharge: '',
-      license: '',
+      clinicName: user?.fullName?.trim() || "My Clinic",
+      email: user?.email ?? "",
+      phone: "",
+      city: "",
+      province: "",
+      address: "",
+      veterinarianInCharge: "",
+      license: "",
       staff: [],
-      verificationStatus: 'pending',
+      verificationStatus: "pending",
     };
     const updated: ClinicProfile = {
       ...existing,
@@ -348,22 +344,31 @@ export function registerClinicDetails(input: ClinicDetailsInput): Promise<Clinic
       city: input.city.trim() || existing.city,
       province: input.province.trim() || existing.province,
       address: input.address.trim() || existing.address,
-      veterinarianInCharge: input.veterinarianInCharge.trim() || existing.veterinarianInCharge,
+      veterinarianInCharge:
+        input.veterinarianInCharge.trim() || existing.veterinarianInCharge,
       license: input.license.trim() || existing.license,
       staff: input.staff ?? existing.staff,
-      verificationStatus: existing.verificationStatus === 'verified' ? 'verified' : 'pending',
+      verificationStatus:
+        existing.verificationStatus === "verified" ? "verified" : "pending",
     };
-    profilesCache = [...(profilesCache ?? []).filter((item) => item.clinicId !== updated.clinicId), updated];
+    profilesCache = [
+      ...(profilesCache ?? []).filter(
+        (item) => item.clinicId !== updated.clinicId,
+      ),
+      updated,
+    ];
     await persist();
     await pushToBackend(updated);
     return updated;
   });
 }
 
-export function updateClinicInfo(input: ClinicDetailsInput): Promise<ClinicProfile> {
+export function updateClinicInfo(
+  input: ClinicDetailsInput,
+): Promise<ClinicProfile> {
   return mutate(async () => {
     const { profile } = await currentClinicProfile();
-    if (!profile) throw new Error('Clinic profile not found.');
+    if (!profile) throw new Error("Clinic profile not found.");
     const updated: ClinicProfile = {
       ...profile,
       phone: input.phone.trim(),
@@ -385,7 +390,7 @@ export function updateClinicInfo(input: ClinicDetailsInput): Promise<ClinicProfi
 export function updateClinicStaff(staff: string[]): Promise<ClinicProfile> {
   return mutate(async () => {
     const { profile } = await currentClinicProfile();
-    if (!profile) throw new Error('Clinic profile not found.');
+    if (!profile) throw new Error("Clinic profile not found.");
     const updated: ClinicProfile = { ...profile, staff };
     profilesCache = (profilesCache ?? []).map((item) =>
       item.clinicId === updated.clinicId ? updated : item,
@@ -395,23 +400,29 @@ export function updateClinicStaff(staff: string[]): Promise<ClinicProfile> {
   });
 }
 
-export function getClinicPreferencesSync(clinicId?: string | null): ClinicPreferences {
+export function getClinicPreferencesSync(
+  clinicId?: string | null,
+): ClinicPreferences {
   const id = clinicId ?? getClinicProfileSync()?.clinicId ?? null;
   if (!id) return { ...defaultClinicPreferences };
   return { ...defaultClinicPreferences, ...(prefsCache[id] ?? {}) };
 }
 
-export function useClinicPreferences(clinicId?: string | null): ClinicPreferences {
+export function useClinicPreferences(
+  clinicId?: string | null,
+): ClinicPreferences {
   const [prefs, setPrefs] = useState(() => getClinicPreferencesSync(clinicId));
   const profile = useClinicProfile();
 
   useEffect(() => {
     let active = true;
     ensureLoaded().then(() => {
-      if (active) setPrefs(getClinicPreferencesSync(clinicId ?? profile?.clinicId));
+      if (active)
+        setPrefs(getClinicPreferencesSync(clinicId ?? profile?.clinicId));
     });
     function update() {
-      if (active) setPrefs(getClinicPreferencesSync(clinicId ?? profile?.clinicId));
+      if (active)
+        setPrefs(getClinicPreferencesSync(clinicId ?? profile?.clinicId));
     }
     prefListeners.add(update);
     return () => {
@@ -428,8 +439,10 @@ export function updateClinicPreferences(
 ): Promise<ClinicPreferences> {
   return mutate(async () => {
     const { profile } = await currentClinicProfile();
-    if (!profile) throw new Error('Clinic profile not found.');
-    const current = prefsCache[profile.clinicId] ?? { ...defaultClinicPreferences };
+    if (!profile) throw new Error("Clinic profile not found.");
+    const current = prefsCache[profile.clinicId] ?? {
+      ...defaultClinicPreferences,
+    };
     prefsCache[profile.clinicId] = { ...current, ...changes };
     await persist();
     return prefsCache[profile.clinicId];
@@ -444,8 +457,8 @@ export function submitClinicFeedback(input: {
     const profile = getClinicProfileSync();
     const feedback: ClinicFeedback = {
       id: `fb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      clinicId: profile?.clinicId ?? 'unknown',
-      clinicName: profile?.clinicName ?? '',
+      clinicId: profile?.clinicId ?? "unknown",
+      clinicName: profile?.clinicName ?? "",
       type: input.type,
       message: input.message.trim(),
       createdAt: Date.now(),

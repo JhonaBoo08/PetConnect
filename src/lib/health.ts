@@ -114,89 +114,11 @@ function normalizeReminder(reminder: StoredReminder): HealthReminder {
   };
 }
 
-export const seedHealthRecords: HealthRecord[] = [
-  {
-    id: 'five-in-one',
-    petId: 'PC-TAG-10482',
-    petName: 'Bantay',
-    recordType: 'Vaccination',
-    recordName: '5-in-1 Vaccine',
-    recordDate: '2026-09-20',
-    veterinaryClinic: 'Tagum Pet Care Clinic',
-    clinicId: 'demo-clinic',
-    notes: 'Second dose of the 5-in-1 vaccine. Bantay tolerated the shot well.',
-    nextDueDate: '2027-09-20',
-    createdAt: 2,
-    updatedAt: 2,
-  },
-  {
-    id: 'anti-rabies',
-    petId: 'PC-TAG-10482',
-    petName: 'Bantay',
-    recordType: 'Vaccination',
-    recordName: 'Anti-Rabies',
-    recordDate: '2026-08-14',
-    veterinaryClinic: 'Tagum Pet Care Clinic',
-    clinicId: 'demo-clinic',
-    notes: 'First rabies vaccination. No adverse reactions were observed after administration.',
-    nextDueDate: null,
-    createdAt: 1,
-    updatedAt: 1,
-  },
-  {
-    id: 'annual-checkup',
-    petId: 'PC-TAG-10482',
-    petName: 'Bantay',
-    recordType: 'Checkup',
-    recordName: 'Annual Checkup',
-    recordDate: '2026-06-03',
-    veterinaryClinic: 'Tagum Pet Care Clinic',
-    clinicId: 'demo-clinic',
-    notes: 'Healthy weight · 26.4 kg',
-    nextDueDate: null,
-    createdAt: 0,
-    updatedAt: 0,
-  },
-];
+export const seedHealthRecords: HealthRecord[] = [];
 
-export const seedHealthReminders: HealthReminder[] = [
-  {
-    id: 'rem-fvrcp',
-    petId: 'PC-TAG-10483',
-    petName: 'Mingming',
-    recordId: null,
-    title: 'FVRCP booster',
-    type: 'Vaccination',
-    description: '',
-    dueDate: '2026-09-20',
-    time: '9:30 AM',
-    notificationTiming: '1 day before',
-    clinicId: null,
-    clinicName: defaultClinicName,
-    completedAt: null,
-    rescheduledAt: null,
-    createdAt: 1,
-    updatedAt: 1,
-  },
-  {
-    id: 'rem-evrcp',
-    petId: 'PC-TAG-10482',
-    petName: 'Bantay',
-    recordId: null,
-    title: 'EVRCP booster',
-    type: 'Vaccination',
-    description: '',
-    dueDate: '2026-10-05',
-    time: '2:00 PM',
-    notificationTiming: '1 day before',
-    clinicId: null,
-    clinicName: defaultClinicName,
-    completedAt: null,
-    rescheduledAt: null,
-    createdAt: 0,
-    updatedAt: 0,
-  },
-];
+export const seedHealthReminders: HealthReminder[] = [];
+
+const legacyDemoPetIds = new Set(['PC-TAG-10482', 'PC-TAG-10483']);
 
 let recordsCache: HealthRecord[] | null = null;
 let remindersCache: HealthReminder[] | null = null;
@@ -249,7 +171,8 @@ async function readRecords(): Promise<HealthRecord[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as HealthRecord[];
       if (Array.isArray(parsed)) {
-        recordsCache = parsed;
+        recordsCache = parsed.filter((record) => !legacyDemoPetIds.has(record.petId));
+        await persistRecords(recordsCache);
         return recordsCache;
       }
     }
@@ -268,7 +191,10 @@ async function readReminders(): Promise<HealthReminder[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as HealthReminder[];
       if (Array.isArray(parsed)) {
-        remindersCache = parsed.map(normalizeReminder);
+        remindersCache = parsed
+          .filter((reminder) => !legacyDemoPetIds.has(reminder.petId))
+          .map(normalizeReminder);
+        await persistReminders(remindersCache);
         return remindersCache;
       }
     }
