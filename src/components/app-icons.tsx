@@ -414,3 +414,33 @@ export function StethoscopeIcon({ size = 20, color = Palette.forestDark }: IconP
     </Svg>
   );
 }
+
+export function PillIcon({ size = 20, color = Palette.forestDark }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M9.6 4.4 4.4 9.6a3.5 3.5 0 0 0 0 5l5 5a3.5 3.5 0 0 0 5 0l5.2-5.2a3.5 3.5 0 0 0 0-5l-5-5a3.5 3.5 0 0 0-5 0z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path d="M4.4 9.6h15.2M8.7 8.1l2.7 2.7M8.7 15.9l4.9-4.9" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function NotebookIcon({ size = 20, color = Palette.forestDark }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M5 4.5A1.5 1.5 0 0 1 6.5 3H18a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6.5A1.5 1.5 0 0 1 5 19.5z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path d="M8 2.5v19M9 7l4 .5M9 11.5l4 .5M9 16l4 .5" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}

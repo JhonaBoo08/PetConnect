@@ -15,6 +15,8 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { isoToShortDate, parseIsoDate } from '@/lib/date';
+import { type HealthReminder, useHealthReminders } from '@/lib/health';
 import { goBack } from '@/lib/navigation';
 
 const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -33,42 +35,37 @@ const monthNames = [
   'December',
 ];
 
-type Reminder = {
-  id: string;
-  title: string;
-  pet: string;
-  when: string;
-  on: { year: number; month: number; day: number };
-  status: 'Due soon' | 'Upcoming';
-};
+const DAY_MS = 86_400_000;
 
-const reminders: Reminder[] = [
-  {
-    id: 'fvrcp',
-    title: 'FVRCP booster',
-    pet: 'Mingming',
-    when: 'Sep 20 · 9:30 AM',
-    on: { year: 2026, month: 8, day: 20 },
-    status: 'Due soon',
-  },
-  {
-    id: 'evrcp',
-    title: 'EVRCP booster',
-    pet: 'Bantay',
-    when: 'Oct 5 · 2:00 PM',
-    on: { year: 2026, month: 9, day: 5 },
-    status: 'Upcoming',
-  },
-];
+function daysUntil(iso: string): number {
+  const due = parseIsoDate(iso);
+  if (!due) return Number.POSITIVE_INFINITY;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((due.getTime() - today.getTime()) / DAY_MS);
+}
 
-const highlighted = { year: 2026, month: 8, day: 20 };
+function toOn(iso: string): { year: number; month: number; day: number } {
+  const date = parseIsoDate(iso);
+  if (!date) return { year: 2026, month: 8, day: 1 };
+  return { year: date.getFullYear(), month: date.getMonth(), day: date.getDate() };
+}
+
+function reminderWhen(reminder: HealthReminder): string {
+  return `${isoToShortDate(reminder.dueDate)} \u00b7 ${reminder.time}`;
+}
+
+function reminderStatus(reminder: HealthReminder): 'Due soon' | 'Upcoming' {
+  return daysUntil(reminder.dueDate) <= 30 ? 'Due soon' : 'Upcoming';
+}
 
 function isSameDay(a: { year: number; month: number; day: number }, y: number, m: number, d: number) {
   return a.year === y && a.month === m && a.day === d;
 }
 
-function ReminderCard({ reminder, onPress }: { reminder: Reminder; onPress: () => void }) {
-  const isDue = reminder.status === 'Due soon';
+function ReminderCard({ reminder, onPress }: { reminder: HealthReminder; onPress: () => void }) {
+  const status = reminderStatus(reminder);
+  const isDue = status === 'Due soon';
   return (
     <Pressable
       accessibilityRole="button"
@@ -81,18 +78,28 @@ function ReminderCard({ reminder, onPress }: { reminder: Reminder; onPress: () =
         <View style={styles.reminderTopRow}>
           <Text style={styles.reminderTitle}>{reminder.title}</Text>
           <View style={[styles.statusPill, isDue ? styles.statusDue : styles.statusUpcoming]}>
-            <Text style={styles.statusText}>{reminder.status}</Text>
+            <Text style={styles.statusText}>{status}</Text>
           </View>
         </View>
-        <Text style={styles.reminderPet}>{reminder.pet}</Text>
-        <Text style={styles.reminderWhen}>{reminder.when}</Text>
+        <Text style={styles.reminderPet}>{reminder.petName}</Text>
+        <Text style={styles.reminderWhen}>{reminderWhen(reminder)}</Text>
       </View>
       <ChevronRightIcon />
     </Pressable>
   );
 }
 
-function MonthCalendar({ viewDate }: { viewDate: { year: number; month: number } }) {
+function MonthCalendar({
+  viewDate,
+  reminders,
+  highlighted,
+  onShift,
+}: {
+  viewDate: { year: number; month: number };
+  reminders: HealthReminder[];
+  highlighted: { year: number; month: number; day: number } | null;
+  onShift: (delta: number) => void;
+}) {
   const { year, month } = viewDate;
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -105,11 +112,19 @@ function MonthCalendar({ viewDate }: { viewDate: { year: number; month: number }
   return (
     <View style={styles.calendarCard}>
       <View style={styles.calendarHeader}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Previous month" style={styles.calendarNav}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
+          onPress={() => onShift(-1)}
+          style={({ pressed }) => [styles.calendarNav, pressed && styles.pressed]}>
           <ChevronLeftIcon />
         </Pressable>
         <Text style={styles.calendarMonth}>{`${monthNames[month]} ${year}`}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Next month" style={styles.calendarNav}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Next month"
+          onPress={() => onShift(1)}
+          style={({ pressed }) => [styles.calendarNav, pressed && styles.pressed]}>
           <ChevronRightIcon />
         </Pressable>
       </View>
@@ -129,8 +144,8 @@ function MonthCalendar({ viewDate }: { viewDate: { year: number; month: number }
           if (day === null) {
             return <View key={`blank-${index}`} style={styles.dayCell} />;
           }
-          const isDue = isSameDay(highlighted, year, month, day);
-          const hasReminder = reminders.some((r) => isSameDay(r.on, year, month, day));
+          const isDue = highlighted !== null && isSameDay(highlighted, year, month, day);
+          const hasReminder = reminders.some((r) => isSameDay(toOn(r.dueDate), year, month, day));
           return (
             <View key={day} style={styles.dayCell}>
               <View
@@ -156,8 +171,18 @@ function MonthCalendar({ viewDate }: { viewDate: { year: number; month: number }
 
 export default function HealthRemindersScreen() {
   const router = useRouter();
+  const reminders = useHealthReminders();
+  const sorted = [...reminders].sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+
+  const highlightedIso =
+    sorted.find((reminder) => daysUntil(reminder.dueDate) <= 30)?.dueDate ??
+    sorted[0]?.dueDate ??
+    '';
+  const highlighted = highlightedIso ? toOn(highlightedIso) : null;
+
+  const now = new Date();
   const [view, setView] = useState<'list' | 'calendar'>('list');
-  const [viewDate, setViewDate] = useState({ year: 2026, month: 8 });
+  const [viewDate, setViewDate] = useState({ year: now.getFullYear(), month: now.getMonth() });
 
   const shiftMonth = (delta: number) => {
     const nextMonth = viewDate.month + delta;
@@ -221,17 +246,31 @@ export default function HealthRemindersScreen() {
 
           {view === 'list' ? (
             <View style={styles.list}>
-              {reminders.map((reminder) => (
-                <ReminderCard
-                  key={reminder.id}
-                  reminder={reminder}
-                  onPress={() => router.push('/reminder-details')}
-                />
-              ))}
+              {sorted.length > 0 ? (
+                sorted.map((reminder) => (
+                  <ReminderCard
+                    key={reminder.id}
+                    reminder={reminder}
+                    onPress={() => router.push('/reminder-details')}
+                  />
+                ))
+              ) : (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyLabel}>No health reminders yet.</Text>
+                  <Text style={styles.emptyHint}>
+                    Set a next due date on a health record to create one.
+                  </Text>
+                </View>
+              )}
             </View>
           ) : (
             <>
-              <MonthCalendar viewDate={viewDate} />
+              <MonthCalendar
+                viewDate={viewDate}
+                reminders={sorted}
+                highlighted={highlighted}
+                onShift={shiftMonth}
+              />
               <View style={styles.calendarNavRow}>
                 <Pressable
                   accessibilityRole="button"
@@ -530,6 +569,29 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '700',
     color: Palette.forestDark,
+  },
+  emptyCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 16,
+    backgroundColor: Palette.surface,
+    padding: Spacing.three,
+  },
+  emptyLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  emptyHint: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    color: Palette.inkMuted,
+    textAlign: 'center',
   },
   pressed: {
     opacity: 0.85,

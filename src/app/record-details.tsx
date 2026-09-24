@@ -1,68 +1,41 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackArrow, BellIcon, StethoscopeIcon, SyringeIcon } from '@/components/app-icons';
+import {
+  BackArrow,
+  BellIcon,
+  NotebookIcon,
+  PillIcon,
+  StethoscopeIcon,
+  SyringeIcon,
+} from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { isoToLongDate } from '@/lib/date';
+import {
+  deleteHealthRecord,
+  seedHealthRecords,
+  type HealthRecord,
+  type HealthRecordType,
+  useHealthRecords,
+} from '@/lib/health';
 import { goBack } from '@/lib/navigation';
 
-type RecordDetails = {
-  id: string;
-  type: 'vaccine' | 'checkup';
-  name: string;
-  pet: string;
-  date: string;
-  clinic: string;
-  veterinarian: string;
-  verified: boolean;
-  notes: string;
-  nextDue: string | null;
-  boosterDue?: boolean;
-};
-
-const recordDetails: Record<string, RecordDetails> = {
-  'anti-rabies': {
-    id: 'anti-rabies',
-    type: 'vaccine',
-    name: 'Anti-Rabies',
-    pet: 'Bantay',
-    date: 'Aug 14, 2026',
-    clinic: 'Tagum Pet Care Clinic',
-    veterinarian: 'Dr. Maria Santos',
-    verified: true,
-    notes: 'First rabies vaccination. No adverse reactions were observed after administration.',
-    nextDue: 'Aug 14, 2027',
-    boosterDue: false,
-  },
-  'five-in-one': {
-    id: 'five-in-one',
-    type: 'vaccine',
-    name: '5-in-1 Vaccine',
-    pet: 'Bantay',
-    date: 'Sep 20, 2026',
-    clinic: 'Tagum Pet Care Clinic',
-    veterinarian: 'Dr. Maria Santos',
-    verified: true,
-    notes: 'Second dose of the 5-in-1 vaccine. Bantay tolerated the shot well.',
-    nextDue: 'Sep 20, 2027',
-    boosterDue: true,
-  },
-  'annual-checkup': {
-    id: 'annual-checkup',
-    type: 'checkup',
-    name: 'Annual Checkup',
-    pet: 'Bantay',
-    date: 'Jun 03, 2026',
-    clinic: 'Tagum Pet Care Clinic',
-    veterinarian: 'Dr. Maria Santos',
-    verified: true,
-    notes: 'Healthy weight at 26.4 kg. Dental and coat condition checked. All clear.',
-    nextDue: 'Jun 03, 2027',
-    boosterDue: false,
-  },
-};
+function RecordIcon({ type }: { type: HealthRecordType }) {
+  switch (type) {
+    case 'Vaccination':
+      return <SyringeIcon size={26} />;
+    case 'Checkup':
+      return <StethoscopeIcon size={26} />;
+    case 'Medication':
+      return <PillIcon size={26} />;
+    default:
+      return <NotebookIcon size={26} />;
+  }
+}
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -75,10 +48,30 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 export default function RecordDetailsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ record?: string }>();
-  const recordId = Array.isArray(params.record) ? params.record[0] : params.record ?? 'anti-rabies';
-  const record = recordDetails[recordId] ?? recordDetails['anti-rabies'];
-  const Icon = record.type === 'vaccine' ? SyringeIcon : StethoscopeIcon;
+  const params = useLocalSearchParams<{ record?: string; name?: string }>();
+  const recordId = Array.isArray(params.record) ? params.record[0] : params.record ?? '';
+  const petName = Array.isArray(params.name) ? params.name[0] : params.name ?? 'Bantay';
+
+  const stored = useHealthRecords();
+  const record =
+    stored.find((candidate) => candidate.id === recordId) ??
+    seedHealthRecords.find((candidate) => candidate.id === recordId) ??
+    seedHealthRecords[0];
+
+  const [removing, setRemoving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const remove = async () => {
+    setDeleting(true);
+    try {
+      await deleteHealthRecord(record.id);
+      goBack('/health-records');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const boosterDue = Boolean(record.nextDueDate);
 
   return (
     <View style={styles.container}>
@@ -106,19 +99,25 @@ export default function RecordDetailsScreen() {
           </View>
 
           <Text style={styles.category}>HEALTH RECORD</Text>
-          <Text style={styles.heading}>{record.name}</Text>
-          <Text style={styles.subheading}>{record.pet} · {record.date}</Text>
+          <Text style={styles.heading}>{record.recordName}</Text>
+          <Text style={styles.subheading}>
+            {record.petName} · {isoToLongDate(record.recordDate)}
+          </Text>
 
           <View style={styles.headerCard}>
             <View style={styles.headerIcon}>
-              <Icon size={26} />
+              <RecordIcon type={record.recordType} />
             </View>
             <View style={styles.headerBody}>
-              <Text style={styles.headerTitle}>{record.name}</Text>
-              <Text style={styles.headerMeta}>{record.pet}</Text>
-              <View style={[styles.statusPill, record.boosterDue ? styles.statusDue : styles.statusVerified]}>
+              <Text style={styles.headerType}>{record.recordType}</Text>
+              <Text style={styles.headerName}>{record.recordName}</Text>
+              <View
+                style={[
+                  styles.statusPill,
+                  boosterDue ? styles.statusDue : styles.statusVerified,
+                ]}>
                 <Text style={styles.statusLabel}>
-                  {record.boosterDue ? 'Next booster due' : 'Verified'}
+                  {boosterDue ? 'Next booster due' : 'Verified'}
                 </Text>
               </View>
             </View>
@@ -127,20 +126,71 @@ export default function RecordDetailsScreen() {
           <Text style={styles.sectionLabel}>Record details</Text>
 
           <View style={styles.card}>
-            <InfoRow label="Date administered" value={record.date} />
-            <InfoRow label="Veterinary clinic" value={record.clinic} />
-            <InfoRow label="Veterinarian" value={record.veterinarian} />
-            {record.nextDue ? <InfoRow label="Next booster date" value={record.nextDue} /> : null}
+            <InfoRow label="Record type" value={record.recordType} />
+            <InfoRow label="Date" value={isoToLongDate(record.recordDate)} />
+            <InfoRow label="Veterinary clinic" value={record.veterinaryClinic} />
+            {record.nextDueDate ? (
+              <InfoRow label="Next due date" value={isoToLongDate(record.nextDueDate)} />
+            ) : null}
           </View>
 
           <Text style={styles.sectionLabel}>Notes</Text>
           <View style={styles.card}>
-            <Text style={styles.notesText}>{record.notes}</Text>
+            <Text style={styles.notesText}>
+              {record.notes.trim() || 'No notes added.'}
+            </Text>
           </View>
+
+          <Pressable
+            accessibilityRole="button"
+            onPress={() =>
+              router.push({
+                pathname: '/add-record',
+                params: { record: record.id, name: petName },
+              })
+            }
+            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+            <Text style={styles.editLabel}>Edit health record</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setRemoving(true)}
+            style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}>
+            <Text style={styles.deleteLabel}>Delete health record</Text>
+          </Pressable>
         </ScrollView>
 
         <BottomNav active="home" />
       </SafeAreaView>
+
+      {removing ? (
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Delete health record?</Text>
+            <Text style={styles.sheetMeta}>
+              This record will be removed from {record.petName}&apos;s health history.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setRemoving(false)}
+              disabled={deleting}
+              style={({ pressed }) => [styles.sheetCancel, pressed && styles.pressed]}>
+              <Text style={styles.sheetCancelLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={remove}
+              disabled={deleting}
+              style={({ pressed }) => [
+                styles.sheetDelete,
+                (pressed || deleting) && styles.pressed,
+              ]}>
+              <Text style={styles.sheetDeleteLabel}>Delete</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -239,16 +289,19 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: Spacing.one,
   },
-  headerTitle: {
+  headerType: {
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: '#C9DBC6',
+    textTransform: 'uppercase',
+  },
+  headerName: {
     fontFamily: Fonts.sans,
     fontSize: 18,
     fontWeight: '800',
     color: Palette.white,
-  },
-  headerMeta: {
-    fontFamily: Fonts.sans,
-    fontSize: 12.5,
-    color: '#C9DBC6',
   },
   statusPill: {
     alignSelf: 'flex-start',
@@ -312,6 +365,102 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     color: Palette.inkMuted,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: Palette.gold,
+    marginTop: Spacing.five,
+    boxShadow: '0 4px 10px rgba(242, 182, 50, 0.30)',
+  },
+  editLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    marginTop: Spacing.three,
+  },
+  deleteLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.danger,
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(20,40,28,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+  },
+  sheet: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: Palette.cream,
+    borderRadius: 18,
+    padding: Spacing.four,
+    alignItems: 'stretch',
+    gap: Spacing.three,
+  },
+  sheetTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 17,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  sheetMeta: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 19,
+    color: Palette.inkMuted,
+    textAlign: 'center',
+  },
+  sheetCancel: {
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.two,
+  },
+  sheetCancelLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  sheetDelete: {
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: Palette.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetDeleteLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '800',
+    color: Palette.white,
   },
   pressed: {
     opacity: 0.85,

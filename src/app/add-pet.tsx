@@ -328,6 +328,8 @@ export default function AddPetScreen() {
               <DateField
                 value={birthdate}
                 invalid={Boolean(errors.birthdate)}
+                maximumDate={new Date()}
+                accessibilityLabel="Select birthdate"
                 onChange={(value) => {
                   setBirthdate(value);
                   if (value) clearError('birthdate');

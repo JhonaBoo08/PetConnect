@@ -7,6 +7,8 @@ import {
   BellIcon,
   CheckIcon,
   ChevronRightIcon,
+  NotebookIcon,
+  PillIcon,
   PlusIcon,
   StethoscopeIcon,
   SyringeIcon,
@@ -15,59 +17,60 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { isoToLongDate, isoToShortDate, parseIsoDate } from '@/lib/date';
+import { type HealthRecord, type HealthRecordType, useHealthRecords } from '@/lib/health';
 import { goBack } from '@/lib/navigation';
 
-type HealthRecord = {
-  id: string;
-  type: 'vaccine' | 'checkup';
-  name: string;
-  description: string;
-  date: string;
-  status: 'verified' | 'due';
-};
+function truncate(value: string, max = 32): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 1).trimEnd()}\u2026`;
+}
 
-const records: HealthRecord[] = [
-  {
-    id: 'anti-rabies',
-    type: 'vaccine',
-    name: 'Anti-Rabies',
-    description: 'Verified by Tagum Pet Care',
-    date: 'Aug 14, 2026',
-    status: 'verified',
-  },
-  {
-    id: 'five-in-one',
-    type: 'vaccine',
-    name: '5-in-1 Vaccine',
-    description: 'Next booster due',
-    date: 'Sep 20, 2026',
-    status: 'due',
-  },
-  {
-    id: 'annual-checkup',
-    type: 'checkup',
-    name: 'Annual Checkup',
-    description: 'Healthy weight · 26.4 kg',
-    date: 'Jun 03, 2026',
-    status: 'verified',
-  },
-];
+function DescriptionIcon({ type }: { type: HealthRecordType }) {
+  switch (type) {
+    case 'Vaccination':
+      return <SyringeIcon size={20} />;
+    case 'Checkup':
+      return <StethoscopeIcon size={20} />;
+    case 'Medication':
+      return <PillIcon size={20} />;
+    default:
+      return <NotebookIcon size={20} />;
+  }
+}
+
+function recordDescription(record: HealthRecord): string {
+  const hasDue = Boolean(record.nextDueDate);
+  if (record.recordType === 'Vaccination') {
+    return hasDue ? 'Next booster due' : `Verified by ${record.veterinaryClinic}`;
+  }
+  if (record.recordType === 'Medication') {
+    if (hasDue) return 'Next dose due';
+    return truncate(record.notes) || `Verified by ${record.veterinaryClinic}`;
+  }
+  if (record.recordType === 'Checkup') {
+    return truncate(record.notes) || `Verified by ${record.veterinaryClinic}`;
+  }
+  return truncate(record.notes) || 'Record on file';
+}
 
 function RecordCard({ record, onPress }: { record: HealthRecord; onPress: () => void }) {
-  const Icon = record.type === 'vaccine' ? SyringeIcon : StethoscopeIcon;
-  const verified = record.status === 'verified';
+  const verified = !record.nextDueDate;
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.recordCard, pressed && styles.pressed]}>
       <View style={styles.recordIcon}>
-        <Icon size={20} />
+        <DescriptionIcon type={record.recordType} />
       </View>
       <View style={styles.recordBody}>
-        <Text style={styles.recordTitle}>{record.name}</Text>
-        <Text style={styles.recordDescription}>{record.description}</Text>
-        <Text style={styles.recordDate}>{record.date}</Text>
+        <Text style={styles.recordTitle}>{record.recordName}</Text>
+        <Text style={styles.recordDescription}>
+          {recordDescription(record)}
+        </Text>
+        <Text style={styles.recordDate}>{isoToLongDate(record.recordDate)}</Text>
       </View>
       <View style={styles.recordStatus}>
         {verified ? (
@@ -81,11 +84,45 @@ function RecordCard({ record, onPress }: { record: HealthRecord; onPress: () => 
   );
 }
 
+function summaryValues(records: HealthRecord[]): { lastCheckup: string; nextBooster: string } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const checkups = records.filter((record) => record.recordType === 'Checkup');
+  const lastCheckupIso = checkups
+    .map((record) => record.recordDate)
+    .sort()
+    .at(-1);
+  const lastCheckup = lastCheckupIso ? isoToShortDate(lastCheckupIso) : '\u2014';
+
+  const boosters = records
+    .filter(
+      (record) =>
+        record.recordType === 'Vaccination' && record.nextDueDate && record.nextDueDate,
+    )
+    .map((record) => record.nextDueDate as string);
+  const upcoming = boosters
+    .filter((iso) => {
+      const due = parseIsoDate(iso);
+      return due ? due.getTime() >= today.getTime() : false;
+    })
+    .sort();
+  const nextBoosterIso = upcoming[0] ?? boosters.sort()[0];
+  const nextBooster = nextBoosterIso ? isoToShortDate(nextBoosterIso) : '\u2014';
+
+  return { lastCheckup, nextBooster };
+}
+
 export default function HealthRecordsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name?: string }>();
   const petName = Array.isArray(params.name) ? params.name[0] : params.name ?? 'Bantay';
   const eyebrow = `${petName}${petName.toLowerCase().endsWith('s') ? '' : '\u2019s'} care`;
+
+  const records = useHealthRecords()
+    .filter((record) => record.petName === petName)
+    .sort((a, b) => (a.recordDate === b.recordDate ? b.createdAt - a.createdAt : a.recordDate < b.recordDate ? 1 : -1));
+  const { lastCheckup, nextBooster } = summaryValues(records);
 
   const addRecord = () => router.push({ pathname: '/add-record', params: { name: petName } });
   const openRecord = (record: HealthRecord) =>
@@ -122,18 +159,27 @@ export default function HealthRecordsScreen() {
           <View style={styles.summaryRow}>
             <View style={[styles.summaryCard, styles.summarySage]}>
               <Text style={styles.summaryLabel}>LAST CHECKUP</Text>
-              <Text style={styles.summaryValue}>Jun 03</Text>
+              <Text style={styles.summaryValue}>{lastCheckup}</Text>
             </View>
             <View style={[styles.summaryCard, styles.summaryGold]}>
               <Text style={styles.summaryLabel}>NEXT BOOSTER</Text>
-              <Text style={styles.summaryValue}>Sep 20</Text>
+              <Text style={styles.summaryValue}>{nextBooster}</Text>
             </View>
           </View>
 
           <View style={styles.recordList}>
-            {records.map((record) => (
-              <RecordCard key={record.id} record={record} onPress={() => openRecord(record)} />
-            ))}
+            {records.length > 0 ? (
+              records.map((record) => (
+                <RecordCard key={record.id} record={record} onPress={() => openRecord(record)} />
+              ))
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyLabel}>No health records yet.</Text>
+                <Text style={styles.emptyHint}>
+                  Add a vaccination, checkup, or treatment to get started.
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.actionRow}>
@@ -306,6 +352,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  emptyCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 16,
+    backgroundColor: Palette.surface,
+    padding: Spacing.three,
+  },
+  emptyLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  emptyHint: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    color: Palette.inkMuted,
+    textAlign: 'center',
   },
   actionRow: {
     flexDirection: 'row',
