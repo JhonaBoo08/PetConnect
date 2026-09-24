@@ -220,7 +220,7 @@ export default function AlertDetailsScreen() {
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Mark {alert.petName} as found?</Text>
             <Text style={styles.sheetText}>
-              This will remove the active lost-pet alert from the recovery feed.
+              This will close the active lost-pet alert.
             </Text>
             <Pressable
               accessibilityRole="button"

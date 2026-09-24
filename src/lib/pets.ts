@@ -10,6 +10,9 @@ export type Pet = {
   color: string;
   birthdate: string;
   photo: string;
+  details: string;
+  collar: string;
+  finderContactVisible: boolean;
   contactName: string;
   contactMobile: string;
   contactLocation: string;
@@ -32,6 +35,9 @@ export const seedPets: Pet[] = [
     color: 'Golden',
     birthdate: '2023-06-20',
     photo: '',
+    details: 'Small white mark on chest',
+    collar: 'Blue collar',
+    finderContactVisible: true,
     contactName: 'Raven Babiano',
     contactMobile: '+63 917 000 0042',
     contactLocation: 'Tagum City',
@@ -46,6 +52,9 @@ export const seedPets: Pet[] = [
     color: 'Orange',
     birthdate: '2024-03-11',
     photo: '',
+    details: 'Green eyes',
+    collar: 'No collar',
+    finderContactVisible: true,
     contactName: 'Raven Babiano',
     contactMobile: '+63 917 000 0042',
     contactLocation: 'Tagum City',
@@ -77,7 +86,8 @@ async function readPets(): Promise<Pet[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as Pet[];
       if (Array.isArray(parsed)) {
-        petsCache = parsed;
+        petsCache = parsed.map(normalizePet);
+        await persist(petsCache);
         return petsCache;
       }
     }
@@ -87,6 +97,15 @@ async function readPets(): Promise<Pet[]> {
   petsCache = [...seedPets];
   await persist(petsCache);
   return petsCache;
+}
+
+function normalizePet(pet: Pet): Pet {
+  return {
+    ...pet,
+    details: pet.details ?? '',
+    collar: pet.collar ?? '',
+    finderContactVisible: pet.finderContactVisible !== false,
+  };
 }
 
 export async function getPets(): Promise<Pet[]> {
@@ -117,6 +136,9 @@ export async function createPet(input: NewPetInput): Promise<Pet> {
   const pet: Pet = {
     ...input,
     id,
+    details: input.details?.trim() || '',
+    collar: input.collar?.trim() || '',
+    finderContactVisible: input.finderContactVisible !== false,
     contactLocation: input.contactLocation?.trim() || 'Tagum City',
     createdAt: Date.now(),
   };

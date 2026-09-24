@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -40,7 +41,8 @@ type FormErrors = Partial<
     | 'color'
     | 'birthdate'
     | 'contactName'
-    | 'contactMobile',
+    | 'contactMobile'
+    | 'contactLocation',
     string
   >
 >;
@@ -112,8 +114,12 @@ export default function AddPetScreen() {
   const [breed, setBreed] = useState('');
   const [color, setColor] = useState('');
   const [birthdate, setBirthdate] = useState('');
+  const [details, setDetails] = useState('');
+  const [collar, setCollar] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactMobile, setContactMobile] = useState('');
+  const [contactLocation, setContactLocation] = useState('');
+  const [finderContactVisible, setFinderContactVisible] = useState(true);
   const [errors, setErrors] = useState<FormErrors>({});
   const [discardOpen, setDiscardOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -165,8 +171,12 @@ export default function AddPetScreen() {
         color: color.trim(),
         birthdate: toIsoDate(birthdate),
         photo,
+        details: details.trim(),
+        collar: collar.trim(),
+        finderContactVisible,
         contactName: contactName.trim(),
         contactMobile: contactMobile.trim(),
+        contactLocation: contactLocation.trim(),
       });
       router.replace({ pathname: '/pet-id', params: { name: pet.name } });
     } finally {
@@ -181,8 +191,11 @@ export default function AddPetScreen() {
       breed.trim() ||
       color.trim() ||
       birthdate ||
+      details.trim() ||
+      collar.trim() ||
       contactName.trim() ||
       contactMobile.trim() ||
+      contactLocation.trim() ||
       photo,
   );
 
@@ -339,6 +352,32 @@ export default function AddPetScreen() {
             </View>
           </View>
 
+          <View style={styles.detailsSection}>
+            <Text style={styles.detailsLabel}>IDENTIFYING DETAILS</Text>
+            <Text style={styles.detailsHint}>
+              Optional details help a finder confirm it&apos;s the right pet.
+            </Text>
+
+            <Text style={styles.label}>Identifying details</Text>
+            <TextInput
+              value={details}
+              onChangeText={setDetails}
+              placeholder="e.g. Black coat, small white mark on chest"
+              placeholderTextColor={Palette.placeholder}
+              style={[styles.input, styles.detailsTextArea]}
+              multiline
+            />
+
+            <Text style={styles.label}>Collar</Text>
+            <TextInput
+              value={collar}
+              onChangeText={setCollar}
+              placeholder="e.g. Blue collar, no collar"
+              placeholderTextColor={Palette.placeholder}
+              style={styles.input}
+            />
+          </View>
+
           <View style={styles.recoverySection}>
             <View style={styles.recoveryHeader}>
               <Text style={styles.recoveryLabel}>RECOVERY CONTACT</Text>
@@ -373,6 +412,36 @@ export default function AddPetScreen() {
             {errors.contactMobile ? (
               <Text style={styles.error}>{errors.contactMobile}</Text>
             ) : null}
+
+            <Text style={styles.label}>Location / City</Text>
+            <TextInput
+              value={contactLocation}
+              onChangeText={(value) => {
+                setContactLocation(value);
+                if (value.trim()) clearError('contactLocation');
+              }}
+              placeholder="e.g. Tagum City"
+              placeholderTextColor={Palette.placeholder}
+              style={[styles.input, errors.contactLocation ? styles.inputInvalid : null]}
+            />
+            {errors.contactLocation ? (
+              <Text style={styles.error}>{errors.contactLocation}</Text>
+            ) : null}
+
+            <View style={styles.visibilityRow}>
+              <View style={styles.visibilityText}>
+                <Text style={styles.visibilityLabel}>Allow finder to contact me</Text>
+                <Text style={styles.visibilityHint}>
+                  Show this recovery contact when {name.trim() || 'the pet'}&apos;s QR is scanned.
+                </Text>
+              </View>
+              <Switch
+                value={finderContactVisible}
+                onValueChange={setFinderContactVisible}
+                trackColor={{ false: Palette.borderSoft, true: Palette.gold }}
+                thumbColor={Palette.forestDark}
+              />
+            </View>
           </View>
 
           <Pressable
@@ -597,6 +666,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingBottom: Spacing.three,
   },
+  detailsSection: {
+    marginTop: Spacing.five,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 16,
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.three,
+  },
+  detailsLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 1.3,
+    color: Palette.forestDark,
+    marginTop: Spacing.three,
+  },
+  detailsHint: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+    marginTop: 2,
+  },
+  detailsTextArea: {
+    minHeight: 60,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.three,
+    textAlignVertical: 'top',
+  },
   recoveryHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -614,6 +712,30 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 11.5,
     color: Palette.inkMuted,
+  },
+  visibilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    marginTop: Spacing.four,
+    paddingTop: Spacing.three,
+    borderTopWidth: 1,
+    borderTopColor: Palette.borderSoft,
+  },
+  visibilityText: {
+    flex: 1,
+  },
+  visibilityLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.forestDark,
+  },
+  visibilityHint: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+    marginTop: 2,
   },
   error: {
     fontFamily: Fonts.sans,

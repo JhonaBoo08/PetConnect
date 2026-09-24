@@ -1,13 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
+export type FoundReportStatus = 'OPEN' | 'RESOLVED';
+
 export type FoundReport = {
   id: string;
+  alertId: string | null;
   petId: string;
   petName: string;
+  ownerId: string;
+  finderId: string;
   where: string;
   message: string;
   photo: string;
+  status: FoundReportStatus;
   createdAt: number;
 };
 
@@ -39,7 +45,8 @@ async function readReports(): Promise<FoundReport[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as FoundReport[];
       if (Array.isArray(parsed)) {
-        reportsCache = parsed;
+        reportsCache = parsed.map(normalizeReport);
+        await persist(reportsCache);
         return reportsCache;
       }
     }
@@ -49,6 +56,16 @@ async function readReports(): Promise<FoundReport[]> {
   reportsCache = [];
   await persist(reportsCache);
   return reportsCache;
+}
+
+function normalizeReport(report: FoundReport): FoundReport {
+  return {
+    ...report,
+    alertId: report.alertId ?? null,
+    ownerId: report.ownerId ?? '',
+    finderId: report.finderId ?? '',
+    status: report.status ?? 'OPEN',
+  };
 }
 
 export async function getFoundReports(): Promise<FoundReport[]> {
@@ -70,6 +87,8 @@ export async function createFoundReport(
   const report: FoundReport = {
     ...input,
     id: `frep-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    alertId: input.alertId ?? null,
+    status: input.status ?? 'OPEN',
     createdAt: Date.now(),
   };
   await persist([report, ...reports]);

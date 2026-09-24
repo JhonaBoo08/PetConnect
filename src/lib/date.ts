@@ -56,6 +56,11 @@ export function toLongDate(date: Date): string {
   return `${shortMonths[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
+export function timestampToFullDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${fullMonths[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
 export function toShortDate(date: Date): string {
   return `${shortMonths[date.getMonth()]} ${pad(date.getDate())}`;
 }

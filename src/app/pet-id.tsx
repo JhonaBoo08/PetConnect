@@ -4,11 +4,12 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackArrow, BellIcon, HealthIcon, PawIcon, ShareIcon, ShieldIcon } from '@/components/app-icons';
+import { BackArrow, BellIcon, HealthIcon, PawIcon, ShareIcon, ShieldIcon, WarningIcon } from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
 import { QrCode } from '@/components/pet-qr';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
 import { goBack } from '@/lib/navigation';
 import { petAge, seedPets, usePets } from '@/lib/pets';
 
@@ -21,6 +22,8 @@ export default function PetIdScreen() {
     usePets().find((candidate) => candidate.name === petName) ??
     seedPets.find((candidate) => candidate.name === petName) ??
     seedPets[0];
+  const lostAlerts = useLostPetAlerts();
+  const lostAlert = activeLostAlertForPet(lostAlerts, pet.id);
 
   const [sharing, setSharing] = useState(false);
 
@@ -125,7 +128,15 @@ export default function PetIdScreen() {
                   <PawIcon size={40} color={Palette.forestDark} />
                 )}
               </View>
-              <Text style={styles.shareName}>{petName}</Text>
+              <View style={styles.shareNameRow}>
+                <Text style={styles.shareName}>{petName}</Text>
+                {lostAlert ? (
+                  <View style={styles.shareLostBadge}>
+                    <WarningIcon size={11} color={Palette.forestDark} />
+                    <Text style={styles.shareLostBadgeLabel}>LOST PET</Text>
+                  </View>
+                ) : null}
+              </View>
               <Text style={styles.shareMeta}>{`${pet.breed} · ${pet.sex}`}</Text>
               <QrCode seed={pet.id} size={96} />
               <Text style={styles.shareId}>{pet.id}</Text>
@@ -419,6 +430,27 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     color: Palette.white,
+  },
+  shareNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  shareLostBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Palette.gold,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+  },
+  shareLostBadgeLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: Palette.forestDark,
   },
   shareMeta: {
     fontFamily: Fonts.sans,

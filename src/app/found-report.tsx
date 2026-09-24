@@ -7,6 +7,7 @@ import { BackArrow, CheckIcon, PawIcon } from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { timestampToFullDate } from '@/lib/date';
 import { useFoundReports } from '@/lib/found-reports';
 import { goBack } from '@/lib/navigation';
 
@@ -71,6 +72,10 @@ export default function FoundReportScreen() {
 
           <Text style={styles.sectionLabel}>WHERE IT WAS FOUND</Text>
           <View style={styles.detailCard}>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Reported</Text>
+              <Text style={styles.detailValue}>{timestampToFullDate(report.createdAt)}</Text>
+            </View>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Found near</Text>
               <Text style={styles.detailValue}>{report.where}</Text>

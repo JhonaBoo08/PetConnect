@@ -26,20 +26,34 @@ import { BottomNav } from '@/components/bottom-nav';
 import { QrCode } from '@/components/pet-qr';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { timestampToFullDate } from '@/lib/date';
 import { createFoundReport } from '@/lib/found-reports';
-import { activeLostAlertForPet, timeAgo, useLostPetAlerts } from '@/lib/lost-pets';
+import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
 import { goBack } from '@/lib/navigation';
 import { addNotification } from '@/lib/notifications';
 import { getPetByIdSync, petAge, usePets } from '@/lib/pets';
 
+const FINDER_ID = 'finder-local-member';
+
 function maskMobile(mobile: string): string {
-  const parts = mobile.split(/\s+/).filter(Boolean);
+  const parts = mobile.trim().split(/\s+/).filter(Boolean);
   if (parts.length < 3) return mobile;
-  const [head, ...rest] = parts;
-  const last = rest[rest.length - 1];
-  const middles = rest.slice(0, -1).map(() => '•••').join(' ');
-  const tail = last.length >= 3 ? `••${last.slice(-2)}` : last;
-  return [head, middles, tail].filter(Boolean).join(' ');
+  const head = parts[0];
+  const first = parts[1];
+  const last = parts[parts.length - 1];
+  const tail = last.length >= 3 ? `••${last.slice(-2)}` : '••';
+  const inner = parts.slice(2, -1).map(() => '•••');
+  return [head, first, ...inner, tail].join(' ');
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
 }
 
 export default function ScanResultScreen() {
@@ -85,7 +99,7 @@ export default function ScanResultScreen() {
   };
 
   const submit = async () => {
-    if (!pet) return;
+    if (!pet || !lostAlert) return;
     if (!where.trim()) {
       setError('Please enter where you found the pet.');
       return;
@@ -94,17 +108,22 @@ export default function ScanResultScreen() {
     setSubmitting(true);
     try {
       const report = await createFoundReport({
+        alertId: lostAlert.id,
         petId: pet.id,
         petName: pet.name,
+        ownerId: lostAlert.ownerId,
+        finderId: FINDER_ID,
         where: where.trim(),
         message: message.trim(),
         photo,
+        status: 'OPEN',
       });
+      const reportedNear = where.trim() ? ` Reported near ${where.trim()}.` : '';
       await addNotification({
         id: `ntf-reunite-${report.id}`,
         kind: 'reunite',
         title: `${pet.name} may have been found`,
-        description: `Someone scanned ${pet.name}'s Pet-Connect ID and reported finding the pet near ${report.where}.`,
+        description: `A Pet-Connect member scanned ${pet.name}'s QR ID and submitted a recovery report.${reportedNear}`,
         timestamp: 'Just now',
         route: { pathname: '/found-report', params: { id: report.id } },
       });
@@ -141,8 +160,8 @@ export default function ScanResultScreen() {
               <BackArrow />
             </Pressable>
           </View>
-          <View style={styles.emptyWrap}>
-            <View style={styles.emptyIcon}>
+          <View style={styles.centerWrap}>
+            <View style={styles.centerIcon}>
               <PawIcon size={28} color={Palette.forestDark} />
             </View>
             <Text style={styles.emptyTitle}>Pet profile unavailable</Text>
@@ -150,8 +169,8 @@ export default function ScanResultScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => goBack('/scan')}
-              style={({ pressed }) => [styles.emptyButton, pressed && styles.pressed]}>
-              <Text style={styles.emptyButtonLabel}>Scan again</Text>
+              style={({ pressed }) => [styles.fullButton, pressed && styles.pressed]}>
+              <Text style={styles.fullButtonLabel}>Scan again</Text>
             </Pressable>
           </View>
           <BottomNav active="scan" />
@@ -164,19 +183,19 @@ export default function ScanResultScreen() {
     return (
       <View style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.confirmWrap}>
-            <View style={styles.confirmIcon}>
+          <View style={styles.centerWrap}>
+            <View style={styles.successIcon}>
               <CheckIcon size={28} color={Palette.white} />
             </View>
-            <Text style={styles.confirmTitle}>Recovery alert sent</Text>
-            <Text style={styles.confirmText}>
+            <Text style={styles.successTitle}>Recovery alert sent</Text>
+            <Text style={styles.emptyText}>
               The pet owner has been notified that someone found their pet.
             </Text>
             <Pressable
               accessibilityRole="button"
               onPress={returnToScanner}
-              style={({ pressed }) => [styles.confirmButton, pressed && styles.pressed]}>
-              <Text style={styles.confirmButtonLabel}>Return to scanner</Text>
+              style={({ pressed }) => [styles.fullButton, pressed && styles.pressed]}>
+              <Text style={styles.fullButtonLabel}>Return to scanner</Text>
             </Pressable>
           </View>
           <BottomNav active="scan" />
@@ -184,6 +203,8 @@ export default function ScanResultScreen() {
       </View>
     );
   }
+
+  const contactVisible = pet.finderContactVisible;
 
   return (
     <View style={styles.container}>
@@ -210,76 +231,119 @@ export default function ScanResultScreen() {
             </Pressable>
           </View>
 
-          <Text style={styles.category}>DIGITAL PET ID</Text>
-          <Text style={styles.petName}>{pet.name}</Text>
-          <Text style={styles.supporting}>
-            This recovery-safe card can be shared when {pet.name} needs help.
-          </Text>
-
           {isLost ? (
-            <View style={styles.lostBanner}>
-              <View style={styles.lostBannerHeader}>
-                <WarningIcon size={16} color={Palette.white} />
-                <Text style={styles.lostBannerTitle}>LOST PET</Text>
-              </View>
-              <Text style={styles.lostBannerText}>
-                {pet.name} has been reported lost.
-              </Text>
-              <View style={styles.lostBannerMeta}>
-                <PinIcon size={13} color="#F4CE8A" />
-                <Text style={styles.lostBannerMetaText}>
-                  Last seen {lostAlert?.locationName ?? 'nearby'} · Reported{' '}
-                  {lostAlert ? timeAgo(lostAlert.createdAt) : 'recently'}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
-          <View style={styles.petCard}>
-            <View style={styles.photo}>
-              {pet.photo ? (
-                <Image source={{ uri: pet.photo }} style={styles.photoImage} contentFit="cover" />
-              ) : (
-                <>
-                  <PawIcon size={64} color={Palette.forestDark} />
-                  <Text style={styles.photoCaption}>{pet.breed}</Text>
-                </>
-              )}
-            </View>
-
-            <View style={styles.cardBody}>
-              <View style={styles.breedRow}>
-                <Text style={styles.breed}>{pet.breed}</Text>
-                <ShieldIcon size={24} />
-              </View>
-              <Text style={styles.meta}>{`${pet.sex} · ${petAge(pet)}`}</Text>
-
-              <View style={styles.idPanel}>
-                <View style={styles.idText}>
-                  <Text style={styles.idLabel}>UNIQUE PET ID</Text>
-                  <Text style={styles.idValue}>{pet.id}</Text>
+            <View style={styles.lostHeader}>
+              <View style={styles.lostHeaderRow}>
+                <View style={styles.lostThumb}>
+                  {pet.photo ? (
+                    <Image source={{ uri: pet.photo }} style={styles.lostThumbImage} contentFit="cover" />
+                  ) : (
+                    <PawIcon size={30} color={Palette.forestDark} />
+                  )}
                 </View>
-                <QrCode seed={pet.id} size={72} />
+                <View style={styles.lostBody}>
+                  <View style={styles.lostPill}>
+                    <WarningIcon size={13} color={Palette.forestDark} />
+                    <Text style={styles.lostPillLabel}>LOST PET</Text>
+                  </View>
+                  <Text style={styles.lostName}>{pet.name}</Text>
+                  <Text style={styles.lostMeta}>
+                    {pet.species} · {pet.breed} · {pet.sex}
+                  </Text>
+                  <Text style={styles.lostId}>{pet.id}</Text>
+                </View>
               </View>
+              <Text style={styles.lostStatement}>{pet.name} has been reported lost.</Text>
             </View>
+          ) : (
+            <>
+              <Text style={styles.category}>DIGITAL PET ID</Text>
+              <Text style={styles.petName}>{pet.name}</Text>
+              <Text style={styles.supporting}>
+                This recovery-safe card can be shared when {pet.name} needs help.
+              </Text>
+
+              <View style={styles.petCard}>
+                <View style={styles.photo}>
+                  {pet.photo ? (
+                    <Image source={{ uri: pet.photo }} style={styles.photoImage} contentFit="cover" />
+                  ) : (
+                    <>
+                      <PawIcon size={64} color={Palette.forestDark} />
+                      <Text style={styles.photoCaption}>{pet.breed}</Text>
+                    </>
+                  )}
+                </View>
+                <View style={styles.cardBody}>
+                  <View style={styles.breedRow}>
+                    <Text style={styles.breed}>{pet.breed}</Text>
+                    <ShieldIcon size={24} />
+                  </View>
+                  <Text style={styles.meta}>{`${pet.sex} · ${petAge(pet)}`}</Text>
+                  <View style={styles.idPanel}>
+                    <View style={styles.idText}>
+                      <Text style={styles.idLabel}>UNIQUE PET ID</Text>
+                      <Text style={styles.idValue}>{pet.id}</Text>
+                    </View>
+                    <QrCode seed={pet.id} size={72} />
+                  </View>
+                </View>
+              </View>
+            </>
+          )}
+
+          <Text style={styles.sectionLabel}>{isLost ? 'PET INFORMATION' : 'PET INFO'}</Text>
+          <View style={styles.detailCard}>
+            <InfoRow label="Species" value={pet.species} />
+            <InfoRow label="Breed" value={pet.breed} />
+            <InfoRow label="Sex" value={pet.sex} />
+            <InfoRow label="Age" value={petAge(pet)} />
+            <InfoRow label="Pet-Connect ID" value={pet.id} />
+            {pet.details ? <InfoRow label="Identifying details" value={pet.details} /> : null}
+            {pet.collar ? <InfoRow label="Collar" value={pet.collar} /> : null}
           </View>
 
-          <View style={styles.recoveryCard}>
-            <Text style={styles.recoveryLabel}>RECOVERY CONTACT</Text>
-            <Text style={styles.recoveryName}>{pet.contactName}</Text>
-            <Text style={styles.recoveryMeta}>
-              {maskMobile(pet.contactMobile)} · {pet.contactLocation}
-            </Text>
-          </View>
+          <Text style={styles.sectionLabel}>OWNER / RECOVERY CONTACT</Text>
+          {contactVisible ? (
+            <View style={styles.ownerCard}>
+              <Text style={styles.ownerName}>{pet.contactName}</Text>
+              <Text style={styles.ownerMeta}>{maskMobile(pet.contactMobile)}</Text>
+              <Text style={styles.ownerMeta}>{pet.contactLocation}</Text>
+            </View>
+          ) : (
+            <View style={styles.ownerCard}>
+              <Text style={styles.ownerHidden}>
+                The owner has chosen not to share their recovery contact.
+              </Text>
+              <Text style={styles.ownerHiddenSub}>
+                Report the pet through the Lost &amp; Found feed instead.
+              </Text>
+            </View>
+          )}
 
-          {isLost ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setReportOpen(true)}
-              style={({ pressed }) => [styles.foundButton, pressed && styles.pressed]}>
-              <CheckIcon />
-              <Text style={styles.foundLabel}>I found this pet</Text>
-            </Pressable>
+          {isLost && lostAlert ? (
+            <>
+              <Text style={styles.sectionLabel}>LAST SEEN</Text>
+              <View style={styles.detailCard}>
+                <View style={styles.seenRow}>
+                  <PinIcon size={17} color={Palette.forestDark} />
+                  <View style={styles.seenText}>
+                    <Text style={styles.seenTitle}>{lostAlert.locationName}</Text>
+                    <Text style={styles.seenSub}>
+                      Reported {timestampToFullDate(lostAlert.createdAt)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setReportOpen(true)}
+                style={({ pressed }) => [styles.foundButton, pressed && styles.pressed]}>
+                <CheckIcon />
+                <Text style={styles.foundLabel}>I Found This Pet</Text>
+              </Pressable>
+            </>
           ) : null}
         </ScrollView>
 
@@ -310,11 +374,11 @@ export default function ScanResultScreen() {
               />
               {error ? <Text style={styles.sheetError}>{error}</Text> : null}
 
-              <Text style={styles.sheetLabel}>Message</Text>
+              <Text style={styles.sheetLabel}>Message to owner</Text>
               <TextInput
                 value={message}
                 onChangeText={setMessage}
-                placeholder="Optional message to the owner..."
+                placeholder="Optional"
                 placeholderTextColor={Palette.placeholder}
                 style={[styles.sheetInput, styles.sheetTextArea]}
                 multiline
@@ -431,41 +495,81 @@ const styles = StyleSheet.create({
     color: Palette.inkMuted,
     marginTop: Spacing.two,
   },
-  lostBanner: {
+  lostHeader: {
     backgroundColor: Palette.danger,
-    borderRadius: 14,
-    padding: Spacing.three,
-    marginTop: Spacing.four,
-    gap: 4,
+    borderRadius: 18,
+    padding: Spacing.four,
+    marginTop: Spacing.five,
+    gap: Spacing.three,
+    shadowColor: '#7A3B1D',
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
   },
-  lostBannerHeader: {
+  lostHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.one,
+    gap: Spacing.three,
   },
-  lostBannerTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: Palette.white,
+  lostThumb: {
+    width: 76,
+    height: 76,
+    borderRadius: 16,
+    backgroundColor: Palette.sage,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  lostBannerText: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
-    color: Palette.white,
+  lostThumbImage: {
+    width: '100%',
+    height: '100%',
   },
-  lostBannerMeta: {
+  lostBody: {
+    flex: 1,
+    gap: 3,
+  },
+  lostPill: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+    backgroundColor: Palette.gold,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 3,
+  },
+  lostPillLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: Palette.forestDark,
+  },
+  lostName: {
+    fontFamily: Fonts.sans,
+    fontSize: 22,
+    fontWeight: '800',
+    color: Palette.white,
     marginTop: 2,
   },
-  lostBannerMetaText: {
+  lostMeta: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    color: '#F8E1C4',
+  },
+  lostId: {
     fontFamily: Fonts.sans,
     fontSize: 12,
-    color: '#F8E1C4',
+    fontWeight: '800',
+    color: Palette.white,
+    letterSpacing: 0.5,
+  },
+  lostStatement: {
+    fontFamily: Fonts.sans,
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: Palette.white,
   },
   petCard: {
     marginTop: Spacing.four,
@@ -479,7 +583,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   photo: {
-    height: 188,
+    height: 168,
     backgroundColor: Palette.sage,
     alignItems: 'center',
     justifyContent: 'center',
@@ -544,40 +648,98 @@ const styles = StyleSheet.create({
     color: Palette.white,
     letterSpacing: 0.5,
   },
-  recoveryCard: {
-    marginTop: Spacing.four,
-    minHeight: 84,
+  sectionLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 1.3,
+    color: Palette.forestDark,
+    marginTop: Spacing.five,
+    marginBottom: Spacing.two,
+  },
+  detailCard: {
     backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     borderRadius: 16,
     padding: Spacing.three,
-    justifyContent: 'center',
-    gap: 2,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    gap: Spacing.three,
   },
-  recoveryLabel: {
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.three,
+  },
+  infoLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 10.5,
+    fontSize: 13,
     fontWeight: '700',
-    letterSpacing: 1.4,
     color: Palette.inkMuted,
   },
-  recoveryName: {
+  infoValue: {
+    flex: 1,
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.forestDark,
+    textAlign: 'right',
+  },
+  ownerCard: {
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 16,
+    padding: Spacing.three,
+    gap: 2,
+    alignItems: 'center',
+  },
+  ownerName: {
     fontFamily: Fonts.sans,
     fontSize: 16,
     fontWeight: '800',
     color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  ownerMeta: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    color: Palette.inkMuted,
+    textAlign: 'center',
+  },
+  ownerHidden: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  ownerHiddenSub: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    color: Palette.inkMuted,
+    textAlign: 'center',
     marginTop: 2,
   },
-  recoveryMeta: {
+  seenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  seenText: {
+    flex: 1,
+  },
+  seenTitle: {
     fontFamily: Fonts.sans,
-    fontSize: 12.5,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.forestDark,
+  },
+  seenSub: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
     color: Palette.inkMuted,
+    marginTop: 2,
   },
   foundButton: {
     flexDirection: 'row',
@@ -748,13 +910,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.forestDark,
   },
-  emptyWrap: {
+  centerWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing.four,
+    gap: Spacing.two,
   },
-  emptyIcon: {
+  centerIcon: {
     width: 64,
     height: 64,
     borderRadius: 32,
@@ -764,44 +927,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emptyTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 17,
-    fontWeight: '800',
-    color: Palette.forestDark,
-    marginTop: Spacing.four,
-  },
-  emptyText: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: 'center',
-    color: Palette.inkMuted,
-    marginTop: Spacing.two,
-  },
-  emptyButton: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: Palette.gold,
-    marginTop: Spacing.four,
-  },
-  emptyButtonLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  confirmWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.two,
-  },
-  confirmIcon: {
+  successIcon: {
     width: 64,
     height: 64,
     borderRadius: 32,
@@ -810,33 +936,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Spacing.two,
   },
-  confirmTitle: {
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 17,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    marginTop: Spacing.two,
+  },
+  successTitle: {
     fontFamily: Fonts.sans,
     fontSize: 22,
     fontWeight: '800',
     color: Palette.forestDark,
     textAlign: 'center',
   },
-  confirmText: {
+  emptyText: {
     fontFamily: Fonts.sans,
-    fontSize: 14,
-    lineHeight: 20,
-    color: Palette.inkMuted,
+    fontSize: 13,
+    lineHeight: 19,
     textAlign: 'center',
-    marginBottom: Spacing.three,
+    color: Palette.inkMuted,
   },
-  confirmButton: {
+  fullButton: {
     alignSelf: 'stretch',
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 46,
+    height: 44,
     borderRadius: 12,
     backgroundColor: Palette.gold,
+    marginTop: Spacing.three,
   },
-  confirmButtonLabel: {
+  fullButtonLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: Palette.forestDark,
   },
