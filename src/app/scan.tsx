@@ -1,27 +1,63 @@
-import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  Vibration,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackArrow, BellIcon, CameraIcon, QrIcon } from '@/components/app-icons';
+import {
+  BackArrow,
+  BellIcon,
+  CameraIcon,
+  CheckIcon,
+  PawIcon,
+  QrIcon,
+  WarningIcon,
+} from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { goBack } from '@/lib/navigation';
+import { getPetById } from '@/lib/pets';
+
+const PET_ID_PATTERN = /^PC-TAG-\d{4,}$/;
+const SIMULATED_PET_ID = 'PC-TAG-10482';
+const LIVE_ENVIRONMENTS = ['dev', 'staging'];
+type ScanState = 'idle' | 'confirm' | 'searching' | 'invalid' | 'notfound' | 'error';
 
 export default function ScanScreen() {
+  const [permission, requestPermission, getPermission] = useCameraPermissions();
+  const [scanState, setScanState] = useState<ScanState>('idle');
+  const processingRef = useRef(false);
+  const router = useRouter();
+
   const scanAnim = useState(() => new Animated.Value(0))[0];
   const useNative = Platform.OS !== 'web';
-  const router = useRouter();
+  const allowSimulate =
+    !LIVE_ENVIRONMENTS.includes(process.env.EXPO_PUBLIC_FIREBASE_ENV ?? 'emulator');
+
+  const resetScan = useCallback(() => {
+    processingRef.current = false;
+    setScanState('idle');
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      resetScan();
+      getPermission();
+    }, [getPermission, resetScan]),
+  );
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -38,7 +74,7 @@ export default function ScanScreen() {
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: useNative,
         }),
-      ])
+      ]),
     );
     loop.start();
     return () => loop.stop();
@@ -48,6 +84,46 @@ export default function ScanScreen() {
     inputRange: [0, 1],
     outputRange: [10, 236],
   });
+
+  const handleScan = useCallback(
+    async (data: string) => {
+      if (processingRef.current) return;
+      processingRef.current = true;
+      Vibration.vibrate(30);
+      setScanState('confirm');
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setScanState('searching');
+
+      const value = String(data ?? '').trim();
+      if (!PET_ID_PATTERN.test(value)) {
+        setScanState('invalid');
+        return;
+      }
+      try {
+        const pet = await getPetById(value);
+        if (!pet) {
+          setScanState('notfound');
+          return;
+        }
+        router.push({ pathname: '/scan-result', params: { pet: pet.id } });
+      } catch {
+        setScanState('error');
+      }
+    },
+    [router],
+  );
+
+  const handleBarcodeScanned = useCallback(
+    (result: BarcodeScanningResult) => {
+      if (result.type !== 'qr') return;
+      void handleScan(result.data);
+    },
+    [handleScan],
+  );
+
+  const simulateScan = useCallback(() => {
+    void handleScan(SIMULATED_PET_ID);
+  }, [handleScan]);
 
   return (
     <View style={styles.container}>
@@ -78,23 +154,139 @@ export default function ScanScreen() {
           <Text style={styles.heading}>Scan Pet QR ID</Text>
           <Text style={styles.instruction}>Place the Pet-Connect code inside the frame.</Text>
 
-          <View style={styles.scanner}>
-            <View style={styles.frame}>
-              <View style={[styles.bracket, styles.bracketTL]} />
-              <View style={[styles.bracket, styles.bracketTR]} />
-              <View style={[styles.bracket, styles.bracketBL]} />
-              <View style={[styles.bracket, styles.bracketBR]} />
-              <CameraIcon />
-              <Animated.View style={[styles.scanLine, { transform: [{ translateY }] }]} />
+          {scanState === 'idle' || scanState === 'confirm' ? (
+            <View style={styles.scanner}>
+              {permission?.granted ? (
+                <CameraView
+                  style={styles.camera}
+                  facing="back"
+                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                  onBarcodeScanned={handleBarcodeScanned}
+                />
+              ) : null}
+              <View style={styles.frame} pointerEvents="none">
+                <View style={[styles.bracket, styles.bracketTL]} />
+                <View style={[styles.bracket, styles.bracketTR]} />
+                <View style={[styles.bracket, styles.bracketBL]} />
+                <View style={[styles.bracket, styles.bracketBR]} />
+                {permission?.granted ? (
+                  <Animated.View style={[styles.scanLine, { transform: [{ translateY }] }]} />
+                ) : (
+                  <CameraIcon />
+                )}
+              </View>
+              {scanState === 'confirm' ? (
+                <View style={styles.confirmPill}>
+                  <CheckIcon size={12} color={Palette.forestDark} />
+                  <Text style={styles.confirmPillLabel}>Pet ID found</Text>
+                </View>
+              ) : null}
             </View>
-          </View>
+          ) : (
+            <View style={styles.statusCard}>
+              {scanState === 'searching' ? (
+                <>
+                  <ActivityIndicator color={Palette.forestDark} size="small" />
+                  <Text style={styles.statusTitle}>Finding pet...</Text>
+                  <Text style={styles.statusText}>
+                    Please wait while we retrieve the recovery profile.
+                  </Text>
+                </>
+              ) : null}
 
-          <Pressable
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.simulateButton, pressed && styles.pressed]}>
-            <QrIcon size={16} color={Palette.forestDark} />
-            <Text style={styles.simulateLabel}>Simulate successful scan</Text>
-          </Pressable>
+              {scanState === 'invalid' ? (
+                <View style={styles.statusContent}>
+                  <View style={styles.statusIcon}>
+                    <QrIcon size={24} color={Palette.forestDark} />
+                  </View>
+                  <Text style={styles.statusTitle}>QR code not recognized</Text>
+                  <Text style={styles.statusText}>
+                    This QR code is not linked to a Pet-Connect pet profile.
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={resetScan}
+                    style={({ pressed }) => [styles.statusButton, pressed && styles.pressed]}>
+                    <Text style={styles.statusButtonLabel}>Try again</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {scanState === 'notfound' ? (
+                <View style={styles.statusContent}>
+                  <View style={styles.statusIcon}>
+                    <PawIcon size={24} color={Palette.forestDark} />
+                  </View>
+                  <Text style={styles.statusTitle}>Pet profile unavailable</Text>
+                  <Text style={styles.statusText}>
+                    This Pet-Connect ID could not be found.
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={resetScan}
+                    style={({ pressed }) => [styles.statusButton, pressed && styles.pressed]}>
+                    <Text style={styles.statusButtonLabel}>Scan again</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {scanState === 'error' ? (
+                <View style={styles.statusContent}>
+                  <View style={styles.statusIcon}>
+                    <WarningIcon size={24} color={Palette.forestDark} />
+                  </View>
+                  <Text style={styles.statusTitle}>Unable to connect</Text>
+                  <Text style={styles.statusText}>
+                    We couldn&apos;t retrieve the pet profile. Check your connection and try
+                    again.
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={resetScan}
+                    style={({ pressed }) => [styles.statusButton, pressed && styles.pressed]}>
+                    <Text style={styles.statusButtonLabel}>Try again</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          )}
+
+          {permission && !permission.granted ? (
+            <View style={styles.permissionCard}>
+              <Text style={styles.permissionTitle}>
+                {permission.canAskAgain ? 'Camera access needed' : 'Camera permission denied'}
+              </Text>
+              <Text style={styles.permissionText}>
+                {permission.canAskAgain
+                  ? 'Allow camera access to scan a Pet-Connect QR ID.'
+                  : 'Enable camera access in your device settings to scan a Pet-Connect ID.'}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  if (permission.canAskAgain) {
+                    void requestPermission();
+                  } else {
+                    Linking.openSettings();
+                  }
+                }}
+                style={({ pressed }) => [styles.permissionButton, pressed && styles.pressed]}>
+                <Text style={styles.permissionButtonLabel}>
+                  {permission.canAskAgain ? 'Allow camera' : 'Open Settings'}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {scanState === 'idle' && allowSimulate ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={simulateScan}
+              style={({ pressed }) => [styles.simulateButton, pressed && styles.pressed]}>
+              <QrIcon size={16} color={Palette.forestDark} />
+              <Text style={styles.simulateLabel}>Simulate successful scan</Text>
+            </Pressable>
+          ) : null}
 
           <Text style={styles.helper}>Camera access is used only while scanning.</Text>
         </ScrollView>
@@ -190,6 +382,10 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
     elevation: 5,
+    overflow: 'hidden',
+  },
+  camera: {
+    ...StyleSheet.absoluteFill,
   },
   frame: {
     width: 260,
@@ -244,6 +440,123 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: Palette.gold,
     opacity: 0.9,
+  },
+  confirmPill: {
+    position: 'absolute',
+    bottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    backgroundColor: Palette.gold,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 20,
+  },
+  confirmPillLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  statusCard: {
+    width: '100%',
+    maxWidth: 336,
+    minHeight: 325,
+    alignSelf: 'center',
+    marginTop: Spacing.five,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.four,
+    shadowColor: '#1B4332',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  statusContent: {
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  statusIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Palette.sage,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.one,
+  },
+  statusTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 17,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  statusText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 19,
+    color: Palette.inkMuted,
+    textAlign: 'center',
+  },
+  statusButton: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Palette.gold,
+    marginTop: Spacing.three,
+  },
+  statusButtonLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  permissionCard: {
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 14,
+    padding: Spacing.three,
+    marginTop: Spacing.four,
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  permissionTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  permissionText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: Palette.inkMuted,
+    textAlign: 'center',
+  },
+  permissionButton: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: Palette.gold,
+    marginTop: Spacing.one,
+  },
+  permissionButtonLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.forestDark,
   },
   simulateButton: {
     flexDirection: 'row',

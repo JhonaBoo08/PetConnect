@@ -97,6 +97,14 @@ export function getPetsSync(): Pet[] {
   return petsCache ?? [];
 }
 
+export function getPetByIdSync(id: string): Pet | null {
+  return (petsCache ?? []).find((p) => p.id === id) ?? null;
+}
+
+export async function getPetById(id: string): Promise<Pet | null> {
+  return (await readPets()).find((p) => p.id === id) ?? null;
+}
+
 export async function createPet(input: NewPetInput): Promise<Pet> {
   const pets = await readPets();
   let index = 10000 + Math.floor(Math.random() * 90000);

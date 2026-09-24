@@ -28,6 +28,8 @@ function iconFor(kind: AppNotification['kind']) {
       return PinIcon;
     case 'found':
       return CheckIcon;
+    case 'reunite':
+      return CheckIcon;
     case 'record':
       return HealthIcon;
   }

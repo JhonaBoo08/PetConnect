@@ -5,11 +5,12 @@ export type NotificationRoute =
   | '/reminder-details'
   | { pathname: '/record-details'; params: { record: string; name: string } }
   | { pathname: '/reminder-details'; params: { reminder: string } }
-  | { pathname: '/alert-details'; params: { id: string } };
+  | { pathname: '/alert-details'; params: { id: string } }
+  | { pathname: '/found-report'; params: { id: string } };
 
 export type AppNotification = {
   id: string;
-  kind: 'booster' | 'lost-pet' | 'found' | 'record';
+  kind: 'booster' | 'lost-pet' | 'found' | 'record' | 'reunite';
   title: string;
   description: string;
   timestamp: string;
