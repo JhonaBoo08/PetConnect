@@ -1,12 +1,16 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRouter } from "expo-router";
+import { useState } from "react";
 
-import { AuthFooter, AuthScreen, type AuthFormValues } from '@/components/auth-screen';
-import { goBack } from '@/lib/navigation';
-import { register } from '@/lib/session';
+import {
+    AuthFooter,
+    AuthScreen,
+    type AuthFormValues,
+} from "@/components/auth-screen";
+import { goBack } from "@/lib/navigation";
+import { register } from "@/lib/session";
 
 const ClinicNote =
-  'Clinic accounts are verified. Submit your clinic email and the Pet-Connect team will review access.';
+  "Clinic accounts are verified. Submit your clinic email and the Pet-Connect team will review access.";
 
 export default function CreateAccountScreen() {
   const router = useRouter();
@@ -24,9 +28,15 @@ export default function CreateAccountScreen() {
         password: values.password,
         accountType: values.accountType,
       });
-      router.replace(values.accountType === 'vet' ? '/vet-details' : '/owner-details');
+      router.replace(
+        values.accountType === "vet" ? "/vet-details" : "/owner-details",
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to create your account right now.');
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Unable to create your account right now.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -36,18 +46,18 @@ export default function CreateAccountScreen() {
     <AuthScreen
       title="Join the network"
       subtitle="Care follows wherever your pet goes."
-      submitLabel={submitting ? 'Creating Account…' : 'Create Account'}
+      submitLabel={submitting ? "Creating Account…" : "Create Account"}
       showFullName
       showConfirmPassword
-      clinicNote={ClinicNote}
+      allowClinicAccountType={false}
       error={error}
-      onBack={() => goBack('/')}
+      onBack={() => goBack("/")}
       onSubmit={handleSubmit}
       footer={
         <AuthFooter
           text="Already have an account? "
           linkLabel="Sign in"
-          onPress={() => goBack('/sign-in')}
+          onPress={() => goBack("/sign-in")}
         />
       }
     />

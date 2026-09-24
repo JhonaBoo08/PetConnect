@@ -1,22 +1,22 @@
-import { Image } from 'expo-image';
-import { type ReactNode, useState } from 'react';
+import { Image } from "expo-image";
+import { type ReactNode, useState } from "react";
 import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { Palette } from '@/constants/palette';
+import { Palette } from "@/constants/palette";
+import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 
-export type AccountType = 'owner' | 'vet';
+export type AccountType = "owner" | "vet";
 
 export type AuthFormValues = {
   accountType: AccountType;
@@ -26,7 +26,13 @@ export type AuthFormValues = {
   confirmPassword: string;
 };
 
-function BackArrow({ size = 22, color = Palette.forestDark }: { size?: number; color?: string }) {
+function BackArrow({
+  size = 22,
+  color = Palette.forestDark,
+}: {
+  size?: number;
+  color?: string;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path
@@ -40,7 +46,13 @@ function BackArrow({ size = 22, color = Palette.forestDark }: { size?: number; c
   );
 }
 
-function PawIcon({ size = 16, color = Palette.forestDark }: { size?: number; color?: string }) {
+function PawIcon({
+  size = 16,
+  color = Palette.forestDark,
+}: {
+  size?: number;
+  color?: string;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Circle cx={7} cy={8.5} r={2.4} />
@@ -51,7 +63,13 @@ function PawIcon({ size = 16, color = Palette.forestDark }: { size?: number; col
   );
 }
 
-function VetIcon({ size = 16, color = Palette.forestDark }: { size?: number; color?: string }) {
+function VetIcon({
+  size = 16,
+  color = Palette.forestDark,
+}: {
+  size?: number;
+  color?: string;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Rect x={10} y={3.5} width={4} height={17} rx={1.6} />
@@ -108,6 +126,7 @@ type AuthScreenProps = {
   submitLabel: string;
   showFullName?: boolean;
   showConfirmPassword?: boolean;
+  allowClinicAccountType?: boolean;
   clinicNote?: string;
   note?: string;
   error?: string | null;
@@ -122,6 +141,7 @@ export function AuthScreen({
   submitLabel,
   showFullName = false,
   showConfirmPassword = false,
+  allowClinicAccountType = true,
   clinicNote,
   note,
   error,
@@ -129,27 +149,27 @@ export function AuthScreen({
   onBack,
   onSubmit,
 }: AuthScreenProps) {
-  const [accountType, setAccountType] = useState<AccountType>('owner');
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [accountType, setAccountType] = useState<AccountType>("owner");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const handleSubmit = () => {
     let message: string | null = null;
     if (showFullName && !fullName.trim()) {
-      message = 'Please enter your name.';
+      message = "Please enter your name.";
     } else if (!email.trim()) {
-      message = 'Please enter your email address.';
+      message = "Please enter your email address.";
     } else if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
-      message = 'Please enter a valid email address.';
+      message = "Please enter a valid email address.";
     } else if (!password) {
-      message = 'Please enter a password.';
+      message = "Please enter a password.";
     } else if (showConfirmPassword && password.length < 6) {
-      message = 'Password must be at least 6 characters.';
+      message = "Password must be at least 6 characters.";
     } else if (showConfirmPassword && confirmPassword !== password) {
-      message = 'Passwords do not match.';
+      message = "Passwords do not match.";
     }
     if (message) {
       setValidationError(message);
@@ -171,32 +191,37 @@ export function AuthScreen({
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.flex}>
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.flex}
+        >
           <ScrollView
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled">
+            keyboardShouldPersistTaps="handled"
+          >
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
               hitSlop={10}
               onPress={onBack}
-              style={styles.backButton}>
+              style={styles.backButton}
+            >
               <BackArrow />
             </Pressable>
 
             <View style={styles.brandRow}>
               <View style={styles.brandMark}>
                 <Image
-                  source={require('@/assets/images/logo.png')}
+                  source={require("@/assets/images/logo.png")}
                   style={styles.brandMarkImage}
                   contentFit="contain"
                 />
               </View>
               <View>
                 <Text style={styles.brandName}>Pet-Connect</Text>
-                <Text style={styles.brandTagline}>SCAN · PROTECT · RECONNECT</Text>
+                <Text style={styles.brandTagline}>
+                  SCAN · PROTECT · RECONNECT
+                </Text>
               </View>
             </View>
 
@@ -208,49 +233,74 @@ export function AuthScreen({
             <View style={styles.segment}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityState={{ selected: accountType === 'owner' }}
-                onPress={() => setAccountType('owner')}
-                style={[styles.segmentItem, accountType === 'owner' && styles.segmentItemActive]}>
-                <PawIcon color={accountType === 'owner' ? '#FFFFFF' : Palette.forestDark} />
+                accessibilityState={{ selected: accountType === "owner" }}
+                onPress={() => setAccountType("owner")}
+                style={[
+                  styles.segmentItem,
+                  accountType === "owner" && styles.segmentItemActive,
+                ]}
+              >
+                <PawIcon
+                  color={
+                    accountType === "owner" ? "#FFFFFF" : Palette.forestDark
+                  }
+                />
                 <Text
                   style={[
                     styles.segmentLabel,
-                    accountType === 'owner' && styles.segmentLabelActive,
-                  ]}>
+                    accountType === "owner" && styles.segmentLabelActive,
+                  ]}
+                >
                   Pet Owner
                 </Text>
               </Pressable>
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: accountType === 'vet' }}
-                onPress={() => setAccountType('vet')}
-                style={[styles.segmentItem, accountType === 'vet' && styles.segmentItemActive]}>
-                <VetIcon color={accountType === 'vet' ? '#FFFFFF' : Palette.forestDark} />
-                <Text
-                  style={[styles.segmentLabel, accountType === 'vet' && styles.segmentLabelActive]}>
-                  Vet Clinic
-                </Text>
-              </Pressable>
+              {allowClinicAccountType ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: accountType === "vet" }}
+                  onPress={() => setAccountType("vet")}
+                  style={[
+                    styles.segmentItem,
+                    accountType === "vet" && styles.segmentItemActive,
+                  ]}
+                >
+                  <VetIcon
+                    color={
+                      accountType === "vet" ? "#FFFFFF" : Palette.forestDark
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.segmentLabel,
+                      accountType === "vet" && styles.segmentLabelActive,
+                    ]}
+                  >
+                    Vet Clinic
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
 
-{clinicNote && accountType === 'vet' ? (
-                <Text style={styles.clinicNote}>{clinicNote}</Text>
-              ) : null}
+            {clinicNote && accountType === "vet" ? (
+              <Text style={styles.clinicNote}>{clinicNote}</Text>
+            ) : null}
 
-              {note ? <Text style={styles.note}>{note}</Text> : null}
+            {note ? <Text style={styles.note}>{note}</Text> : null}
 
             <View style={styles.form}>
               {showFullName ? (
                 <View style={styles.field}>
                   <Text style={styles.label}>
-                    {accountType === 'vet' ? 'Clinic name' : 'Full name'}
+                    {accountType === "vet" ? "Clinic name" : "Full name"}
                   </Text>
                   <TextInput
                     value={fullName}
                     onChangeText={setFullName}
                     placeholder={
-                      accountType === 'vet' ? 'e.g. Mabuhay Veterinary Clinic' : 'e.g. Raven Babiano'
+                      accountType === "vet"
+                        ? "e.g. Mabuhay Veterinary Clinic"
+                        : "e.g. Raven Babiano"
                     }
                     placeholderTextColor={Palette.placeholder}
                     style={styles.input}
@@ -299,18 +349,28 @@ export function AuthScreen({
               ) : null}
             </View>
 
-            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+            {formError ? (
+              <Text style={styles.formError}>{formError}</Text>
+            ) : null}
 
             <Pressable
               accessibilityRole="button"
               onPress={handleSubmit}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed && styles.pressed,
+              ]}
+            >
               <Text style={styles.primaryLabel}>{submitLabel}</Text>
             </Pressable>
 
             <Pressable
               accessibilityRole="button"
-              style={({ pressed }) => [styles.googleButton, pressed && styles.pressed]}>
+              style={({ pressed }) => [
+                styles.googleButton,
+                pressed && styles.pressed,
+              ]}
+            >
               <GoogleIcon />
               <Text style={styles.googleLabel}>Continue with Google</Text>
             </Pressable>
@@ -333,14 +393,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.border,
     borderRadius: 32,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    overflow: "hidden",
+    flexDirection: "row",
+    justifyContent: "center",
   },
   safeArea: {
     flex: 1,
     maxWidth: MaxContentWidth,
-    width: '100%',
+    width: "100%",
   },
   content: {
     flexGrow: 1,
@@ -351,14 +411,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: Spacing.two,
     marginLeft: -Spacing.two,
   },
   brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.three,
     marginTop: Spacing.three,
   },
@@ -366,27 +426,27 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   brandMarkImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
     borderRadius: 22,
   },
   brandName: {
     fontFamily: Fonts.sans,
     fontSize: 19,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
     letterSpacing: -0.3,
   },
   brandTagline: {
     fontFamily: Fonts.sans,
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.inkMuted,
     letterSpacing: 1.2,
     marginTop: 2,
@@ -399,7 +459,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 29,
     lineHeight: 36,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
     letterSpacing: -0.5,
   },
@@ -407,11 +467,11 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: '400',
+    fontWeight: "400",
     color: Palette.inkMuted,
   },
   segment: {
-    flexDirection: 'row',
+    flexDirection: "row",
     backgroundColor: Palette.segmentTrack,
     borderRadius: 999,
     padding: 4,
@@ -422,9 +482,9 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 40,
     borderRadius: 999,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: Spacing.two,
   },
   segmentItemActive: {
@@ -433,11 +493,11 @@ const styles = StyleSheet.create({
   segmentLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.forestDark,
   },
   segmentLabelActive: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
   },
   clinicNote: {
     fontFamily: Fonts.sans,
@@ -476,7 +536,7 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.forestDark,
   },
   input: {
@@ -494,16 +554,16 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 22,
     backgroundColor: Palette.forestDark,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: Spacing.five,
-    boxShadow: '0px 4px 10px rgba(27,67,50,0.25)',
+    boxShadow: "0px 4px 10px rgba(27,67,50,0.25)",
   },
   primaryLabel: {
     fontFamily: Fonts.sans,
     fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   googleButton: {
     height: 48,
@@ -511,22 +571,22 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
     gap: Spacing.two,
     marginTop: Spacing.three,
   },
   googleLabel: {
     fontFamily: Fonts.sans,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.forestDark,
   },
   footerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: Spacing.four,
   },
   footerText: {
@@ -537,7 +597,7 @@ const styles = StyleSheet.create({
   footerLink: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Palette.forestDark,
   },
   pressed: {

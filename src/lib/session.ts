@@ -1,3 +1,10 @@
+import {
+    currentSession,
+    login as firebaseLogin,
+    logout as firebaseLogout,
+    registerOwner,
+    updateProfile as updateFirebaseProfile,
+} from "@/services/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
 
@@ -43,6 +50,7 @@ export const LOCAL_TEST_VET_PASSWORD = "petconnect-test";
 export const LOCAL_TEST_VET_ID = "local-test-vet";
 export const isLocalTesting =
   (process.env.EXPO_PUBLIC_FIREBASE_ENV ?? "emulator") === "emulator";
+const usesFirebaseAuth = !isLocalTesting;
 
 const SESSION_KEY = "petconnect.session.v1";
 const ACCOUNTS_KEY = "petconnect.accounts.v1";
@@ -141,6 +149,19 @@ async function load(): Promise<void> {
       } catch {
         sessionUserId = null;
       }
+    }
+
+    if (usesFirebaseAuth) {
+      try {
+        const remote = await currentSession();
+        const user = profileFromFirebase(remote);
+        sessionUserId = user.userId;
+        profiles[user.userId] = user;
+      } catch {
+        sessionUserId = null;
+      }
+      ready = true;
+      return;
     }
 
     delete accounts["raven@petconnect.ph"];
@@ -242,10 +263,32 @@ function currentUserId(): string {
   throw new Error("You must be signed in to do this.");
 }
 
+function profileFromFirebase(
+  session: Awaited<ReturnType<typeof currentSession>>,
+): UserProfile {
+  return {
+    userId: session.uid,
+    fullName: session.displayName,
+    email: session.email,
+    accountType: session.role === "CLINIC" ? "vet" : "owner",
+    city: "",
+    province: "",
+    phoneNumber: session.phone ?? "",
+    profilePhoto: "",
+  };
+}
+
 export async function signIn(
   email: string,
   password: string,
 ): Promise<UserProfile> {
+  if (usesFirebaseAuth) {
+    const remote = await firebaseLogin(email, password);
+    const user = profileFromFirebase(remote);
+    sessionUserId = user.userId;
+    profiles[user.userId] = user;
+    return user;
+  }
   await ensureLoaded();
   const key = email.trim().toLowerCase();
   const account = accounts[key];
@@ -271,6 +314,20 @@ export async function register(input: {
   password: string;
   accountType: AccountType;
 }): Promise<UserProfile> {
+  if (usesFirebaseAuth) {
+    if (input.accountType !== "owner") {
+      throw new Error(
+        "Vet Clinic accounts must be provisioned by the project operator.",
+      );
+    }
+    const remote = await registerOwner(input.email, input.password, {
+      displayName: input.fullName,
+    });
+    const user = profileFromFirebase(remote);
+    sessionUserId = user.userId;
+    profiles[user.userId] = user;
+    return user;
+  }
   await ensureLoaded();
   const email = input.email.trim();
   const key = email.toLowerCase();
@@ -331,6 +388,12 @@ export async function completeOwnerDetails(
     secondaryMobile: input.secondaryMobile.trim(),
     secondaryRelationship: input.secondaryRelationship.trim(),
   };
+  if (usesFirebaseAuth) {
+    await updateFirebaseProfile({
+      displayName: profiles[userId].fullName,
+      phone: input.phoneNumber.trim(),
+    });
+  }
   await persistAll();
   notify();
   return profiles[userId];
@@ -374,6 +437,12 @@ export async function updatePreferences(
 }
 
 export async function logout(): Promise<void> {
+  if (usesFirebaseAuth) {
+    await firebaseLogout();
+    sessionUserId = null;
+    notify();
+    return;
+  }
   await ensureLoaded();
   sessionUserId = null;
   try {
