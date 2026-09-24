@@ -250,7 +250,7 @@ export default function ScanResultScreen() {
                       <Text style={styles.idLabel}>UNIQUE PET ID</Text>
                       <Text style={styles.idValue}>{pet.id}</Text>
                     </View>
-                    <QrCode seed={pet.id} value={encodePetQr(pet)} size={72} />
+                    <QrCode seed={pet.id} value={encodePetQr(pet)} size={120} />
                   </View>
                 </View>
               </View>

@@ -5,7 +5,7 @@ import Svg, { Path } from "react-native-svg";
 import { Palette } from "@/constants/palette";
 
 function qrPath(seed: string, size: number) {
-  const code = qrcode(0, "M");
+  const code = qrcode(0, "L");
   code.addData(seed, "Byte");
   code.make();
 

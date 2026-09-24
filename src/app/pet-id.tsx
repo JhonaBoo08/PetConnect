@@ -1,7 +1,14 @@
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+    Share as NativeShare,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -306,12 +313,28 @@ export default function PetIdScreen() {
               <Text
                 style={styles.shareMeta}
               >{`${pet.breed} · ${pet.sex}`}</Text>
-              <QrCode seed={pet.id} value={encodePetQr(pet)} size={96} />
+              <QrCode seed={pet.id} value={encodePetQr(pet)} size={160} />
               <Text style={styles.shareId}>{pet.id}</Text>
             </View>
             <Text style={styles.privacyNote}>
               Only recovery-safe information is shared.
             </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                void NativeShare.share({
+                  title: `${petName}'s Pet ID`,
+                  message: `Scan this Pet-Connect QR or use Pet ID ${pet.id} to help reunite ${petName} with their owner.`,
+                })
+              }
+              style={({ pressed }) => [
+                styles.shareAction,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ShareIcon size={16} />
+              <Text style={styles.shareActionLabel}>Share Pet ID</Text>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={() => setSharing(false)}
@@ -857,6 +880,22 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
   },
   shareCloseLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  shareAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.one,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Palette.gold,
+    marginBottom: Spacing.two,
+  },
+  shareActionLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: "800",
