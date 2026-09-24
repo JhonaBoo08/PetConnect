@@ -1,20 +1,20 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import { useColorScheme } from "react-native";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import { useSession } from '@/lib/session';
+import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { useSession } from "@/lib/session";
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const { ready, user } = useSession();
-  const isOwner = Boolean(user && user.accountType === 'owner');
-  const isVet = Boolean(user && user.accountType === 'vet');
+  const isOwner = Boolean(user && user.accountType === "owner");
+  const isVet = Boolean(user && user.accountType === "vet");
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <AnimatedSplashOverlay />
       {ready ? (
         <Stack screenOptions={{ headerShown: false }}>
@@ -59,6 +59,7 @@ export default function RootLayout() {
           <Stack.Screen name="vet-details" />
           <Stack.Screen name="scan" />
           <Stack.Screen name="scan-result" />
+          <Stack.Screen name="found-report-general" />
         </Stack>
       ) : null}
     </ThemeProvider>

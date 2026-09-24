@@ -325,6 +325,19 @@ export default function ScanScreen() {
             </View>
           ) : null}
 
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push("/found-report-general")}
+            style={({ pressed }) => [
+              styles.generalReportButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.generalReportLabel}>
+              Can&apos;t scan a QR? Report a found pet
+            </Text>
+          </Pressable>
+
           <Text style={styles.helper}>
             Camera access is used only while scanning.
           </Text>
@@ -589,6 +602,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     color: Palette.forestDark,
+  },
+  generalReportButton: {
+    alignSelf: "center",
+    minHeight: 42,
+    justifyContent: "center",
+    paddingHorizontal: Spacing.three,
+    marginTop: Spacing.three,
+  },
+  generalReportLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "700",
+    color: Palette.forestDark,
+    textDecorationLine: "underline",
   },
   helper: {
     fontFamily: Fonts.sans,

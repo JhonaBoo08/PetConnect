@@ -6,7 +6,7 @@ import {
     TabTrigger,
     TabTriggerSlotProps,
 } from "expo-router/ui";
-import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { ThemedText } from "./themed-text";
 import { ThemedView } from "./themed-view";
@@ -51,7 +51,6 @@ export function TabButton({
 }
 
 export function CustomTabList(props: TabListProps) {
-  const scheme = useColorScheme();
   return (
     <View {...props} style={styles.tabListContainer}>
       <ThemedView type="backgroundElement" style={styles.innerContainer}>
