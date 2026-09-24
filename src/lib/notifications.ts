@@ -1,12 +1,12 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useState } from "react";
 
 export type NotificationRoute =
-  | '/reminder-details'
-  | { pathname: '/record-details'; params: { record: string; name: string } }
-  | { pathname: '/reminder-details'; params: { reminder: string } }
-  | { pathname: '/alert-details'; params: { id: string } }
-  | { pathname: '/found-report'; params: { id: string } };
+  | "/reminder-details"
+  | { pathname: "/record-details"; params: { record: string; name: string } }
+  | { pathname: "/reminder-details"; params: { reminder: string } }
+  | { pathname: "/alert-details"; params: { id: string } }
+  | { pathname: "/found-report"; params: { id: string } };
 
 export type ClinicAccessRequest = {
   clinicId: string;
@@ -17,7 +17,8 @@ export type ClinicAccessRequest = {
 
 export type AppNotification = {
   id: string;
-  kind: 'booster' | 'lost-pet' | 'found' | 'record' | 'reunite' | 'access-request';
+  kind:
+    "booster" | "lost-pet" | "found" | "record" | "reunite" | "access-request";
   title: string;
   description: string;
   timestamp: string;
@@ -26,40 +27,16 @@ export type AppNotification = {
   accessRequest?: ClinicAccessRequest;
 };
 
-const NOTIFICATIONS_KEY = 'petconnect.notifications.v1';
+const NOTIFICATIONS_KEY = "petconnect.notifications.v1";
 
-const seedNotifications: AppNotification[] = [
-  {
-    id: 'booster',
-    kind: 'booster',
-    title: 'Booster due soon',
-    description: "Mingming's FVRCP booster is due in 3 days.",
-    timestamp: '2h',
-    unread: true,
-    route: { pathname: '/reminder-details', params: { reminder: 'rem-fvrcp' } },
-  },
-  {
-    id: 'lost-pet',
-    kind: 'lost-pet',
-    title: 'Lost pet nearby',
-    description: 'A brown Aspin was last seen near Mankilam.',
-    timestamp: '4h',
-    unread: true,
-    route: { pathname: '/alert-details', params: { id: 'alt-pup' } },
-  },
-  {
-    id: 'verified-record',
-    kind: 'record',
-    title: 'Health record verified',
-    description: "Tagum Pet Care verified Bantay's anti-rabies record.",
-    timestamp: 'Yesterday',
-    unread: false,
-    route: {
-      pathname: '/record-details',
-      params: { record: 'anti-rabies', name: 'Bantay' },
-    },
-  },
-];
+const seedNotifications: AppNotification[] = [];
+const legacyDemoNotificationIds = new Set([
+  "booster",
+  "lost-pet",
+  "verified-record",
+  "found-jerry",
+  "lost-jerry",
+]);
 
 let notificationsCache: AppNotification[] | null = null;
 const listeners = new Set<() => void>();
@@ -82,7 +59,10 @@ function dedupeById(list: AppNotification[]): AppNotification[] {
 async function persist(notifications: AppNotification[]) {
   notificationsCache = notifications;
   try {
-    await AsyncStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
+    await AsyncStorage.setItem(
+      NOTIFICATIONS_KEY,
+      JSON.stringify(notifications),
+    );
   } catch {
     // Best-effort persistence.
   }
@@ -96,7 +76,11 @@ async function readNotifications(): Promise<AppNotification[]> {
     if (raw) {
       const parsed = JSON.parse(raw) as AppNotification[];
       if (Array.isArray(parsed)) {
-        const deduped = dedupeById(parsed);
+        const deduped = dedupeById(
+          parsed.filter(
+            (notification) => !legacyDemoNotificationIds.has(notification.id),
+          ),
+        );
         notificationsCache = deduped;
         if (deduped.length !== parsed.length) await persist(deduped);
         return notificationsCache;
@@ -134,7 +118,7 @@ export function useNotifications(): AppNotification[] {
 }
 
 export async function addNotification(
-  notification: Omit<AppNotification, 'unread' | 'id'> & { id?: string },
+  notification: Omit<AppNotification, "unread" | "id"> & { id?: string },
 ): Promise<void> {
   const notifications = await readNotifications();
   const id =
