@@ -19,36 +19,43 @@ import {
 import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { petAge, usePets } from '@/lib/pets';
 
-type Pet = {
+function PetCard({
+  photo,
+  name,
+  details,
+  status,
+  statusTone,
+  onPress,
+}: {
+  photo: string;
   name: string;
   details: string;
   status: string;
   statusTone: 'healthy' | 'warning';
-};
-
-const pets: Pet[] = [
-  { name: 'Bantay', details: 'Golden Retriever · 3 years', status: 'Healthy', statusTone: 'healthy' },
-  { name: 'Mingming', details: 'Orange Tabby · 2 years', status: 'Booster due', statusTone: 'warning' },
-];
-
-function PetCard({ pet, onPress }: { pet: Pet; onPress: () => void }) {
-  const isWarning = pet.statusTone === 'warning';
+  onPress: () => void;
+}) {
+  const isWarning = statusTone === 'warning';
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.petCard, pressed && styles.pressed]}>
       <View style={styles.petPhoto}>
-        <PawIcon size={30} color={Palette.forestDark} />
+        {photo ? (
+          <Image source={{ uri: photo }} style={styles.petPhotoImage} contentFit="cover" />
+        ) : (
+          <PawIcon size={30} color={Palette.forestDark} />
+        )}
       </View>
 
       <View style={styles.petInfo}>
-        <Text style={styles.petName}>{pet.name}</Text>
-        <Text style={styles.petDetails}>{pet.details}</Text>
+        <Text style={styles.petName}>{name}</Text>
+        <Text style={styles.petDetails}>{details}</Text>
         <View style={[styles.statusPill, isWarning ? styles.statusWarning : styles.statusHealthy]}>
           {isWarning ? <WarningIcon /> : <CheckIcon />}
-          <Text style={styles.statusText}>{pet.status}</Text>
+          <Text style={styles.statusText}>{status}</Text>
         </View>
       </View>
 
@@ -105,6 +112,8 @@ export default function DashboardScreen() {
   const { dateLabel, greeting } = useNow();
   const router = useRouter();
   const addGlow = useState(() => new Animated.Value(0))[0];
+  const pets = usePets();
+  const primaryPet = pets[0]?.name;
 
   const fadeAddPet = (toValue: number) =>
     Animated.timing(addGlow, {
@@ -168,13 +177,22 @@ export default function DashboardScreen() {
           </View>
 
           <View style={styles.petList}>
-            {pets.map((pet) => (
-              <PetCard
-                key={pet.name}
-                pet={pet}
-                onPress={() => router.push({ pathname: '/pet-id', params: { name: pet.name } })}
-              />
-            ))}
+            {pets.map((pet) => {
+              const isMingming = pet.name === 'Mingming';
+              return (
+                <PetCard
+                  key={pet.id}
+                  photo={pet.photo}
+                  name={pet.name}
+                  details={`${pet.breed} · ${petAge(pet)}`}
+                  status={isMingming ? 'Booster due' : 'Healthy'}
+                  statusTone={isMingming ? 'warning' : 'healthy'}
+                  onPress={() =>
+                    router.push({ pathname: '/pet-id', params: { name: pet.name } })
+                  }
+                />
+              );
+            })}
           </View>
 
           <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Quick care</Text>
@@ -183,14 +201,18 @@ export default function DashboardScreen() {
               icon={<QrIcon />}
               label="View QR"
               onPress={() =>
-                router.push({ pathname: '/pet-id', params: { name: pets[0]?.name } })
+                primaryPet
+                  ? router.push({ pathname: '/pet-id', params: { name: primaryPet } })
+                  : router.push('/pet-id')
               }
             />
             <QuickCareCard
               icon={<HealthIcon />}
               label="Health"
               onPress={() =>
-                router.push({ pathname: '/health-records', params: { name: pets[0]?.name } })
+                primaryPet
+                  ? router.push({ pathname: '/health-records', params: { name: primaryPet } })
+                  : router.push('/health-records')
               }
             />
             <QuickCareCard
@@ -394,6 +416,11 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.sage,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  petPhotoImage: {
+    width: '100%',
+    height: '100%',
   },
   petInfo: {
     flex: 1,

@@ -117,8 +117,8 @@ function MonthCalendar({ viewDate }: { viewDate: { year: number; month: number }
       <View style={styles.calendarDivider} />
 
       <View style={styles.weekRow}>
-        {weekDays.map((label) => (
-          <Text key={label} style={styles.weekLabel}>
+        {weekDays.map((label, index) => (
+          <Text key={`${label}-${index}`} style={styles.weekLabel}>
             {label}
           </Text>
         ))}

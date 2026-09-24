@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -14,41 +15,183 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   BackArrow,
   BellIcon,
-  CheckIcon,
+  CameraIcon,
   ChevronDownIcon,
-  PawIcon,
-  ShieldIcon,
+  PlusIcon,
   UploadIcon,
 } from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
+import { DateField } from '@/components/date-field';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { isValidBirthdate, isValidMobile, toIsoDate } from '@/lib/date';
 import { goBack } from '@/lib/navigation';
+import { createPet } from '@/lib/pets';
 
-const speciesOptions = ['Dog', 'Cat', 'Bird', 'Other'];
-const sexOptions = ['Male', 'Female'];
+const speciesOptions = ['Dog', 'Cat', 'Other'];
+const sexOptions = ['Male', 'Female', 'Unknown'];
+
+type FormErrors = Partial<
+  Record<
+    | 'name'
+    | 'species'
+    | 'sex'
+    | 'breed'
+    | 'color'
+    | 'birthdate'
+    | 'contactName'
+    | 'contactMobile',
+    string
+  >
+>;
+
+type DropdownFieldProps = {
+  label: string;
+  value: string;
+  placeholder: string;
+  options: string[];
+  open: boolean;
+  error?: string;
+  onToggle: () => void;
+  onSelect: (option: string) => void;
+};
+
+function DropdownField({
+  label,
+  value,
+  placeholder,
+  options,
+  open,
+  error,
+  onToggle,
+  onSelect,
+}: DropdownFieldProps) {
+  return (
+    <View style={styles.fieldWrap}>
+      <Text style={styles.label}>{label}</Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onToggle}
+        style={({ pressed }) => [
+          styles.input,
+          styles.fieldRow,
+          error ? styles.inputInvalid : null,
+          pressed && styles.pressed,
+        ]}>
+        <Text style={[styles.inputText, !value && styles.placeholderText]}>
+          {value || placeholder}
+        </Text>
+        <ChevronDownIcon />
+      </Pressable>
+      {open ? (
+        <View style={styles.dropdown}>
+          {options.map((option) => (
+            <Pressable
+              key={option}
+              accessibilityRole="button"
+              onPress={() => onSelect(option)}
+              style={({ pressed }) => [styles.dropdownItem, pressed && styles.pressed]}>
+              <Text style={styles.dropdownLabel}>{option}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+    </View>
+  );
+}
 
 export default function AddPetScreen() {
   const router = useRouter();
-  const [photoAdded, setPhotoAdded] = useState(false);
+  const [photo, setPhoto] = useState('');
   const [name, setName] = useState('');
-  const [speciesOpen, setSpeciesOpen] = useState(false);
   const [species, setSpecies] = useState('');
-  const [breed, setBreed] = useState('');
+  const [speciesOpen, setSpeciesOpen] = useState(false);
   const [sex, setSex] = useState('');
-  const [age, setAge] = useState('');
-  const [notes, setNotes] = useState('');
-  const [errors, setErrors] = useState<{ name?: string; species?: string }>({});
-  const [petId] = useState('PC-TAG-10484');
+  const [sexOpen, setSexOpen] = useState(false);
+  const [breed, setBreed] = useState('');
+  const [color, setColor] = useState('');
+  const [birthdate, setBirthdate] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [contactMobile, setContactMobile] = useState('');
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const save = () => {
-    const next: typeof errors = {};
+  const clearError = (key: keyof FormErrors) =>
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+
+  const pickPhoto = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.6,
+        base64: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (asset.base64) {
+        setPhoto(`data:${asset.mimeType ?? 'image/jpeg'};base64,${asset.base64}`);
+      } else {
+        setPhoto(asset.uri);
+      }
+    } catch {
+      // Photo selection is optional; keep the previous state on failure.
+    }
+  };
+
+  const save = async () => {
+    const next: FormErrors = {};
     if (!name.trim()) next.name = 'Please enter your pet\u2019s name.';
     if (!species) next.species = 'Please select a species.';
+    if (!sex) next.sex = 'Please select a sex.';
+    if (!breed.trim()) next.breed = 'Please enter a breed.';
+    if (!color.trim()) next.color = 'Please enter a color.';
+    if (!isValidBirthdate(birthdate)) next.birthdate = 'Please enter a valid birthdate.';
+    if (!contactName.trim()) next.contactName = 'Please enter a contact name.';
+    if (!isValidMobile(contactMobile)) next.contactMobile = 'Please enter a valid mobile number.';
     setErrors(next);
-    if (Object.keys(next).length === 0) {
-      router.navigate('/dashboard');
+    if (Object.keys(next).length > 0) return;
+
+    setSaving(true);
+    try {
+      const pet = await createPet({
+        name: name.trim(),
+        species,
+        sex,
+        breed: breed.trim(),
+        color: color.trim(),
+        birthdate: toIsoDate(birthdate),
+        photo,
+        contactName: contactName.trim(),
+        contactMobile: contactMobile.trim(),
+      });
+      router.replace({ pathname: '/pet-id', params: { name: pet.name } });
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const dirty = Boolean(
+    name.trim() ||
+      species ||
+      sex ||
+      breed.trim() ||
+      color.trim() ||
+      birthdate ||
+      contactName.trim() ||
+      contactMobile.trim() ||
+      photo,
+  );
+
+  const onBack = () => {
+    if (dirty) {
+      setDiscardOpen(true);
+      return;
+    }
+    goBack('/dashboard');
   };
 
   return (
@@ -58,30 +201,14 @@ export default function AddPetScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Go back"
-                onPress={() => goBack('/dashboard')}
-                style={styles.iconButton}>
-                <BackArrow />
-              </Pressable>
-
-              <View style={styles.brandRow}>
-                <View style={styles.brandMark}>
-                  <Image
-                    source={require('@/assets/images/logo.png')}
-                    style={styles.brandMarkImage}
-                    contentFit="contain"
-                  />
-                </View>
-                <View>
-                  <Text style={styles.brandName}>Pet-Connect</Text>
-                  <Text style={styles.brandTagline}>SCAN · PROTECT · RECONNECT</Text>
-                </View>
-              </View>
-            </View>
+          <View style={styles.topBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={onBack}
+              style={styles.iconButton}>
+              <BackArrow />
+            </Pressable>
 
             <Pressable
               accessibilityRole="button"
@@ -93,148 +220,198 @@ export default function AddPetScreen() {
             </Pressable>
           </View>
 
-          <Text style={styles.category}>PET PROFILE</Text>
+          <Text style={styles.category}>NEW DIGITAL PET ID</Text>
           <Text style={styles.heading}>Add a pet</Text>
           <Text style={styles.supporting}>
-            Register your pet&apos;s details so it can be identified and reunited if lost.
+            Their QR tag and recovery profile are created automatically.
           </Text>
 
-          <View style={styles.photoPreview}>
-            <View style={styles.photoThumb}>
-              <PawIcon size={34} color={Palette.forestDark} />
+          <Text style={styles.label}>Pet photo</Text>
+          <View style={styles.photoRow}>
+            <View style={styles.photoFrame}>
+              {photo ? (
+                <Image source={{ uri: photo }} style={styles.photoImage} contentFit="cover" />
+              ) : (
+                <CameraIcon size={30} color={Palette.forestDark} />
+              )}
             </View>
-            <View style={styles.photoInfo}>
-              <Text style={styles.photoTitle}>
-                {photoAdded ? 'pet_photo.jpg' : 'No photo yet'}
-              </Text>
-              <Text style={styles.photoHint}>A clear photo helps people recognize your pet.</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={pickPhoto}
+              style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}>
+              <UploadIcon size={18} />
+              <Text style={styles.uploadLabel}>{photo ? 'Replace photo' : 'Upload photo'}</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.label}>Name</Text>
+          <TextInput
+            value={name}
+            onChangeText={(value) => {
+              setName(value);
+              if (value.trim()) clearError('name');
+            }}
+            placeholder="e.g. Bantay"
+            placeholderTextColor={Palette.placeholder}
+            style={[styles.input, errors.name ? styles.inputInvalid : null]}
+          />
+          {errors.name ? <Text style={styles.error}>{errors.name}</Text> : null}
+
+          <View style={styles.fieldsRow}>
+            <DropdownField
+              label="Species"
+              value={species}
+              placeholder="Dog"
+              options={speciesOptions}
+              open={speciesOpen}
+              error={errors.species}
+              onToggle={() => {
+                setSexOpen(false);
+                setSpeciesOpen((open) => !open);
+              }}
+              onSelect={(option) => {
+                setSpecies(option);
+                setSpeciesOpen(false);
+                clearError('species');
+              }}
+            />
+            <DropdownField
+              label="Sex"
+              value={sex}
+              placeholder="\u2014"
+              options={sexOptions}
+              open={sexOpen}
+              error={errors.sex}
+              onToggle={() => {
+                setSpeciesOpen(false);
+                setSexOpen((open) => !open);
+              }}
+              onSelect={(option) => {
+                setSex(option);
+                setSexOpen(false);
+                clearError('sex');
+              }}
+            />
+          </View>
+
+          <Text style={styles.label}>Breed</Text>
+          <TextInput
+            value={breed}
+            onChangeText={(value) => {
+              setBreed(value);
+              if (value.trim()) clearError('breed');
+            }}
+            placeholder="e.g. Aspin, Golden Retriever"
+            placeholderTextColor={Palette.placeholder}
+            style={[styles.input, errors.breed ? styles.inputInvalid : null]}
+          />
+          {errors.breed ? <Text style={styles.error}>{errors.breed}</Text> : null}
+
+          <View style={styles.fieldsRow}>
+            <View style={styles.fieldWrap}>
+              <Text style={styles.label}>Color</Text>
+              <TextInput
+                value={color}
+                onChangeText={(value) => {
+                  setColor(value);
+                  if (value.trim()) clearError('color');
+                }}
+                placeholder="e.g. Golden"
+                placeholderTextColor={Palette.placeholder}
+                style={[styles.input, errors.color ? styles.inputInvalid : null]}
+              />
+              {errors.color ? <Text style={styles.error}>{errors.color}</Text> : null}
             </View>
-            {photoAdded ? (
-              <Pressable accessibilityRole="button" onPress={() => setPhotoAdded(false)}>
-                <Text style={styles.photoRemove}>Remove</Text>
-              </Pressable>
+
+            <View style={styles.fieldWrap}>
+              <Text style={styles.label}>Birthdate</Text>
+              <DateField
+                value={birthdate}
+                invalid={Boolean(errors.birthdate)}
+                onChange={(value) => {
+                  setBirthdate(value);
+                  if (value) clearError('birthdate');
+                }}
+              />
+              {errors.birthdate ? <Text style={styles.error}>{errors.birthdate}</Text> : null}
+            </View>
+          </View>
+
+          <View style={styles.recoverySection}>
+            <View style={styles.recoveryHeader}>
+              <Text style={styles.recoveryLabel}>RECOVERY CONTACT</Text>
+              <Text style={styles.recoveryHint}>(shown to finders)</Text>
+            </View>
+
+            <Text style={styles.label}>Contact name</Text>
+            <TextInput
+              value={contactName}
+              onChangeText={(value) => {
+                setContactName(value);
+                if (value.trim()) clearError('contactName');
+              }}
+              placeholder="Contact name"
+              placeholderTextColor={Palette.placeholder}
+              style={[styles.input, errors.contactName ? styles.inputInvalid : null]}
+            />
+            {errors.contactName ? <Text style={styles.error}>{errors.contactName}</Text> : null}
+
+            <Text style={styles.label}>Mobile number</Text>
+            <TextInput
+              value={contactMobile}
+              onChangeText={(value) => {
+                setContactMobile(value);
+                if (value.trim()) clearError('contactMobile');
+              }}
+              placeholder="Mobile number, e.g. +63 917 000 0000"
+              placeholderTextColor={Palette.placeholder}
+              keyboardType="phone-pad"
+              style={[styles.input, errors.contactMobile ? styles.inputInvalid : null]}
+            />
+            {errors.contactMobile ? (
+              <Text style={styles.error}>{errors.contactMobile}</Text>
             ) : null}
           </View>
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => setPhotoAdded(true)}
-            style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}>
-            <UploadIcon />
-            <Text style={styles.photoLabel}>
-              {photoAdded ? 'Replace photo' : 'Add pet photo'}
-            </Text>
-          </Pressable>
-
-          <Text style={styles.label}>Pet name</Text>
-          <TextInput
-            value={name}
-            onChangeText={(value) => {
-              setName(value);
-              if (value.trim()) setErrors((prev) => ({ ...prev, name: undefined }));
-            }}
-            placeholder="e.g. Bantay"
-            placeholderTextColor={Palette.placeholder}
-            style={styles.input}
-          />
-          {errors.name ? <Text style={styles.error}>{errors.name}</Text> : null}
-
-          <Text style={styles.label}>Species</Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setSpeciesOpen((open) => !open)}
-            style={[styles.input, styles.fieldRow]}>
-            <Text style={styles.inputText}>{species || 'Select species'}</Text>
-            <ChevronDownIcon />
-          </Pressable>
-          {speciesOpen ? (
-            <View style={styles.dropdown}>
-              {speciesOptions.map((option) => (
-                <Pressable
-                  key={option}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setSpecies(option);
-                    setSpeciesOpen(false);
-                    setErrors((prev) => ({ ...prev, species: undefined }));
-                  }}
-                  style={({ pressed }) => [styles.dropdownItem, pressed && styles.pressed]}>
-                  <Text style={styles.dropdownLabel}>{option}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-          {errors.species ? <Text style={styles.error}>{errors.species}</Text> : null}
-
-          <Text style={styles.label}>Breed</Text>
-          <TextInput
-            value={breed}
-            onChangeText={setBreed}
-            placeholder="e.g. Golden Retriever"
-            placeholderTextColor={Palette.placeholder}
-            style={styles.input}
-          />
-
-          <Text style={styles.label}>Sex</Text>
-          <View style={styles.segment}>
-            {sexOptions.map((option) => {
-              const isActive = sex === option;
-              return (
-                <Pressable
-                  key={option}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isActive }}
-                  onPress={() => setSex(option)}
-                  style={[styles.segmentItem, isActive && styles.segmentItemActive]}>
-                  <Text style={[styles.segmentLabel, isActive && styles.segmentLabelActive]}>
-                    {option}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={styles.label}>Age</Text>
-          <TextInput
-            value={age}
-            onChangeText={setAge}
-            placeholder="e.g. 3 years"
-            placeholderTextColor={Palette.placeholder}
-            style={styles.input}
-          />
-
-          <Text style={styles.label}>Identifying details</Text>
-          <TextInput
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Collar, markings, temperament..."
-            placeholderTextColor={Palette.placeholder}
-            style={[styles.input, styles.textArea]}
-            multiline
-          />
-
-          <View style={styles.idPanel}>
-            <ShieldIcon size={22} />
-            <View style={styles.idText}>
-              <Text style={styles.idLabel}>UNIQUE PET ID</Text>
-              <Text style={styles.idValue}>{petId}</Text>
-            </View>
-            <CheckIcon size={16} color={Palette.forestDark} />
-          </View>
-          <Text style={styles.idHint}>
-            This Pet-Connect ID is generated automatically and links to your pet&apos;s QR code.
-          </Text>
-
-          <Pressable
-            accessibilityRole="button"
             onPress={save}
-            style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}>
-            <Text style={styles.saveLabel}>Save pet</Text>
+            disabled={saving}
+            style={({ pressed }) => [
+              styles.saveButton,
+              (pressed || saving) && styles.pressed,
+            ]}>
+            <PlusIcon size={16} />
+            <Text style={styles.saveLabel}>Add pet</Text>
           </Pressable>
         </ScrollView>
 
         <BottomNav active="home" />
       </SafeAreaView>
+
+      {discardOpen ? (
+        <View style={styles.overlay}>
+          <View style={styles.discardSheet}>
+            <Text style={styles.discardTitle}>Discard changes?</Text>
+            <Text style={styles.discardText}>Your pet information hasn&apos;t been saved.</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setDiscardOpen(false)}
+              style={({ pressed }) => [styles.keepButton, pressed && styles.pressed]}>
+              <Text style={styles.keepLabel}>Keep editing</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setDiscardOpen(false);
+                goBack('/dashboard');
+              }}
+              style={({ pressed }) => [styles.discardButton, pressed && styles.pressed]}>
+              <Text style={styles.discardLabel}>Discard</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -260,50 +437,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.five,
   },
-  header: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: Spacing.two,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  brandMark: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Palette.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  brandMarkImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 22,
-  },
-  brandName: {
-    fontFamily: Fonts.sans,
-    fontSize: 19,
-    fontWeight: '800',
-    color: Palette.forestDark,
-    letterSpacing: -0.3,
-  },
-  brandTagline: {
-    fontFamily: Fonts.sans,
-    fontSize: 10,
-    fontWeight: '600',
-    color: Palette.inkMuted,
-    letterSpacing: 1.2,
-    marginTop: 2,
   },
   iconButton: {
     width: 42,
@@ -348,65 +486,6 @@ const styles = StyleSheet.create({
     color: Palette.inkMuted,
     marginTop: Spacing.two,
   },
-  photoPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    marginTop: Spacing.four,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    borderRadius: 12,
-    padding: Spacing.two,
-  },
-  photoThumb: {
-    width: 56,
-    height: 56,
-    borderRadius: 10,
-    backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  photoTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  photoHint: {
-    fontFamily: Fonts.sans,
-    fontSize: 11.5,
-    color: Palette.inkMuted,
-  },
-  photoRemove: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Palette.danger,
-    paddingHorizontal: Spacing.two,
-  },
-  photoButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    backgroundColor: Palette.cream,
-    marginTop: Spacing.three,
-  },
-  photoLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
   label: {
     fontFamily: Fonts.sans,
     fontSize: 13.5,
@@ -414,6 +493,54 @@ const styles = StyleSheet.create({
     color: Palette.forestDark,
     marginTop: Spacing.four,
     marginBottom: Spacing.two,
+  },
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    marginTop: Spacing.two,
+  },
+  photoFrame: {
+    width: 104,
+    height: 104,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  uploadButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+  },
+  uploadLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.forestDark,
+  },
+  fieldsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.three,
+  },
+  fieldWrap: {
+    flex: 1,
   },
   input: {
     minHeight: 44,
@@ -426,6 +553,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Palette.forestDark,
   },
+  inputInvalid: {
+    borderColor: Palette.danger,
+  },
   fieldRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -436,11 +566,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Palette.forestDark,
   },
-  textArea: {
-    minHeight: 96,
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.three,
-    textAlignVertical: 'top',
+  placeholderText: {
+    color: Palette.placeholder,
   },
   dropdown: {
     marginTop: Spacing.two,
@@ -459,75 +586,45 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Palette.forestDark,
   },
+  recoverySection: {
+    marginTop: Spacing.five,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 16,
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.three,
+  },
+  recoveryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: Spacing.three,
+  },
+  recoveryLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 1.3,
+    color: Palette.forestDark,
+  },
+  recoveryHint: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+  },
   error: {
     fontFamily: Fonts.sans,
     fontSize: 12,
     color: Palette.danger,
     marginTop: Spacing.one,
   },
-  segment: {
-    flexDirection: 'row',
-    backgroundColor: Palette.goldTrack,
-    borderRadius: 999,
-    padding: 4,
-  },
-  segmentItem: {
-    flex: 1,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-  },
-  segmentItemActive: {
-    backgroundColor: Palette.forestDark,
-  },
-  segmentLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  segmentLabelActive: {
-    color: Palette.white,
-  },
-  idPanel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    marginTop: Spacing.four,
-    backgroundColor: Palette.goldTrack,
-    borderRadius: 12,
-    padding: Spacing.three,
-  },
-  idText: {
-    flex: 1,
-    gap: 2,
-  },
-  idLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 9.5,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    color: Palette.inkMuted,
-  },
-  idValue: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '800',
-    color: Palette.forestDark,
-    letterSpacing: 0.5,
-  },
-  idHint: {
-    fontFamily: Fonts.sans,
-    fontSize: 11.5,
-    color: Palette.inkMuted,
-    marginTop: Spacing.two,
-  },
   saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 46,
+    gap: Spacing.two,
+    height: 48,
     borderRadius: 12,
     backgroundColor: Palette.gold,
     marginTop: Spacing.five,
@@ -540,6 +637,73 @@ const styles = StyleSheet.create({
   saveLabel: {
     fontFamily: Fonts.sans,
     fontSize: 15,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(20,40,28,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+  },
+  discardSheet: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: Palette.cream,
+    borderRadius: 18,
+    padding: Spacing.four,
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  discardTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 17,
+    fontWeight: '800',
+    color: Palette.forestDark,
+    textAlign: 'center',
+  },
+  discardText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 19,
+    color: Palette.inkMuted,
+    textAlign: 'center',
+    marginBottom: Spacing.two,
+  },
+  keepButton: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+  },
+  keepLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.forestDark,
+  },
+  discardButton: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Palette.gold,
+  },
+  discardLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
     fontWeight: '800',
     color: Palette.forestDark,
   },

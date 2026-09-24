@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -9,28 +10,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { goBack } from '@/lib/navigation';
-
-type PetProfile = {
-  breed: string;
-  meta: string;
-  id: string;
-  photo: string;
-};
-
-const petProfiles: Record<string, PetProfile> = {
-  Bantay: {
-    breed: 'Golden Retriever',
-    meta: 'Male · 3 years old',
-    id: 'PC-TAG-10482',
-    photo: 'Bantay',
-  },
-  Mingming: {
-    breed: 'Orange Tabby',
-    meta: 'Female · 2 years old',
-    id: 'PC-TAG-10483',
-    photo: 'Mingming',
-  },
-};
+import { petAge, seedPets, usePets } from '@/lib/pets';
 
 const QR_GRID = 21;
 
@@ -103,7 +83,10 @@ export default function PetIdScreen() {
   const params = useLocalSearchParams<{ name?: string }>();
   const requested = Array.isArray(params.name) ? params.name[0] : params.name;
   const petName = requested ?? 'Bantay';
-  const profile = petProfiles[petName] ?? petProfiles.Bantay;
+  const pet =
+    usePets().find((candidate) => candidate.name === petName) ??
+    seedPets.find((candidate) => candidate.name === petName) ??
+    seedPets[0];
 
   const [sharing, setSharing] = useState(false);
 
@@ -139,33 +122,41 @@ export default function PetIdScreen() {
           </Text>
 
           <View style={styles.petCard}>
-            <View style={styles.photo}>
-              <PawIcon size={64} color={Palette.forestDark} />
-              <Text style={styles.photoCaption}>{profile.photo}</Text>
-            </View>
-
-            <View style={styles.cardBody}>
-              <View style={styles.breedRow}>
-                <Text style={styles.breed}>{profile.breed}</Text>
-                <ShieldIcon size={24} />
-              </View>
-              <Text style={styles.meta}>{profile.meta}</Text>
-
-              <View style={styles.idPanel}>
-                <View style={styles.idText}>
-                  <Text style={styles.idLabel}>UNIQUE PET ID</Text>
-                  <Text style={styles.idValue}>{profile.id}</Text>
-                </View>
-                <QrCode seed={profile.id} size={72} />
-              </View>
-            </View>
+<View style={styles.photo}>
+            {pet.photo ? (
+              <Image source={{ uri: pet.photo }} style={styles.photoImage} contentFit="cover" />
+            ) : (
+              <>
+                <PawIcon size={64} color={Palette.forestDark} />
+                <Text style={styles.photoCaption}>{pet.breed}</Text>
+              </>
+            )}
           </View>
 
-          <View style={styles.recoveryCard}>
-            <Text style={styles.recoveryLabel}>RECOVERY CONTACT</Text>
-            <Text style={styles.recoveryName}>Raven Babiano</Text>
-            <Text style={styles.recoveryMeta}>+63 917 ··· ··42 · Tagum City</Text>
+          <View style={styles.cardBody}>
+            <View style={styles.breedRow}>
+              <Text style={styles.breed}>{pet.breed}</Text>
+              <ShieldIcon size={24} />
+            </View>
+            <Text style={styles.meta}>{`${pet.sex} · ${petAge(pet)}`}</Text>
+
+            <View style={styles.idPanel}>
+              <View style={styles.idText}>
+                <Text style={styles.idLabel}>UNIQUE PET ID</Text>
+                <Text style={styles.idValue}>{pet.id}</Text>
+              </View>
+              <QrCode seed={pet.id} size={72} />
+            </View>
           </View>
+        </View>
+
+        <View style={styles.recoveryCard}>
+          <Text style={styles.recoveryLabel}>RECOVERY CONTACT</Text>
+          <Text style={styles.recoveryName}>{pet.contactName}</Text>
+          <Text style={styles.recoveryMeta}>
+            {pet.contactMobile} · {pet.contactLocation}
+          </Text>
+        </View>
 
           <View style={styles.actionRow}>
             <Pressable
@@ -194,12 +185,16 @@ export default function PetIdScreen() {
             <Text style={styles.shareTitle}>Share {petName}&apos;s Pet ID</Text>
             <View style={styles.shareCard}>
               <View style={styles.sharePhoto}>
-                <PawIcon size={40} color={Palette.forestDark} />
+                {pet.photo ? (
+                  <Image source={{ uri: pet.photo }} style={styles.sharePhotoImage} contentFit="cover" />
+                ) : (
+                  <PawIcon size={40} color={Palette.forestDark} />
+                )}
               </View>
               <Text style={styles.shareName}>{petName}</Text>
-              <Text style={styles.shareMeta}>{profile.breed}</Text>
-              <QrCode seed={profile.id} size={96} />
-              <Text style={styles.shareId}>{profile.id}</Text>
+              <Text style={styles.shareMeta}>{`${pet.breed} · ${pet.sex}`}</Text>
+              <QrCode seed={pet.id} size={96} />
+              <Text style={styles.shareId}>{pet.id}</Text>
             </View>
             <Text style={styles.privacyNote}>Only recovery-safe information is shared.</Text>
             <Pressable
@@ -302,6 +297,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.one,
+    overflow: 'hidden',
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
   },
   photoCaption: {
     fontFamily: Fonts.sans,
@@ -480,6 +480,11 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.sage,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  sharePhotoImage: {
+    width: '100%',
+    height: '100%',
   },
   shareName: {
     fontFamily: Fonts.sans,
