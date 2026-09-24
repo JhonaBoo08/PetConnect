@@ -4,9 +4,20 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackArrow, BellIcon, HealthIcon, PawIcon, ShareIcon, ShieldIcon, WarningIcon } from '@/components/app-icons';
+import {
+  BackArrow,
+  BellIcon,
+  CheckIcon,
+  HealthIcon,
+  PawIcon,
+  PinIcon,
+  ShareIcon,
+  ShieldIcon,
+  WarningIcon,
+} from '@/components/app-icons';
 import { BottomNav } from '@/components/bottom-nav';
 import { QrCode } from '@/components/pet-qr';
+import { RecoveryReportSheet } from '@/components/recovery-report';
 import { Palette } from '@/constants/palette';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { activeLostAlertForPet, useLostPetAlerts } from '@/lib/lost-pets';
@@ -24,8 +35,13 @@ export default function PetIdScreen() {
     seedPets[0];
   const lostAlerts = useLostPetAlerts();
   const lostAlert = activeLostAlertForPet(lostAlerts, pet.id);
+  const isLost = Boolean(lostAlert);
 
   const [sharing, setSharing] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportSent, setReportSent] = useState(false);
+
+  const contactVisible = pet.finderContactVisible;
 
   return (
     <View style={styles.container}>
@@ -55,60 +71,129 @@ export default function PetIdScreen() {
           <Text style={styles.category}>DIGITAL PET ID</Text>
           <Text style={styles.petName}>{petName}</Text>
           <Text style={styles.supporting}>
-            This recovery-safe card can be shared when {petName} needs help.
+            This recovery-safe profile helps identify {petName} if {petName} ever gets lost.
           </Text>
 
           <View style={styles.petCard}>
-<View style={styles.photo}>
-            {pet.photo ? (
-              <Image source={{ uri: pet.photo }} style={styles.photoImage} contentFit="cover" />
-            ) : (
-              <>
-                <PawIcon size={64} color={Palette.forestDark} />
-                <Text style={styles.photoCaption}>{pet.breed}</Text>
-              </>
-            )}
+            <View style={styles.photo}>
+              {pet.photo ? (
+                <Image source={{ uri: pet.photo }} style={styles.photoImage} contentFit="cover" />
+              ) : (
+                <>
+                  <PawIcon size={72} color={Palette.forestDark} />
+                  <Text style={styles.photoCaption}>{pet.breed}</Text>
+                </>
+              )}
+            </View>
+            <View style={styles.photoDivider} />
+            <View style={styles.cardBody}>
+              <Text style={styles.cardName}>{pet.name}</Text>
+              <Text style={styles.cardBreed}>{pet.breed}</Text>
+              <Text style={styles.cardMeta}>{`${pet.sex} · ${petAge(pet)}`}</Text>
+
+              <View style={styles.verifiedRow}>
+                <ShieldIcon size={13} color={Palette.forestDark} />
+                <Text style={styles.verifiedLabel}>Verified Pet ID</Text>
+              </View>
+            </View>
           </View>
 
-          <View style={styles.cardBody}>
-            <View style={styles.breedRow}>
-              <Text style={styles.breed}>{pet.breed}</Text>
-              <ShieldIcon size={24} />
-            </View>
-            <Text style={styles.meta}>{`${pet.sex} · ${petAge(pet)}`}</Text>
-
-            <View style={styles.idPanel}>
+          <View style={styles.idCard}>
+            <View style={styles.idCardTop}>
               <View style={styles.idText}>
                 <Text style={styles.idLabel}>UNIQUE PET ID</Text>
                 <Text style={styles.idValue}>{pet.id}</Text>
               </View>
-              <QrCode seed={pet.id} size={72} />
+              <QrCode seed={pet.id} size={84} />
             </View>
+            <Text style={styles.idScanLabel}>Scan to verify</Text>
           </View>
-        </View>
 
-        <View style={styles.recoveryCard}>
-          <Text style={styles.recoveryLabel}>RECOVERY CONTACT</Text>
-          <Text style={styles.recoveryName}>{pet.contactName}</Text>
-          <Text style={styles.recoveryMeta}>
-            {pet.contactMobile} · {pet.contactLocation}
-          </Text>
-        </View>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, isLost ? styles.statusDotLost : null]} />
+            <Text style={[styles.statusLabel, isLost ? styles.statusLabelLost : null]}>
+              {isLost ? 'Lost pet — Recovery alert active' : 'Recovery profile active'}
+            </Text>
+          </View>
+
+          {isLost && lostAlert ? (
+            <View style={styles.lostCard}>
+              <View style={styles.lostTitleRow}>
+                <WarningIcon size={16} color={Palette.gold} />
+                <Text style={styles.lostTitle}>{pet.name.toUpperCase()} IS REPORTED LOST</Text>
+              </View>
+              <Text style={styles.lostSub}>
+                Please help reunite {pet.name} with its owner.
+              </Text>
+              <View style={styles.lastSeen}>
+                <PinIcon size={18} color={Palette.white} />
+                <View style={styles.lastSeenText}>
+                  <Text style={styles.lastSeenLabel}>LAST SEEN</Text>
+                  <Text style={styles.lastSeenValue}>{lostAlert.locationName}</Text>
+                </View>
+              </View>
+              {reportSent ? (
+                <View style={styles.foundDone}>
+                  <CheckIcon size={16} color={Palette.forestDark} />
+                  <Text style={styles.foundDoneLabel}>Recovery alert sent</Text>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setReportOpen(true)}
+                  style={({ pressed }) => [styles.foundButton, pressed && styles.pressed]}>
+                  <CheckIcon size={16} color={Palette.forestDark} />
+                  <Text style={styles.foundLabel}>I Found This Pet</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
+
+          <View style={styles.recoveryCard}>
+            <Text style={styles.recoveryLabel}>RECOVERY CONTACT</Text>
+            {contactVisible ? (
+              <>
+                <Text style={styles.recoveryName}>{pet.contactName}</Text>
+                <Text style={styles.recoveryMeta}>
+                  {pet.contactMobile} · {pet.contactLocation}
+                </Text>
+                <View style={styles.recoveryDivider} />
+                <View style={styles.recoveryNoteRow}>
+                  <ShieldIcon size={13} color={Palette.gold} />
+                  <Text style={styles.recoveryNote}>
+                    Visible to people who scan this Pet ID.
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.recoveryHidden}>
+                  The owner has chosen not to share their recovery contact.
+                </Text>
+                <Text style={styles.recoveryHiddenSub}>
+                  Report the pet through the Lost &amp; Found feed instead.
+                </Text>
+              </>
+            )}
+          </View>
 
           <View style={styles.actionRow}>
             <Pressable
               accessibilityRole="button"
               onPress={() => setSharing(true)}
-              style={({ pressed }) => [styles.shareButton, pressed && styles.pressed]}>
+              style={({ pressed }) => [
+                isLost ? styles.secondaryButton : styles.primaryButton,
+                pressed && styles.pressed,
+              ]}>
               <ShareIcon />
-              <Text style={styles.shareLabel}>Share QR</Text>
+              <Text style={styles.actionPrimaryLabel}>Share QR</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push({ pathname: '/health-records', params: { name: petName } })}
-              style={({ pressed }) => [styles.healthButton, pressed && styles.pressed]}>
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
               <HealthIcon size={18} />
-              <Text style={styles.healthLabel}>Health</Text>
+              <Text style={styles.actionSecondaryLabel}>Health</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -151,6 +236,17 @@ export default function PetIdScreen() {
           </View>
         </View>
       ) : null}
+
+      <RecoveryReportSheet
+        pet={pet}
+        lostAlert={lostAlert}
+        visible={reportOpen}
+        onClose={() => setReportOpen(false)}
+        onSubmitted={() => {
+          setReportOpen(false);
+          setReportSent(true);
+        }}
+      />
     </View>
   );
 }
@@ -222,6 +318,7 @@ const styles = StyleSheet.create({
   supporting: {
     fontFamily: Fonts.sans,
     fontSize: 13.5,
+    lineHeight: 20,
     color: Palette.inkMuted,
     marginTop: Spacing.two,
   },
@@ -229,15 +326,17 @@ const styles = StyleSheet.create({
     marginTop: Spacing.four,
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: Palette.forestDark,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
     shadowColor: '#1B4332',
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.1,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 5 },
     elevation: 3,
   },
   photo: {
-    height: 188,
+    height: 204,
     backgroundColor: Palette.sage,
     alignItems: 'center',
     justifyContent: 'center',
@@ -254,53 +353,210 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.forestDark,
   },
+  photoDivider: {
+    height: 1,
+    backgroundColor: Palette.borderSoft,
+  },
   cardBody: {
     padding: Spacing.four,
-    gap: Spacing.two,
+    gap: 3,
   },
-  breedRow: {
+  cardName: {
+    fontFamily: Fonts.sans,
+    fontSize: 22,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  cardBreed: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Palette.forestDark,
+    marginTop: Spacing.one,
+  },
+  cardMeta: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    color: Palette.inkMuted,
+  },
+  verifiedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: Spacing.two,
+    alignSelf: 'flex-start',
+    backgroundColor: Palette.sage,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+    marginTop: Spacing.three,
   },
-  breed: {
+  verifiedLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 20,
-    fontWeight: '800',
-    color: Palette.white,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    color: Palette.forestDark,
   },
-  meta: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    color: '#C9DBC6',
+  idCard: {
+    marginTop: Spacing.four,
+    borderRadius: 16,
+    backgroundColor: Palette.forestDark,
+    padding: Spacing.four,
+    shadowColor: '#1B4332',
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
   },
-  idPanel: {
+  idCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.three,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 12,
-    padding: Spacing.three,
-    marginTop: Spacing.two,
   },
   idText: {
     flex: 1,
-    gap: 3,
+    gap: 4,
   },
   idLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 9.5,
+    fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1.4,
     color: '#C9DBC6',
   },
   idValue: {
     fontFamily: Fonts.sans,
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: '800',
     color: Palette.white,
     letterSpacing: 0.5,
+  },
+  idScanLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: '#C9DBC6',
+    textAlign: 'center',
+    marginTop: Spacing.two,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    marginTop: Spacing.three,
+    paddingHorizontal: 2,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Palette.forestDark,
+  },
+  statusDotLost: {
+    backgroundColor: Palette.gold,
+  },
+  statusLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  statusLabelLost: {
+    color: Palette.danger,
+  },
+  lostCard: {
+    marginTop: Spacing.four,
+    backgroundColor: Palette.danger,
+    borderRadius: 16,
+    padding: Spacing.four,
+    gap: Spacing.three,
+    shadowColor: '#7A3B1D',
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+  lostTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  lostTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    color: Palette.white,
+  },
+  lostSub: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: Palette.white,
+  },
+  lastSeen: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderRadius: 12,
+    padding: Spacing.three,
+  },
+  lastSeenText: {
+    flex: 1,
+    gap: 2,
+  },
+  lastSeenLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: '#F8E1C4',
+  },
+  lastSeenValue: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '800',
+    color: Palette.white,
+  },
+  foundButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: Palette.gold,
+    shadowColor: '#F2B632',
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  foundLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  foundDone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  foundDoneLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.white,
   },
   recoveryCard: {
     marginTop: Spacing.four,
@@ -337,12 +593,40 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: Palette.inkMuted,
   },
+  recoveryDivider: {
+    height: 1,
+    backgroundColor: Palette.borderSoft,
+    marginTop: Spacing.three,
+  },
+  recoveryNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    marginTop: Spacing.two,
+  },
+  recoveryNote: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+  },
+  recoveryHidden: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: Palette.forestDark,
+  },
+  recoveryHiddenSub: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    color: Palette.inkMuted,
+    marginTop: 2,
+  },
   actionRow: {
     flexDirection: 'row',
     gap: Spacing.three,
     marginTop: Spacing.four,
   },
-  shareButton: {
+  primaryButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -352,13 +636,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: Palette.gold,
   },
-  shareLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  healthButton: {
+  secondaryButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -370,7 +648,13 @@ const styles = StyleSheet.create({
     borderColor: Palette.borderSoft,
     backgroundColor: Palette.surface,
   },
-  healthLabel: {
+  actionPrimaryLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.forestDark,
+  },
+  actionSecondaryLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: '700',

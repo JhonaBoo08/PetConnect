@@ -48,12 +48,18 @@ export default function WelcomeScreen() {
             <Text style={styles.primaryLabel}>Get Started&ensp;›</Text>
           </Pressable>
 
+          <Text style={styles.finderLabel}>FOUND A PET?</Text>
           <Pressable
             accessibilityRole="button"
+            onPress={() => router.push('/scan')}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
             <FinderIcon size={20} />
-            <Text style={styles.secondaryLabel}>I found a pet</Text>
+            <Text style={styles.secondaryLabel}>I Found a Pet</Text>
           </Pressable>
+          <Text style={styles.finderHint}>
+            Scan a Pet-Connect QR to help reunite them with their owner.
+          </Text>
+          <Text style={styles.finderNote}>Finder mode works without an account</Text>
         </View>
       </SafeAreaView>
     </View>
@@ -133,6 +139,17 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     paddingBottom: Spacing.two,
   },
+  finderLabel: {
+    marginHorizontal: ButtonMargin,
+    marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+    color: palette.forestDark,
+    textAlign: 'center',
+  },
   primaryButton: {
     height: ButtonHeight,
     marginHorizontal: ButtonMargin,
@@ -157,6 +174,8 @@ const styles = StyleSheet.create({
     marginHorizontal: ButtonMargin,
     borderRadius: 999,
     backgroundColor: palette.sage,
+    borderWidth: 1.5,
+    borderColor: palette.forestDark,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -165,8 +184,25 @@ const styles = StyleSheet.create({
   secondaryLabel: {
     fontFamily: Fonts.sans,
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '800',
     color: palette.forestDark,
+  },
+  finderHint: {
+    marginHorizontal: ButtonMargin + 8,
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 19,
+    color: palette.inkMuted,
+    textAlign: 'center',
+    marginTop: -Spacing.one,
+  },
+  finderNote: {
+    marginHorizontal: ButtonMargin,
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: palette.forestDark,
+    textAlign: 'center',
   },
   pressed: {
     opacity: 0.85,
