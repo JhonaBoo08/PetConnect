@@ -1,12 +1,12 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useState } from "react";
 
-import { addClinicNotification } from '@/lib/clinic-notifications';
-import { addNotification } from '@/lib/notifications';
-import { type Pet } from '@/lib/pets';
-import { isLocalTesting } from '@/lib/session';
+import { addClinicNotification } from "@/lib/clinic-notifications";
+import { addNotification } from "@/lib/notifications";
+import { type Pet } from "@/lib/pets";
+import { isLocalTesting } from "@/lib/session";
 
-export type AccessStatus = 'active' | 'requested' | 'declined';
+export type AccessStatus = "active" | "requested" | "declined";
 
 export type ClinicAccess = {
   clinicId: string;
@@ -25,10 +25,10 @@ export type ClinicAccessRequest = {
   petName: string;
 };
 
-const ACCESS_KEY = 'petconnect.clinicAccess.v1';
+const ACCESS_KEY = "petconnect.clinicAccess.v1";
 
 function pad(value: number): string {
-  return value.toString().padStart(2, '0');
+  return value.toString().padStart(2, "0");
 }
 
 export function accessKey(clinicId: string, petId: string): string {
@@ -68,16 +68,16 @@ async function load(): Promise<void> {
     const raw = await AsyncStorage.getItem(ACCESS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, ClinicAccess>;
-      if (parsed && typeof parsed === 'object') accessCache = parsed;
+      if (parsed && typeof parsed === "object") accessCache = parsed;
     }
     if (isLocalTesting) {
-      accessCache[accessKey('local-test-clinic', 'PC-TEST-10001')] = {
-        clinicId: 'local-test-clinic',
-        clinicName: 'Local Test Vet Clinic',
-        petId: 'PC-TEST-10001',
-        petName: 'Test Pet',
-        status: 'active',
-        ownerName: 'Local Test Owner',
+      accessCache[accessKey("local-test-clinic", "PC-TEST-10001")] = {
+        clinicId: "local-test-clinic",
+        clinicName: "Local Test Vet Clinic",
+        petId: "PC-TEST-10001",
+        petName: "Test Pet",
+        status: "active",
+        ownerName: "Local Test Owner",
         updatedAt: Date.now(),
       };
       await persist();
@@ -108,7 +108,9 @@ function ensureLoaded(): Promise<void> {
 }
 
 export function useClinicAccess(): ClinicAccess[] {
-  const [access, setAccess] = useState<ClinicAccess[]>(Object.values(accessCache));
+  const [access, setAccess] = useState<ClinicAccess[]>(
+    Object.values(accessCache),
+  );
 
   useEffect(() => {
     let active = true;
@@ -128,11 +130,18 @@ export function useClinicAccess(): ClinicAccess[] {
   return access;
 }
 
-export function getClinicAccessSync(clinicId: string, petId: string): ClinicAccess | null {
+export function getClinicAccessSync(
+  clinicId: string,
+  petId: string,
+): ClinicAccess | null {
   return accessCache[accessKey(clinicId, petId)] ?? null;
 }
 
-export function requestPetAccess(clinicId: string, clinicName: string, pet: Pet): Promise<void> {
+export function requestPetAccess(
+  clinicId: string,
+  clinicName: string,
+  pet: Pet,
+): Promise<void> {
   return mutate(async () => {
     await ensureLoaded();
     const existing = accessCache[accessKey(clinicId, pet.id)];
@@ -141,7 +150,7 @@ export function requestPetAccess(clinicId: string, clinicName: string, pet: Pet)
       clinicName,
       petId: pet.id,
       petName: pet.name,
-      status: existing?.status === 'active' ? 'active' : 'requested',
+      status: existing?.status === "active" ? "active" : "requested",
       ownerName: pet.contactName,
       updatedAt: Date.now(),
     };
@@ -149,8 +158,8 @@ export function requestPetAccess(clinicId: string, clinicName: string, pet: Pet)
     await persist();
 
     await addNotification({
-      kind: 'access-request',
-      title: 'Health access requested',
+      kind: "access-request",
+      title: "Health access requested",
       description: `${clinicName} is asking to view ${pet.name}'s health records.`,
       timestamp: timestampLabel(entry.updatedAt),
       accessRequest: {
@@ -161,7 +170,7 @@ export function requestPetAccess(clinicId: string, clinicName: string, pet: Pet)
       },
     });
     await addClinicNotification({
-      kind: 'access',
+      kind: "access",
       title: `Access requested for ${pet.name}`,
       description: `Waiting for ${pet.contactName} to approve health record access.`,
       timestamp: timestampLabel(entry.updatedAt),
@@ -171,7 +180,7 @@ export function requestPetAccess(clinicId: string, clinicName: string, pet: Pet)
 
 export function respondToAccessRequest(
   request: ClinicAccessRequest,
-  status: Extract<AccessStatus, 'active' | 'declined'>,
+  status: Extract<AccessStatus, "active" | "declined">,
 ): Promise<void> {
   return mutate(async () => {
     await ensureLoaded();
@@ -182,20 +191,20 @@ export function respondToAccessRequest(
       petId: request.petId,
       petName: request.petName,
       status,
-      ownerName: existing?.ownerName ?? '',
+      ownerName: existing?.ownerName ?? "",
       updatedAt: Date.now(),
     };
     accessCache[accessKey(request.clinicId, request.petId)] = entry;
     await persist();
 
     const verdict =
-      status === 'active'
+      status === "active"
         ? `approved ${request.petName}'s health record access.`
         : `declined ${request.petName}'s health record access.`;
     await addClinicNotification({
-      kind: 'access',
-      title: status === 'active' ? 'Access approved' : 'Access declined',
-      description: `${entry.ownerName || 'The owner'} ${verdict}`,
+      kind: "access",
+      title: status === "active" ? "Access approved" : "Access declined",
+      description: `${entry.ownerName || "The owner"} ${verdict}`,
       timestamp: timestampLabel(entry.updatedAt),
     });
   });
