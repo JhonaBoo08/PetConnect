@@ -32,6 +32,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@firebase/rules-unit-testing": "^5.0.2",
+    "@types/node": "^26.6.3",
     "@types/react": "~19.2.2",
     "eslint": "^10.11.0",
     "firebase-tools": "^15.30.2",
@@ -52,7 +53,7 @@
     "format:backend": "prettier --check backend/functions/src backend/tests src/services backend/firebase.json backend/firebase/firestore.indexes.json",
     "typecheck": "tsc --noEmit",
     "check:backend": "npm run build:backend && npm run typecheck && npm run lint:backend && npm run format:backend",
-    "test:backend:run": "tsx --test --test-concurrency=1 backend/tests/backend.test.ts",
+    "test:backend:run": "tsx --test --test-concurrency=1 backend/tests/backend.test.ts backend/tests/pets.test.ts backend/tests/pets-callables.test.ts",
     "test:backend": "npm run build:backend && firebase --config backend/firebase.json emulators:exec --project demo-petconnect --only auth,firestore,functions,storage \"npm run test:backend:run\"",
     "emulators": "npm run build:backend && firebase --config backend/firebase.json emulators:start --project demo-petconnect --only auth,firestore,functions,storage"
   },
