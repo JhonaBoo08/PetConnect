@@ -20,3 +20,22 @@ export interface UpdateProfileRequest {
 export interface UploadResponse {
   url: string;
 }
+export interface PetInput {
+  name: string;
+  species: string;
+  breed?: string;
+  birthDate?: string;
+  photoUrl?: string;
+}
+
+export interface Pet {
+  id: string;
+  ownerId: string;
+  name: string;
+  species: string;
+  breed?: string;
+  birthDate?: string;
+  photoUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}

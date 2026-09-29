@@ -163,3 +163,157 @@ test("disabling account denies session access", async () => {
     .set("Authorization", `Bearer ${token}`);
   assert.equal(sessionRes.status, 403);
 });
+
+async function createOwnerAuth(label: string, email: string) {
+  const auth = client(label);
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    email,
+    "Example-pass-123!",
+  );
+  const token = await credential.user.getIdToken();
+  const initRes = await request(app)
+    .post("/v1/account/initialize")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ displayName: "Pet Owner" });
+  assert.equal(initRes.status, 200);
+  return { uid: credential.user.uid, token };
+}
+
+test("POST /v1/pets requires authentication", async () => {
+  const res = await request(app)
+    .post("/v1/pets")
+    .send({ name: "Buddy", species: "Dog" });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.error, "unauthenticated");
+});
+
+test("authenticated owner can create a pet and receives the pet fields", async () => {
+  const { uid, token } = await createOwnerAuth(
+    "pet-create",
+    "pet-create@example.test",
+  );
+  const res = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ name: " Buddy ", species: " Dog " });
+  assert.equal(res.status, 201);
+  assert.equal(typeof res.body.id, "string");
+  assert.ok(res.body.id.length > 0);
+  assert.equal(res.body.ownerId, uid);
+  assert.equal(res.body.name, "Buddy");
+  assert.equal(res.body.species, "Dog");
+  assert.equal(typeof res.body.createdAt, "string");
+  assert.equal(typeof res.body.updatedAt, "string");
+});
+
+test("POST /v1/pets rejects invalid pet input", async () => {
+  const { token } = await createOwnerAuth(
+    "pet-invalid",
+    "pet-invalid@example.test",
+  );
+  const post = (body: Record<string, unknown>) =>
+    request(app).post("/v1/pets").set("Authorization", `Bearer ${token}`).send(body);
+
+  const missingName = await post({ species: "Dog" });
+  assert.equal(missingName.status, 400);
+  assert.equal(missingName.body.error, "invalid-argument");
+
+  const invalidName = await post({ name: 123, species: "Dog" });
+  assert.equal(invalidName.status, 400);
+
+  const blankName = await post({ name: "   ", species: "Dog" });
+  assert.equal(blankName.status, 400);
+
+  const missingSpecies = await post({ name: "Buddy" });
+  assert.equal(missingSpecies.status, 400);
+  assert.equal(missingSpecies.body.error, "invalid-argument");
+
+  const invalidSpecies = await post({ name: "Buddy", species: 42 });
+  assert.equal(invalidSpecies.status, 400);
+
+  const unexpectedField = await post({
+    name: "Buddy",
+    species: "Dog",
+    nickname: "Bud",
+  });
+  assert.equal(unexpectedField.status, 400);
+  assert.equal(unexpectedField.body.error, "invalid-argument");
+});
+
+test("POST /v1/pets does not honor a client-supplied ownerId", async () => {
+  const { uid, token } = await createOwnerAuth(
+    "pet-hijack",
+    "pet-hijack@example.test",
+  );
+  const forged = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ name: "Buddy", species: "Dog", ownerId: "attacker-chosen-uid" });
+  // The unexpected ownerId field is rejected outright.
+  assert.equal(forged.status, 400);
+  const [stolen] = await pool.query<RowDataPacket[]>(
+    "SELECT id FROM pets WHERE owner_id = ?",
+    ["attacker-chosen-uid"],
+  );
+  assert.equal(stolen.length, 0);
+
+  const clean = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ name: "Buddy", species: "Dog" });
+  assert.equal(clean.status, 201);
+  assert.equal(clean.body.ownerId, uid);
+});
+
+test("GET /v1/pets requires authentication", async () => {
+  const res = await request(app).get("/v1/pets");
+  assert.equal(res.status, 401);
+  assert.equal(res.body.error, "unauthenticated");
+});
+
+test("GET /v1/pets returns only the authenticated owner's pets", async () => {
+  const ownerA = await createOwnerAuth(
+    "pet-list-a",
+    "pet-list-a@example.test",
+  );
+  const ownerB = await createOwnerAuth(
+    "pet-list-b",
+    "pet-list-b@example.test",
+  );
+
+  const firstA = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${ownerA.token}`)
+    .send({ name: "Buddy", species: "Dog" });
+  assert.equal(firstA.status, 201);
+  const secondA = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${ownerA.token}`)
+    .send({ name: "Milo", species: "Cat" });
+  assert.equal(secondA.status, 201);
+  const createdB = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${ownerB.token}`)
+    .send({ name: "Rex", species: "Dog" });
+  assert.equal(createdB.status, 201);
+
+  const listA = await request(app)
+    .get("/v1/pets")
+    .set("Authorization", `Bearer ${ownerA.token}`);
+  assert.equal(listA.status, 200);
+  assert.equal(listA.body.length, 2);
+  const namesA = listA.body.map((pet: { name: string }) => pet.name).sort();
+  assert.deepEqual(namesA, ["Buddy", "Milo"]);
+  for (const pet of listA.body) {
+    assert.equal(pet.ownerId, ownerA.uid);
+  }
+
+  const listB = await request(app)
+    .get("/v1/pets")
+    .set("Authorization", `Bearer ${ownerB.token}`);
+  assert.equal(listB.status, 200);
+  assert.equal(listB.body.length, 1);
+  assert.equal(listB.body[0].name, "Rex");
+  assert.equal(listB.body[0].ownerId, ownerB.uid);
+});
