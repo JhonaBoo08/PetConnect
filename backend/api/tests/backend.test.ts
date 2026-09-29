@@ -161,7 +161,7 @@ test("disabling account denies session access", async () => {
   const sessionRes = await request(app)
     .get("/v1/session")
     .set("Authorization", `Bearer ${token}`);
-  assert.equal(sessionRes.status, 403);
+  assert.equal(sessionRes.status, 401);
 });
 
 async function createOwnerAuth(label: string, email: string) {
