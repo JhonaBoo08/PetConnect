@@ -1,33 +1,61 @@
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
-import { initializeApp, getApps } from "firebase-admin/app";
+import {
+  initializeApp,
+  getApps,
+  cert,
+  type ServiceAccount,
+} from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { createPool } from "./db.js";
 import { Accounts } from "./accounts.js";
 
 dotenv.config();
 
-if (getApps().length === 0) {
-  initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID || "demo-petconnect",
-  });
+function firebaseServiceAccount(): ServiceAccount | undefined {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as ServiceAccount;
+  } catch {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON must be valid JSON.");
+  }
 }
-
-const auth = getAuth();
-const pool = createPool();
-const accounts = new Accounts(auth, pool);
 
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
+  const projectId = args[1]?.trim();
 
-  if (!command) {
+  if (!command || !projectId) {
     console.log(
-      "Usage: node lib/operator.js <provision-clinic|disable> [args]",
+      "Usage: npm run operator -- <provision-clinic|disable> <project-id> <operator-id> <json-path|uid>",
     );
     process.exit(1);
   }
+
+  const configuredProjectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  if (configuredProjectId && configuredProjectId !== projectId) {
+    throw new Error(
+      `Refusing operator action: CLI project "${projectId}" does not match FIREBASE_PROJECT_ID "${configuredProjectId}".`,
+    );
+  }
+  if (getApps().length === 0) {
+    const serviceAccount = firebaseServiceAccount();
+    initializeApp({
+      projectId,
+      ...(serviceAccount ? { credential: cert(serviceAccount) } : {}),
+    });
+  } else if (getApps()[0].options.projectId !== projectId) {
+    throw new Error(
+      `Refusing operator action: initialized Firebase project "${getApps()[0].options.projectId}" does not match "${projectId}".`,
+    );
+  }
+
+  const auth = getAuth();
+  const pool = createPool();
+  const accounts = new Accounts(auth, pool);
 
   try {
     if (command === "provision-clinic") {
