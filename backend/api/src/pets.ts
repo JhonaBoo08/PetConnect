@@ -1,9 +1,6 @@
 import { randomUUID } from "crypto";
 import { Pool, RowDataPacket } from "mysql2/promise";
-import {
-  PetInput,
-  Pet,
-} from "../../../shared/contracts.js";
+import { PetInput, Pet } from "../../../shared/contracts.js";
 
 export function parsePet(input: unknown): PetInput {
   if (!input || typeof input !== "object" || Array.isArray(input)) {

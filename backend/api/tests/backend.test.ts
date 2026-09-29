@@ -213,7 +213,10 @@ test("POST /v1/pets rejects invalid pet input", async () => {
     "pet-invalid@example.test",
   );
   const post = (body: Record<string, unknown>) =>
-    request(app).post("/v1/pets").set("Authorization", `Bearer ${token}`).send(body);
+    request(app)
+      .post("/v1/pets")
+      .set("Authorization", `Bearer ${token}`)
+      .send(body);
 
   const missingName = await post({ species: "Dog" });
   assert.equal(missingName.status, 400);
@@ -273,14 +276,8 @@ test("GET /v1/pets requires authentication", async () => {
 });
 
 test("GET /v1/pets returns only the authenticated owner's pets", async () => {
-  const ownerA = await createOwnerAuth(
-    "pet-list-a",
-    "pet-list-a@example.test",
-  );
-  const ownerB = await createOwnerAuth(
-    "pet-list-b",
-    "pet-list-b@example.test",
-  );
+  const ownerA = await createOwnerAuth("pet-list-a", "pet-list-a@example.test");
+  const ownerB = await createOwnerAuth("pet-list-b", "pet-list-b@example.test");
 
   const firstA = await request(app)
     .post("/v1/pets")

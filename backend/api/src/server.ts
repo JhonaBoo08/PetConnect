@@ -178,8 +178,7 @@ app.post(
     try {
       parsePet(req.body);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Invalid pet input";
+      const message = err instanceof Error ? err.message : "Invalid pet input";
       return res.status(400).json({ error: "invalid-argument", message });
     }
     try {
