@@ -5,7 +5,7 @@
 PetConnect uses a zero-cost, Spark-compatible architecture:
 - **Firebase Authentication**: Identity management, email/password auth, JWT ID tokens, and custom claims (`OWNER`, `CLINIC`).
 - **Shared Contracts (`shared/contracts.ts`)**: Defines shared request/response DTOs and interfaces used by both frontend and API.
-- **Express API Server (`backend/api`)**: Self-hosted Node.js HTTP service. Validates Firebase ID tokens using `firebase-admin`, executes MySQL operations via `mysql2/promise`, serves `GET /v1/health`, public profile routes, and handles secure local uploads (`/uploads`).
+- **Express API Server (`backend/api`)**: Self-hosted Node.js HTTP service. Validates Firebase ID tokens using `firebase-admin`, executes MySQL operations via `mysql2/promise`, serves `GET /v1/health`, public profile routes, pet management routes (`POST /v1/pets`, `GET /v1/pets`, `PATCH /v1/pets/:petId`), and handles secure local uploads (`/uploads`).
 - **MySQL Database**: Single schema `sql/schema.sql` (InnoDB, `utf8mb4_unicode_ci`) applied to `petconnect_db` (development) or `petconnect_test` (integration testing).
 
 ```
@@ -52,6 +52,26 @@ export interface UpdateProfileRequest {
 
 export interface UploadResponse {
   url: string;
+}
+
+export interface PetInput {
+  name: string;
+  species: string;
+  breed?: string;
+  birthDate?: string;
+  photoUrl?: string;
+}
+
+export interface Pet {
+  id: string;
+  ownerId: string;
+  name: string;
+  species: string;
+  breed?: string;
+  birthDate?: string;
+  photoUrl?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 ```
 
