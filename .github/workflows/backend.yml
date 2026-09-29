@@ -1,10 +1,13 @@
-name: Backend checks
+name: PetConnect quality
+
 on:
   pull_request:
   push:
     branches: [main]
+
 permissions:
   contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -16,12 +19,17 @@ jobs:
           MYSQL_DATABASE: petconnect_test
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "22.13.1"
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -30,15 +38,75 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: "21"
+
       - run: npm ci
       - run: npm --prefix backend/api ci
       - run: npm --prefix frontend ci
-      - run: npm run check:backend
-      - run: npm run test:backend
+
+      - name: Production dependency audit
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm --prefix backend/api audit --omit=dev --audit-level=high
+          npm --prefix frontend audit --omit=dev --audit-level=high
+
+      - name: Compile, lint and format
+        run: npm run check:backend
+
+      - name: Fresh database bootstrap and migration status
+        run: |
+          npm run db:bootstrap
+          npm run db:status
+        env:
+          MYSQL_HOST: "127.0.0.1"
+          MYSQL_USER: "root"
+          MYSQL_PASSWORD: "root"
+          MYSQL_DATABASE: "petconnect_migration_ci"
+          MYSQL_PORT: "3306"
+
+      - name: API integration tests
+        run: npm run test:backend
         env:
           MYSQL_HOST: "127.0.0.1"
           MYSQL_USER: "root"
           MYSQL_PASSWORD: "root"
           MYSQL_DATABASE: "petconnect_test"
           MYSQL_PORT: "3306"
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci
+      - run: npm --prefix frontend ci
+
+      - run: npm run typecheck:frontend
+      - run: npm run lint:frontend
+      - run: npm run test:frontend
+
+      - name: Expo Doctor
+        working-directory: frontend
+        run: npx expo-doctor
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Static export and browser E2E
+        run: npm run test:e2e
+        env:
+          CI: "1"
+
+      - name: Upload E2E traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore

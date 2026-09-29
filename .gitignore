@@ -31,6 +31,7 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -57,4 +58,15 @@ test-results/
 test-results-backend.log
 dist-native/
 *service-account*.json
+*firebase-adminsdk*.json
+*firebase-admin*.json
 clinic-input*.json
+playwright-report/
+backups/
+.handoff-stage/
+PetConnect-handoff-*.zip
+PetConnect-handoff-*.sha256
+frontend/dist-android/
+frontend/dist-ios/
+.relai-*/
+.relai-*.log
