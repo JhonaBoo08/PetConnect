@@ -207,6 +207,32 @@ app.get(
   },
 );
 
+app.patch(
+  "/v1/pets/:petId",
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    // Body validation first, so malformed input maps to 400 the same way as
+    // POST /v1/pets; ownership/ID resolution is handled by the service.
+    try {
+      parsePet(req.body);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Invalid pet input";
+      return res.status(400).json({ error: "invalid-argument", message });
+    }
+    try {
+      const pet = await pets.update(req.user!.uid, req.params.petId, req.body);
+      res.json(pet);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to update pet";
+      if (message === "Pet not found") {
+        return res.status(404).json({ error: "not-found", message });
+      }
+      res.status(500).json({ error: "internal", message });
+    }
+  },
+);
+
 app.post(
   "/v1/uploads",
   requireAuth,
