@@ -20,6 +20,7 @@
   },
   "scripts": {
     "dev": "npm --prefix frontend run start",
+    "dev:tunnel": "npm --prefix frontend run tunnel",
     "start": "npm --prefix frontend run start",
     "reset-project": "npm --prefix frontend run reset-project",
     "android": "npm --prefix frontend run android",
