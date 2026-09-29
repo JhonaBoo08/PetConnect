@@ -7,12 +7,22 @@ CREATE TABLE IF NOT EXISTS users (
   role ENUM('OWNER', 'CLINIC') NOT NULL,
   display_name VARCHAR(80) NOT NULL,
   phone VARCHAR(30) NULL,
+  share_recovery_phone TINYINT(1) NOT NULL DEFAULT 0,
+  share_precise_recovery_location TINYINT(1) NOT NULL DEFAULT 0,
+  share_phone_with_clinics TINYINT(1) NOT NULL DEFAULT 1,
   status ENUM('PENDING', 'ACTIVE', 'DISABLED') NOT NULL DEFAULT 'PENDING',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY users_email_unique (email),
   KEY users_role_status_index (role, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename VARCHAR(255) NOT NULL,
+  checksum CHAR(64) NOT NULL,
+  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (filename)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS clinics (
@@ -46,6 +56,9 @@ CREATE TABLE IF NOT EXISTS pets (
   species VARCHAR(50) NOT NULL,
   breed VARCHAR(100) NULL,
   birth_date DATE NULL,
+  sex VARCHAR(10) NULL,
+  age_label VARCHAR(50) NULL,
+  identifying_details TEXT NULL,
   photo_url VARCHAR(512) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -55,16 +68,120 @@ CREATE TABLE IF NOT EXISTS pets (
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS pet_recovery_tokens (
+  pet_id VARCHAR(64) NOT NULL,
+  token_id CHAR(32) NOT NULL,
+  revoked_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (pet_id),
+  UNIQUE KEY pet_recovery_tokens_token_unique (token_id),
+  CONSTRAINT pet_recovery_tokens_pet_fk
+    FOREIGN KEY (pet_id) REFERENCES pets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS lost_reports (
+  id VARCHAR(64) NOT NULL,
+  pet_id VARCHAR(64) NOT NULL,
+  owner_id VARCHAR(128) NOT NULL,
+  status ENUM('LOST', 'SIGHTED', 'REUNITED') NOT NULL DEFAULT 'LOST',
+  last_seen_text VARCHAR(255) NOT NULL,
+  details TEXT NULL,
+  last_seen_latitude DECIMAL(10,7) NOT NULL,
+  last_seen_longitude DECIMAL(10,7) NOT NULL,
+  last_seen_accuracy_m DECIMAL(10,2) NULL,
+  last_known_latitude DECIMAL(10,7) NOT NULL,
+  last_known_longitude DECIMAL(10,7) NOT NULL,
+  last_known_accuracy_m DECIMAL(10,2) NULL,
+  reported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_sighted_at TIMESTAMP NULL DEFAULT NULL,
+  reunited_at TIMESTAMP NULL DEFAULT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  open_slot TINYINT GENERATED ALWAYS AS (
+    CASE WHEN status IN ('LOST', 'SIGHTED') THEN 1 ELSE NULL END
+  ) STORED,
+  PRIMARY KEY (id),
+  UNIQUE KEY lost_reports_one_open_per_pet (pet_id, open_slot),
+  KEY lost_reports_owner_status_index (owner_id, status),
+  KEY lost_reports_status_index (status),
+  KEY lost_reports_last_known_index (last_known_latitude, last_known_longitude),
+  CONSTRAINT lost_reports_pet_fk
+    FOREIGN KEY (pet_id) REFERENCES pets(id) ON DELETE CASCADE,
+  CONSTRAINT lost_reports_owner_fk
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sightings (
+  id VARCHAR(64) NOT NULL,
+  report_id VARCHAR(64) NOT NULL,
+  finder_user_id VARCHAR(128) NULL,
+  finder_name VARCHAR(80) NULL,
+  finder_contact VARCHAR(120) NULL,
+  notes TEXT NULL,
+  latitude DECIMAL(10,7) NOT NULL,
+  longitude DECIMAL(10,7) NOT NULL,
+  accuracy_m DECIMAL(10,2) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY sightings_report_created_index (report_id, created_at),
+  KEY sightings_finder_index (finder_user_id),
+  CONSTRAINT sightings_report_fk
+    FOREIGN KEY (report_id) REFERENCES lost_reports(id) ON DELETE CASCADE,
+  CONSTRAINT sightings_finder_user_fk
+    FOREIGN KEY (finder_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS push_devices (
+  expo_push_token VARCHAR(255) NOT NULL,
+  user_id VARCHAR(128) NOT NULL,
+  platform ENUM('ios', 'android') NOT NULL,
+  latitude DECIMAL(10,7) NULL,
+  longitude DECIMAL(10,7) NULL,
+  location_accuracy_m DECIMAL(10,2) NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (expo_push_token),
+  KEY push_devices_user_index (user_id, enabled),
+  KEY push_devices_location_index (latitude, longitude),
+  CONSTRAINT push_devices_user_fk
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(128) NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(120) NOT NULL,
+  body VARCHAR(500) NOT NULL,
+  data JSON NULL,
+  read_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY notifications_user_created_index (user_id, created_at),
+  KEY notifications_user_read_index (user_id, read_at),
+  CONSTRAINT notifications_user_fk
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS health_records (
   id VARCHAR(64) NOT NULL,
   pet_id VARCHAR(64) NOT NULL,
   clinic_id VARCHAR(64) NOT NULL,
   vet_id VARCHAR(128) NOT NULL,
   record_type VARCHAR(50) NOT NULL,
+  title VARCHAR(120) NOT NULL,
+  occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   notes TEXT NULL,
+  vaccine_name VARCHAR(120) NULL,
+  dose_number VARCHAR(30) NULL,
+  lot_number VARCHAR(80) NULL,
+  next_due_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY health_records_pet_index (pet_id),
+  KEY health_records_pet_occurred_index (pet_id, occurred_at),
   KEY health_records_clinic_index (clinic_id),
   KEY health_records_vet_index (vet_id),
   CONSTRAINT health_records_pet_fk
@@ -82,8 +199,9 @@ CREATE TABLE IF NOT EXISTS appointments (
   owner_id VARCHAR(128) NOT NULL,
   vet_id VARCHAR(128) NULL,
   appointment_date DATETIME NOT NULL,
-  status ENUM('SCHEDULED', 'COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'SCHEDULED',
+  status ENUM('REQUESTED', 'SCHEDULED', 'COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'REQUESTED',
   reason TEXT NULL,
+  reminder_minutes_before INT NOT NULL DEFAULT 1440,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -99,6 +217,56 @@ CREATE TABLE IF NOT EXISTS appointments (
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE RESTRICT,
   CONSTRAINT appointments_vet_fk
     FOREIGN KEY (vet_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS health_reminders (
+  id VARCHAR(64) NOT NULL,
+  pet_id VARCHAR(64) NOT NULL,
+  owner_id VARCHAR(128) NOT NULL,
+  clinic_id VARCHAR(64) NULL,
+  source_type ENUM('MANUAL', 'VACCINATION', 'APPOINTMENT') NOT NULL DEFAULT 'MANUAL',
+  source_id VARCHAR(64) NULL,
+  title VARCHAR(120) NOT NULL,
+  notes TEXT NULL,
+  due_at DATETIME NOT NULL,
+  notify_at DATETIME NOT NULL,
+  status ENUM('PENDING', 'COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+  completed_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY health_reminders_owner_due_index (owner_id, status, due_at),
+  KEY health_reminders_pet_due_index (pet_id, due_at),
+  KEY health_reminders_source_index (source_type, source_id),
+  UNIQUE KEY health_reminders_source_unique (source_type, source_id, owner_id),
+  CONSTRAINT health_reminders_pet_fk
+    FOREIGN KEY (pet_id) REFERENCES pets(id) ON DELETE CASCADE,
+  CONSTRAINT health_reminders_owner_fk
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT health_reminders_clinic_fk
+    FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS scheduled_notifications (
+  id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(128) NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(120) NOT NULL,
+  body VARCHAR(500) NOT NULL,
+  data JSON NULL,
+  scheduled_at DATETIME NOT NULL,
+  status ENUM('PENDING', 'PROCESSING', 'SENT', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+  dedupe_key VARCHAR(191) NULL,
+  claimed_at DATETIME NULL,
+  sent_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY scheduled_notifications_dedupe_unique (dedupe_key),
+  KEY scheduled_notifications_due_index (status, scheduled_at),
+  KEY scheduled_notifications_user_index (user_id, status),
+  CONSTRAINT scheduled_notifications_user_fk
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS audit_logs (

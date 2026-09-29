@@ -5,6 +5,8 @@ import {
   AccountStatus,
   SessionResponse,
   InitializeOwnerRequest,
+  PrivacySettings,
+  UpdatePrivacySettings,
   UpdateProfileRequest,
 } from "../../../shared/contracts.js";
 
@@ -36,6 +38,10 @@ export class Accounts {
       throw new Error("User does not exist in Firebase Auth");
     }
 
+    if (authUser.customClaims?.role === "CLINIC") {
+      throw new Error("Account is not an owner");
+    }
+
     if (users.length > 0) {
       const existing = users[0];
       if (existing.role !== "OWNER") {
@@ -63,7 +69,7 @@ export class Accounts {
 
     await this.pool.query(
       "INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, details) VALUES ('user', ?, 'initialize_owner', ?, ?)",
-      [uid, uid, JSON.stringify({ displayName, phone })],
+      [uid, uid, JSON.stringify({ profileUpdated: true })],
     );
 
     return { status: "ACTIVE", refreshToken: true };
@@ -71,7 +77,7 @@ export class Accounts {
 
   async session(uid: string, token: DecodedIdToken): Promise<SessionResponse> {
     const [users] = await this.pool.query<RowDataPacket[]>(
-      "SELECT id, role, status FROM users WHERE id = ?",
+      "SELECT id, role, status, display_name, email, phone FROM users WHERE id = ?",
       [uid],
     );
     if (users.length === 0) {
@@ -105,6 +111,9 @@ export class Accounts {
     return {
       role: user.role,
       status: user.status,
+      displayName: user.display_name,
+      email: user.email,
+      ...(user.phone ? { phone: user.phone } : {}),
       ...(clinicId ? { clinicId } : {}),
     };
   }
@@ -141,6 +150,85 @@ export class Accounts {
       `UPDATE users SET ${updates.join(", ")} WHERE id = ?`,
       params,
     );
+  }
+
+  async getPrivacy(uid: string): Promise<PrivacySettings> {
+    const [rows] = await this.pool.query<
+      (RowDataPacket & {
+        role: UserRole;
+        status: AccountStatus;
+        share_recovery_phone: number;
+        share_precise_recovery_location: number;
+        share_phone_with_clinics: number;
+      })[]
+    >(
+      `SELECT role, status, share_recovery_phone,
+              share_precise_recovery_location, share_phone_with_clinics
+         FROM users
+        WHERE id = ?
+        LIMIT 1`,
+      [uid],
+    );
+    const user = rows[0];
+    if (!user || user.status !== "ACTIVE" || user.role !== "OWNER") {
+      throw new Error("Active owner account required");
+    }
+    return {
+      shareRecoveryPhone: Boolean(user.share_recovery_phone),
+      sharePreciseRecoveryLocation: Boolean(
+        user.share_precise_recovery_location,
+      ),
+      sharePhoneWithClinics: Boolean(user.share_phone_with_clinics),
+    };
+  }
+
+  async updatePrivacy(
+    uid: string,
+    input: UpdatePrivacySettings,
+  ): Promise<PrivacySettings> {
+    const current = await this.getPrivacy(uid);
+    const next: PrivacySettings = { ...current };
+    const keys: (keyof PrivacySettings)[] = [
+      "shareRecoveryPhone",
+      "sharePreciseRecoveryLocation",
+      "sharePhoneWithClinics",
+    ];
+
+    for (const key of keys) {
+      const value = input[key];
+      if (value === undefined) continue;
+      if (typeof value !== "boolean") {
+        throw new Error("Privacy settings must be boolean values");
+      }
+      next[key] = value;
+    }
+
+    await this.pool.query(
+      `UPDATE users
+          SET share_recovery_phone = ?,
+              share_precise_recovery_location = ?,
+              share_phone_with_clinics = ?
+        WHERE id = ?`,
+      [
+        next.shareRecoveryPhone ? 1 : 0,
+        next.sharePreciseRecoveryLocation ? 1 : 0,
+        next.sharePhoneWithClinics ? 1 : 0,
+        uid,
+      ],
+    );
+    await this.pool.query(
+      `INSERT INTO audit_logs (
+        entity_type, entity_id, action, performed_by, details
+      ) VALUES ('user', ?, 'update_privacy', ?, ?)`,
+      [
+        uid,
+        uid,
+        JSON.stringify({
+          changed: keys.filter((key) => input[key] !== undefined),
+        }),
+      ],
+    );
+    return next;
   }
 
   async provisionClinic(
@@ -197,7 +285,7 @@ export class Accounts {
 
     await this.pool.query(
       "INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, details) VALUES ('clinic', ?, 'provision_clinic', ?, ?)",
-      [input.clinicId, operatorId, JSON.stringify(input)],
+      [input.clinicId, operatorId, JSON.stringify({ userId: input.uid })],
     );
   }
 

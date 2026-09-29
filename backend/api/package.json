@@ -1,23 +1,34 @@
 {
   "name": "petconnect-api",
   "private": true,
-  "main": "lib/server.js",
+  "main": "lib/backend/api/src/server.js",
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc && node lib/server.js",
-    "operator": "node lib/operator.js",
-    "test": "tsx --test backend/api/tests/backend.test.ts"
+    "start": "node lib/backend/api/src/server.js",
+    "dev": "tsc && node lib/backend/api/src/server.js",
+    "operator": "node lib/backend/api/src/operator.js",
+    "test": "tsx --test tests/backend.test.ts",
+    "db": "tsx scripts/db-maintenance.ts",
+    "db:bootstrap": "tsx scripts/db-maintenance.ts bootstrap",
+    "db:migrate": "tsx scripts/db-maintenance.ts migrate",
+    "db:status": "tsx scripts/db-maintenance.ts status",
+    "db:baseline": "tsx scripts/db-maintenance.ts baseline",
+    "db:backup": "tsx scripts/db-maintenance.ts backup",
+    "db:restore": "tsx scripts/db-maintenance.ts restore"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "firebase-admin": "^12.7.0",
+    "express-rate-limit": "^8.7.0",
+    "firebase-admin": "^14.5.0",
+    "helmet": "^8.3.0",
     "multer": "^1.4.5-lts.1",
-    "mysql2": "^3.11.0"
+    "mysql2": "^3.11.0",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -25,6 +36,7 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^22.0.0",
     "@types/supertest": "^6.0.2",
+    "firebase": "^12.19.0",
     "supertest": "^7.0.0",
     "tsx": "^4.19.0",
     "typescript": "~6.0.3"
