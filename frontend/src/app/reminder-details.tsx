@@ -1,196 +1,260 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
   BackArrow,
-  BellIcon,
   CalendarIcon,
   CheckIcon,
-  ChevronRightIcon,
+  HealthIcon,
   PawIcon,
-  PinIcon,
-} from '@/components/app-icons';
-import { BottomNav } from '@/components/bottom-nav';
-import { Palette } from '@/constants/palette';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { goBack } from '@/lib/navigation';
+} from "@/components/app-icons";
+import { BottomNav } from "@/components/bottom-nav";
+import { Palette } from "@/constants/palette";
+import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
+import { goBack } from "@/lib/navigation";
+import { authErrorMessage } from "@/services/auth-context";
+import {
+  deleteHealthReminder,
+  listHealthReminders,
+  updateHealthReminder,
+} from "@/services/health-clinic";
+import type { HealthReminder } from "../../../shared/contracts";
 
-const notifyOptions = ['1 week before', '1 day before', 'On the due date'];
+function rescheduleDates(days: number) {
+  const due = new Date();
+  due.setDate(due.getDate() + days);
+  due.setHours(9, 0, 0, 0);
+  const notify = new Date(
+    Math.max(Date.now(), due.getTime() - 24 * 60 * 60 * 1000),
+  );
+  return { dueAt: due.toISOString(), notifyAt: notify.toISOString() };
+}
 
 export default function ReminderDetailsScreen() {
   const router = useRouter();
-  const [completed, setCompleted] = useState(false);
-  const [removing, setRemoving] = useState(false);
-  const [notify, setNotify] = useState(notifyOptions[1]);
+  const params = useLocalSearchParams<{ id?: string }>();
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const [reminder, setReminder] = useState<HealthReminder | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    if (!id) throw new Error("Reminder ID is missing.");
+    const rows = await listHealthReminders();
+    const match = rows.find((row) => row.id === id);
+    if (!match) throw new Error("Reminder not found.");
+    setReminder(match);
+  }, [id]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    load()
+      .catch((cause) => {
+        if (active) setError(authErrorMessage(cause));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [load]);
+
+  async function markCompleted() {
+    if (!reminder) return;
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await updateHealthReminder(reminder.id, {
+        status: reminder.status === "COMPLETED" ? "PENDING" : "COMPLETED",
+      });
+      setReminder(updated);
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reschedule(days: number) {
+    if (!reminder) return;
+    setSaving(true);
+    setError("");
+    try {
+      const dates = rescheduleDates(days);
+      const updated = await updateHealthReminder(reminder.id, {
+        ...dates,
+        status: "PENDING",
+      });
+      setReminder(updated);
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!reminder) return;
+    setSaving(true);
+    setError("");
+    try {
+      await deleteHealthReminder(reminder.id);
+      router.replace("/health-reminders");
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+      setSaving(false);
+    }
+  }
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView
           contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}>
-          <View style={styles.topBar}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={() => goBack('/dashboard')}
-              style={styles.iconButton}>
-              <BackArrow />
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Notifications"
-              style={styles.iconButton}>
-              <BellIcon />
-              <View style={styles.bellDot} />
-            </Pressable>
-          </View>
-
-          <Text style={styles.category}>HEALTH REMINDER</Text>
-          <Text style={styles.heading}>FVRCP booster</Text>
-          <Text style={styles.supporting}>Mingming</Text>
-
-          {completed ? (
-            <View style={styles.completedBadge}>
-              <CheckIcon size={14} color={Palette.forestDark} />
-              <Text style={styles.completedBadgeLabel}>Completed</Text>
-            </View>
-          ) : (
-            <View style={styles.statusBadge}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusLabel}>Due soon</Text>
-            </View>
-          )}
-
-          <View style={styles.card}>
-            <View style={styles.cardIcon}>
-              <CalendarIcon size={22} color={Palette.forestDark} />
-            </View>
-            <View style={styles.cardBody}>
-              <Text style={styles.cardDate}>September 20 · 9:30 AM</Text>
-              <Text style={styles.cardTitle}>FVRCP booster</Text>
-              <Text style={styles.cardPet}>Mingming</Text>
-            </View>
-          </View>
-
-          <Text style={styles.sectionLabel}>About this reminder</Text>
-          <Text style={styles.paragraph}>
-            Mingming&apos;s FVRCP booster is scheduled to help keep vaccinations up to date.
-          </Text>
-
+          showsVerticalScrollIndicator={false}
+        >
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push({ pathname: '/pet-id', params: { name: 'Mingming' } })}
-            style={({ pressed }) => [styles.petCard, pressed && styles.pressed]}>
-            <View style={styles.petThumb}>
-              <PawIcon size={24} color={Palette.forestDark} />
-            </View>
-            <View style={styles.petInfo}>
-              <Text style={styles.petName}>Mingming</Text>
-              <Text style={styles.petMeta}>Orange Tabby · 2 years</Text>
-            </View>
-            <ChevronRightIcon />
+            accessibilityLabel="Back to health hub"
+            onPress={() => goBack("/health-reminders")}
+            style={styles.backButton}
+          >
+            <BackArrow />
           </Pressable>
 
-          {completed ? (
-            <View style={styles.completedPanel}>
-              <View style={styles.completedIcon}>
-                <CheckIcon size={20} color={Palette.forestDark} />
+          {loading ? (
+            <ActivityIndicator
+              size="large"
+              color={Palette.forestDark}
+              style={styles.loader}
+            />
+          ) : reminder ? (
+            <>
+              <Text style={styles.eyebrow}>HEALTH REMINDER</Text>
+              <Text style={styles.heading}>{reminder.title}</Text>
+
+              <View style={styles.petLine}>
+                <PawIcon size={18} />
+                <Text style={styles.petName}>{reminder.petName}</Text>
               </View>
-              <Text style={styles.completedTitle}>Completed</Text>
-              <Text style={styles.completedMeta}>Completed on September 20</Text>
-            </View>
-          ) : null}
 
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setCompleted(true)}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-            <Text style={styles.primaryLabel}>
-              {completed ? 'Undo completion' : 'Mark as completed'}
-            </Text>
-          </Pressable>
+              <View style={styles.mainCard}>
+                <View style={styles.icon}>
+                  <CalendarIcon size={24} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.date}>
+                    {new Date(reminder.dueAt).toLocaleString()}
+                  </Text>
+                  <Text style={styles.meta}>
+                    Notification: {new Date(reminder.notifyAt).toLocaleString()}
+                  </Text>
+                  <View
+                    style={[
+                      styles.status,
+                      reminder.status === "PENDING"
+                        ? styles.statusPending
+                        : styles.statusDone,
+                    ]}
+                  >
+                    <Text style={styles.statusText}>{reminder.status}</Text>
+                  </View>
+                </View>
+              </View>
 
-          <Pressable
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-            <Text style={styles.secondaryLabel}>Reschedule</Text>
-          </Pressable>
+              {reminder.notes ? (
+                <View style={styles.infoCard}>
+                  <Text style={styles.infoLabel}>NOTES</Text>
+                  <Text style={styles.notes}>{reminder.notes}</Text>
+                </View>
+              ) : null}
 
-          <View style={styles.clinicCard}>
-            <View style={styles.clinicIcon}>
-              <PinIcon size={20} color={Palette.forestDark} />
-            </View>
-            <View style={styles.clinicBody}>
-              <Text style={styles.clinicLabel}>VET CLINIC</Text>
-              <Text style={styles.clinicName}>Tagum Pet Care Clinic</Text>
-              <Text style={styles.clinicMeta}>Tagum City, Davao del Norte</Text>
+              {reminder.clinic ? (
+                <View style={styles.infoCard}>
+                  <HealthIcon size={20} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoLabel}>FROM CLINIC</Text>
+                    <Text style={styles.clinicName}>
+                      {reminder.clinic.name}
+                    </Text>
+                    <Text style={styles.meta}>{reminder.clinic.address}</Text>
+                  </View>
+                </View>
+              ) : null}
+
+              {error ? (
+                <Text accessibilityRole="alert" style={styles.error}>
+                  {error}
+                </Text>
+              ) : null}
+
               <Pressable
                 accessibilityRole="button"
-                style={({ pressed }) => [styles.clinicLink, pressed && styles.pressed]}>
-                <Text style={styles.clinicLinkLabel}>View clinic</Text>
+                disabled={saving}
+                onPress={() => void markCompleted()}
+                style={styles.primaryButton}
+              >
+                {saving ? (
+                  <ActivityIndicator color={Palette.white} />
+                ) : (
+                  <>
+                    <CheckIcon size={16} color={Palette.white} />
+                    <Text style={styles.primaryText}>
+                      {reminder.status === "COMPLETED"
+                        ? "Mark pending again"
+                        : "Mark completed"}
+                    </Text>
+                  </>
+                )}
               </Pressable>
-            </View>
-          </View>
 
-          <View style={styles.notifySection}>
-            <Text style={styles.sectionLabel}>Reminder notification</Text>
-            <Text style={styles.notifyMeta}>Notify {notify}.</Text>
-            <View style={styles.notifyRow}>
-              {notifyOptions.map((option) => {
-                const isActive = notify === option;
-                return (
+              <Text style={styles.sectionLabel}>Reschedule</Text>
+              <View style={styles.actions}>
+                {[1, 7, 30].map((days) => (
                   <Pressable
-                    key={option}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isActive }}
-                    onPress={() => setNotify(option)}
-                    style={[styles.notifyItem, isActive && styles.notifyItemActive]}>
-                    <Text style={[styles.notifyLabel, isActive && styles.notifyLabelActive]}>
-                      {option}
+                    key={days}
+                    disabled={saving}
+                    onPress={() => void reschedule(days)}
+                    style={styles.secondaryButton}
+                  >
+                    <Text style={styles.secondaryText}>
+                      +{days} {days === 1 ? "day" : "days"}
                     </Text>
                   </Pressable>
-                );
-              })}
+                ))}
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={saving}
+                onPress={() => void remove()}
+                style={styles.removeButton}
+              >
+                <Text style={styles.removeText}>Delete reminder</Text>
+              </Pressable>
+            </>
+          ) : (
+            <View style={styles.infoCard}>
+              <Text style={styles.notes}>
+                {error || "Reminder unavailable."}
+              </Text>
             </View>
-          </View>
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setRemoving(true)}
-            style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}>
-            <Text style={styles.removeLabel}>Remove reminder</Text>
-          </Pressable>
+          )}
         </ScrollView>
-
         <BottomNav active="home" />
       </SafeAreaView>
-
-      {removing ? (
-        <View style={styles.overlay}>
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Remove this reminder?</Text>
-            <Text style={styles.sheetMeta}>
-              This reminder will no longer appear in your health reminders.
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setRemoving(false)}
-              style={({ pressed }) => [styles.sheetCancel, pressed && styles.pressed]}>
-              <Text style={styles.sheetCancelLabel}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setRemoving(false)}
-              style={({ pressed }) => [styles.sheetRemove, pressed && styles.pressed]}>
-              <Text style={styles.sheetRemoveLabel}>Remove</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -199,434 +263,196 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Palette.cream,
-    borderWidth: 1,
-    borderColor: Palette.border,
-    borderRadius: 32,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    alignItems: "center",
   },
   safeArea: {
     flex: 1,
+    width: "100%",
     maxWidth: MaxContentWidth,
-    width: '100%',
   },
   content: {
-    flexGrow: 1,
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.five,
   },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  backButton: {
     marginTop: Spacing.two,
-  },
-  iconButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
+    backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  bellDot: {
-    position: 'absolute',
-    top: 10,
-    right: 11,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Palette.gold,
-    borderWidth: 1.5,
-    borderColor: Palette.surface,
-  },
-  category: {
+  loader: { marginTop: Spacing.six },
+  eyebrow: {
+    marginTop: Spacing.four,
     fontFamily: Fonts.sans,
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.6,
-    color: Palette.forestDark,
-    marginTop: Spacing.five,
+    fontWeight: "800",
+    letterSpacing: 1.5,
+    color: Palette.inkMuted,
   },
   heading: {
+    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
     fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+    fontWeight: "800",
     color: Palette.forestDark,
-    marginTop: Spacing.one,
   },
-  supporting: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '600',
-    color: Palette.inkMuted,
+  petLine: {
     marginTop: Spacing.two,
-  },
-  statusBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: Palette.goldSoft,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: 6,
-    marginTop: Spacing.three,
-  },
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: Palette.gold,
-  },
-  statusLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  completedBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: Palette.sage,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: 6,
-    marginTop: Spacing.three,
-  },
-  completedBadgeLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    marginTop: Spacing.four,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    borderRadius: 16,
-    padding: Spacing.three,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
-  },
-  cardIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardBody: {
-    flex: 1,
-    gap: 2,
-  },
-  cardDate: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  cardTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Palette.inkMuted,
-  },
-  cardPet: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    color: Palette.inkMuted,
-  },
-  sectionLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 17,
-    fontWeight: '800',
-    color: Palette.forestDark,
-    marginTop: Spacing.five,
-  },
-  paragraph: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    lineHeight: 21,
-    color: Palette.inkMuted,
-    marginTop: Spacing.two,
-  },
-  petCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    marginTop: Spacing.three,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    borderRadius: 16,
-    padding: Spacing.three,
-  },
-  petThumb: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  petInfo: {
-    flex: 1,
-    gap: 2,
+    flexDirection: "row",
+    gap: Spacing.two,
+    alignItems: "center",
   },
   petName: {
     fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: "700",
     color: Palette.forestDark,
   },
-  petMeta: {
-    fontFamily: Fonts.sans,
-    fontSize: 12.5,
-    color: Palette.inkMuted,
-  },
-  completedPanel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    marginTop: Spacing.three,
-    backgroundColor: Palette.sage,
-    borderRadius: 16,
+  mainCard: {
+    marginTop: Spacing.four,
     padding: Spacing.three,
-  },
-  completedIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  completedTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  completedMeta: {
-    fontFamily: Fonts.sans,
-    fontSize: 12.5,
-    color: Palette.inkMuted,
-  },
-  primaryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: Palette.forestDark,
-    marginTop: Spacing.five,
-  },
-  primaryLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
-    color: Palette.white,
-  },
-  secondaryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    backgroundColor: Palette.cream,
-    marginTop: Spacing.three,
-  },
-  secondaryLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  clinicCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.three,
-    marginTop: Spacing.five,
+    borderRadius: 18,
     backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    borderRadius: 16,
-    padding: Spacing.three,
+    flexDirection: "row",
+    gap: Spacing.three,
   },
-  clinicIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  icon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  clinicBody: {
-    flex: 1,
-    gap: 2,
-  },
-  clinicLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    color: Palette.inkMuted,
-  },
-  clinicName: {
+  date: {
     fontFamily: Fonts.sans,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
-  clinicMeta: {
+  meta: {
+    marginTop: 3,
     fontFamily: Fonts.sans,
-    fontSize: 12.5,
+    fontSize: 11.5,
+    lineHeight: 17,
     color: Palette.inkMuted,
   },
-  clinicLink: {
-    alignSelf: 'flex-start',
+  status: {
+    alignSelf: "flex-start",
     marginTop: Spacing.two,
+    borderRadius: 999,
     paddingHorizontal: Spacing.two,
     paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: Palette.goldSoft,
   },
-  clinicLinkLabel: {
+  statusPending: { backgroundColor: Palette.goldSoft },
+  statusDone: { backgroundColor: Palette.sage },
+  statusText: {
     fontFamily: Fonts.sans,
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 9.5,
+    fontWeight: "800",
     color: Palette.forestDark,
   },
-  notifySection: {
-    marginTop: Spacing.five,
-  },
-  notifyMeta: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    color: Palette.inkMuted,
-    marginTop: Spacing.one,
-  },
-  notifyRow: {
-    flexDirection: 'row',
-    backgroundColor: Palette.goldTrack,
-    borderRadius: 999,
-    padding: 4,
+  infoCard: {
     marginTop: Spacing.three,
+    padding: Spacing.three,
+    borderRadius: 16,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    flexDirection: "row",
+    gap: Spacing.two,
   },
-  notifyItem: {
-    flex: 1,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    paddingHorizontal: Spacing.one,
-  },
-  notifyItemActive: {
-    backgroundColor: Palette.forestDark,
-  },
-  notifyLabel: {
+  infoLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: Palette.forestDark,
-    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+    color: Palette.inkMuted,
   },
-  notifyLabelActive: {
-    color: Palette.white,
-  },
-  removeButton: {
-    alignSelf: 'center',
-    marginTop: Spacing.five,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-  },
-  removeLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Palette.danger,
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: 'rgba(20,40,28,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.four,
-  },
-  sheet: {
-    width: '100%',
-    maxWidth: 340,
-    backgroundColor: Palette.cream,
-    borderRadius: 18,
-    padding: Spacing.four,
-    alignItems: 'stretch',
-    gap: Spacing.three,
-  },
-  sheetTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 17,
-    fontWeight: '800',
-    color: Palette.forestDark,
-    textAlign: 'center',
-  },
-  sheetMeta: {
+  notes: {
+    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
     fontSize: 13,
     lineHeight: 19,
-    color: Palette.inkMuted,
-    textAlign: 'center',
-  },
-  sheetCancel: {
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.two,
-  },
-  sheetCancelLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
     color: Palette.forestDark,
   },
-  sheetRemove: {
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: Palette.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetRemoveLabel: {
+  clinicName: {
+    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  error: {
+    marginTop: Spacing.three,
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    color: Palette.danger,
+  },
+  primaryButton: {
+    marginTop: Spacing.four,
+    minHeight: 46,
+    borderRadius: 12,
+    backgroundColor: Palette.forestDark,
+    flexDirection: "row",
+    gap: Spacing.two,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "800",
     color: Palette.white,
   },
-  pressed: {
-    opacity: 0.85,
+  sectionLabel: {
+    marginTop: Spacing.four,
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  actions: {
+    marginTop: Spacing.two,
+    flexDirection: "row",
+    gap: Spacing.two,
+  },
+  secondaryButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 10,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryText: {
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  removeButton: {
+    marginTop: Spacing.four,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.danger,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  removeText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Palette.danger,
   },
 });

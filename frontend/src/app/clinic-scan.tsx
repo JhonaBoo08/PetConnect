@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { type Href, useRouter } from "expo-router";
+import { Href, useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -11,36 +11,30 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BackArrow, QrIcon } from "@/components/app-icons";
-import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
-import { useAuth } from "@/services/auth-context";
 import { recoveryTokenFromQrData } from "@/services/recovery";
 
-export default function ScanScreen() {
+export default function ClinicScanScreen() {
   const router = useRouter();
-  const { state } = useAuth();
-  const owner = state.status === "ready" && state.session.role === "OWNER";
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
-  const [scanError, setScanError] = useState("");
-  const [cameraError, setCameraError] = useState("");
+  const [error, setError] = useState("");
 
   function handleQr(data: string) {
     if (scanned) return;
     const token = recoveryTokenFromQrData(data);
     if (!token) {
-      setScanError("That is not an active PetConnect recovery QR format.");
+      setError("That QR is not a valid active PetConnect Pet ID format.");
       return;
     }
     setScanned(true);
-    setScanError("");
-    // Expo Router's generated typed-route cache can lag a newly added file
-    // until the dev server regenerates it. The runtime route is file-backed.
-    router.replace(
-      { pathname: "/recover", params: { token } } as unknown as Href,
-    );
+    setError("");
+    router.replace({
+      pathname: "/clinic-patient",
+      params: { token },
+    } as unknown as Href);
   }
 
   return (
@@ -50,33 +44,36 @@ export default function ScanScreen() {
           <View style={styles.topBar}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={() => goBack(owner ? "/dashboard" : "/")}
+              accessibilityLabel="Back to clinic dashboard"
+              onPress={() => goBack("/clinic-dashboard")}
               style={styles.iconButton}
             >
               <BackArrow />
             </Pressable>
             <View style={styles.modePill}>
-              <QrIcon size={15} color={Palette.forestDark} />
-              <Text style={styles.modeText}>Recovery scanner</Text>
+              <QrIcon size={16} />
+              <Text style={styles.modeText}>Clinic patient lookup</Text>
             </View>
           </View>
 
-          <Text style={styles.category}>PET RECOVERY</Text>
-          <Text style={styles.heading}>Scan a PetConnect QR</Text>
-          <Text style={styles.instruction}>
-            Point the camera at the QR on a PetConnect tag or digital Pet ID.
-            No sign-in is required to help reunite a pet.
+          <Text style={styles.eyebrow}>CLINIC QR LOOKUP</Text>
+          <Text style={styles.heading}>Scan the patient&apos;s Pet ID</Text>
+          <Text style={styles.supporting}>
+            A clinic account plus the signed PetConnect QR is required. The QR
+            resolves only while it remains active.
           </Text>
 
           <View style={styles.scanner}>
             {!permission ? (
-              <ActivityIndicator size="large" color={Palette.gold} />
+              <ActivityIndicator color={Palette.gold} size="large" />
             ) : !permission.granted ? (
               <View style={styles.permissionCard}>
-                <Text style={styles.permissionTitle}>Camera permission needed</Text>
+                <Text style={styles.permissionTitle}>
+                  Camera permission needed
+                </Text>
                 <Text style={styles.permissionText}>
-                  PetConnect uses the camera only while this scanner is open.
+                  PetConnect uses the camera only while this patient scanner is
+                  open.
                 </Text>
                 <Pressable
                   accessibilityRole="button"
@@ -95,43 +92,41 @@ export default function ScanScreen() {
                   onBarcodeScanned={
                     scanned ? undefined : ({ data }) => handleQr(data)
                   }
-                  onMountError={({ message }) => setCameraError(message)}
+                  onMountError={({ message }) => setError(message)}
                 />
                 <View pointerEvents="none" style={styles.frame}>
-                  <View style={[styles.bracket, styles.bracketTL]} />
-                  <View style={[styles.bracket, styles.bracketTR]} />
-                  <View style={[styles.bracket, styles.bracketBL]} />
-                  <View style={[styles.bracket, styles.bracketBR]} />
+                  <View style={[styles.corner, styles.topLeft]} />
+                  <View style={[styles.corner, styles.topRight]} />
+                  <View style={[styles.corner, styles.bottomLeft]} />
+                  <View style={[styles.corner, styles.bottomRight]} />
                 </View>
               </>
             )}
           </View>
 
-          {scanError || cameraError ? (
+          {error ? (
             <View style={styles.errorCard}>
               <Text accessibilityRole="alert" style={styles.errorText}>
-                {cameraError || scanError}
+                {error}
               </Text>
-              {scanError ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setScanned(false);
-                    setScanError("");
-                  }}
-                >
-                  <Text style={styles.retryText}>Keep scanning</Text>
-                </Pressable>
-              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setScanned(false);
+                  setError("");
+                }}
+              >
+                <Text style={styles.retry}>Keep scanning</Text>
+              </Pressable>
             </View>
           ) : (
             <Text style={styles.helper}>
-              A valid code opens only the pet&apos;s recovery-safe public profile.
+              Public recovery scanning remains separate. This clinic scanner
+              opens the authenticated health chart only after both checks
+              succeed.
             </Text>
           )}
         </View>
-
-        {owner ? <BottomNav active="scan" /> : null}
       </SafeAreaView>
     </View>
   );
@@ -154,10 +149,10 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
   },
   topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     marginTop: Spacing.two,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   iconButton: {
     width: 42,
@@ -170,42 +165,42 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   modePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.one,
-    paddingHorizontal: Spacing.three,
     height: 36,
     borderRadius: 18,
     backgroundColor: Palette.sage,
+    paddingHorizontal: Spacing.three,
+    flexDirection: "row",
+    gap: Spacing.one,
+    alignItems: "center",
   },
   modeText: {
     fontFamily: Fonts.sans,
-    color: Palette.forestDark,
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: "800",
+    color: Palette.forestDark,
   },
-  category: {
+  eyebrow: {
+    marginTop: Spacing.five,
     fontFamily: Fonts.sans,
     fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 1.6,
-    color: Palette.forestDark,
-    marginTop: Spacing.five,
+    letterSpacing: 1.5,
+    color: Palette.inkMuted,
   },
   heading: {
+    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
     fontSize: 28,
+    lineHeight: 34,
     fontWeight: "800",
-    letterSpacing: -0.5,
     color: Palette.forestDark,
-    marginTop: Spacing.one,
   },
-  instruction: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    lineHeight: 21,
-    color: Palette.inkMuted,
+  supporting: {
     marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 20,
+    color: Palette.inkMuted,
   },
   scanner: {
     width: "100%",
@@ -213,51 +208,50 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignSelf: "center",
     marginTop: Spacing.five,
-    backgroundColor: Palette.forestDark,
     borderRadius: 20,
     overflow: "hidden",
+    backgroundColor: Palette.forestDark,
     alignItems: "center",
     justifyContent: "center",
   },
   frame: {
     position: "absolute",
+    left: "14%",
+    top: "14%",
     width: "72%",
     height: "72%",
-    alignSelf: "center",
-    top: "14%",
-    left: "14%",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.45)",
-    borderRadius: 12,
+    borderColor: "rgba(255,255,255,0.4)",
+    borderRadius: 14,
   },
-  bracket: {
+  corner: {
     position: "absolute",
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
     borderColor: Palette.gold,
   },
-  bracketTL: {
+  topLeft: {
     top: -2,
     left: -2,
     borderTopWidth: 4,
     borderLeftWidth: 4,
     borderTopLeftRadius: 10,
   },
-  bracketTR: {
+  topRight: {
     top: -2,
     right: -2,
     borderTopWidth: 4,
     borderRightWidth: 4,
     borderTopRightRadius: 10,
   },
-  bracketBL: {
+  bottomLeft: {
     bottom: -2,
     left: -2,
     borderBottomWidth: 4,
     borderLeftWidth: 4,
     borderBottomLeftRadius: 10,
   },
-  bracketBR: {
+  bottomRight: {
     bottom: -2,
     right: -2,
     borderBottomWidth: 4,
@@ -274,59 +268,58 @@ const styles = StyleSheet.create({
   },
   permissionTitle: {
     fontFamily: Fonts.sans,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "800",
     color: Palette.forestDark,
-    textAlign: "center",
   },
   permissionText: {
     fontFamily: Fonts.sans,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 12.5,
+    lineHeight: 18,
     color: Palette.inkMuted,
     textAlign: "center",
   },
   permissionButton: {
-    minWidth: 150,
-    height: 42,
+    minHeight: 42,
     borderRadius: 21,
     backgroundColor: Palette.gold,
+    paddingHorizontal: Spacing.four,
     alignItems: "center",
     justifyContent: "center",
   },
   permissionButtonText: {
     fontFamily: Fonts.sans,
+    fontSize: 13,
     fontWeight: "800",
     color: Palette.forestDark,
   },
-  helper: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    lineHeight: 18,
-    color: Palette.inkMuted,
-    textAlign: "center",
-    marginTop: Spacing.four,
-  },
   errorCard: {
     marginTop: Spacing.four,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
+    padding: Spacing.three,
     borderRadius: 14,
     backgroundColor: Palette.surface,
-    padding: Spacing.three,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
     gap: Spacing.two,
   },
   errorText: {
     fontFamily: Fonts.sans,
-    fontSize: 13,
+    fontSize: 12,
+    lineHeight: 18,
     color: Palette.danger,
-    textAlign: "center",
   },
-  retryText: {
+  retry: {
     fontFamily: Fonts.sans,
-    fontSize: 13,
-    color: Palette.forestDark,
+    fontSize: 12,
     fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  helper: {
+    marginTop: Spacing.four,
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    lineHeight: 18,
+    color: Palette.inkMuted,
     textAlign: "center",
   },
 });

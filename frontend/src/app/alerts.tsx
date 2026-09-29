@@ -1,149 +1,242 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
   BackArrow,
   BellIcon,
   CheckIcon,
-  ChevronDownIcon,
   PawIcon,
   PinIcon,
   SendIcon,
-  UploadIcon,
-} from '@/components/app-icons';
-import { BottomNav } from '@/components/bottom-nav';
-import { Palette } from '@/constants/palette';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { goBack } from '@/lib/navigation';
+} from "@/components/app-icons";
+import { BottomNav } from "@/components/bottom-nav";
+import { RecoveryMap } from "@/components/recovery-map";
+import { Palette } from "@/constants/palette";
+import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
+import { goBack } from "@/lib/navigation";
+import { authErrorMessage } from "@/services/auth-context";
+import {
+  enableRecoveryPush,
+  requestCurrentCoordinates,
+} from "@/services/device-recovery";
+import { listPets } from "@/services/pets";
+import {
+  createLostReport,
+  getNearbyLostReports,
+  listMyLostReports,
+  listRecoveryNotifications,
+  markPetReunited,
+  markRecoveryNotificationRead,
+} from "@/services/recovery-network";
+import type {
+  Coordinates,
+  LostReport,
+  NearbyLostReport,
+  Pet,
+  RecoveryNotification,
+} from "../../../shared/contracts";
 
-const petOptions = ['Bantay', 'Mingming'];
+type Mode = "report" | "feed" | "updates";
 
-type Report = {
-  name: string;
-  status: 'Lost' | 'Found';
-  location: string;
-  time: string;
-  description: string;
-  distance: string;
-};
+function statusLabel(
+  status: LostReport["status"] | NearbyLostReport["status"],
+) {
+  if (status === "SIGHTED") return "Sighted";
+  if (status === "REUNITED") return "Reunited";
+  return "Lost";
+}
 
-const nearbyReports: Report[] = [
-  {
-    name: 'Mingming',
-    status: 'Lost',
-    location: 'Near Apokon',
-    time: 'Reported 2 hours ago',
-    description: 'Orange tabby with blue collar',
-    distance: '1.2 km away',
-  },
-  {
-    name: 'Unnamed pup',
-    status: 'Found',
-    location: 'Near Freedom Park',
-    time: 'Reported 5 hours ago',
-    description: 'Brown aspin with red collar, friendly',
-    distance: '2.4 km away',
-  },
-  {
-    name: 'Coco',
-    status: 'Lost',
-    location: 'Near Magugpo East',
-    time: 'Reported yesterday',
-    description: 'White shih tzu, pink leash',
-    distance: '3.1 km away',
-  },
-];
-
-function FeedCard({ report }: { report: Report }) {
-  const isLost = report.status === 'Lost';
-  return (
-    <View style={styles.feedCard}>
-      <View style={styles.feedPhoto}>
-        <PawIcon size={26} color={Palette.forestDark} />
-      </View>
-      <View style={styles.feedBody}>
-        <View style={styles.feedTopRow}>
-          <Text style={styles.feedName}>{report.name}</Text>
-          <View style={[styles.feedPill, isLost ? styles.feedPillLost : styles.feedPillFound]}>
-            <Text style={styles.feedPillText}>{report.status}</Text>
-          </View>
-        </View>
-        <Text style={styles.feedLocation}>
-          {report.location} · {report.distance}
-        </Text>
-        <Text style={styles.feedTime}>{report.time}</Text>
-        <Text style={styles.feedDescription}>{report.description}</Text>
-      </View>
-    </View>
-  );
+function when(value: string) {
+  return new Date(value).toLocaleString();
 }
 
 export default function AlertsScreen() {
-  const router = useRouter();
-  const [mode, setMode] = useState<'report' | 'feed'>('report');
-  const [petOpen, setPetOpen] = useState(false);
-  const [pet, setPet] = useState('Bantay');
-  const [lastSeen, setLastSeen] = useState('');
-  const [pinned, setPinned] = useState(false);
-  const [details, setDetails] = useState('');
-  const [photoAdded, setPhotoAdded] = useState(false);
-  const [errors, setErrors] = useState<{ pet?: string; lastSeen?: string; pin?: string }>({});
-  const [published, setPublished] = useState(false);
+  const [mode, setMode] = useState<Mode>("report");
+  const [pets, setPets] = useState<Pet[]>([]);
+  const [reports, setReports] = useState<LostReport[]>([]);
+  const [nearby, setNearby] = useState<NearbyLostReport[]>([]);
+  const [notifications, setNotifications] = useState<RecoveryNotification[]>(
+    [],
+  );
+  const [selectedPetId, setSelectedPetId] = useState("");
+  const [lastSeenText, setLastSeenText] = useState("");
+  const [details, setDetails] = useState("");
+  const [location, setLocation] = useState<Coordinates | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [publishing, setPublishing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [pushMessage, setPushMessage] = useState("");
 
-  const publish = () => {
-    const next: typeof errors = {};
-    if (!pet) next.pet = 'Please select a pet.';
-    if (!lastSeen.trim()) next.lastSeen = 'Please provide where your pet was last seen.';
-    if (!pinned) next.pin = 'Please pin the last known location.';
-    setErrors(next);
-    if (Object.keys(next).length === 0) {
-      setPublished(true);
-    }
-  };
+  const loadCore = useCallback(async () => {
+    const [petRows, reportRows, notificationRows] = await Promise.all([
+      listPets(),
+      listMyLostReports(),
+      listRecoveryNotifications(),
+    ]);
+    setPets(petRows);
+    setReports(reportRows);
+    setNotifications(notificationRows);
+    setSelectedPetId((current) => current || petRows[0]?.id || "");
+  }, []);
 
-  if (published) {
-    return (
-      <View style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.confirmWrap}>
-            <View style={styles.confirmIcon}>
-              <CheckIcon size={28} color={Palette.white} />
-            </View>
-            <Text style={styles.confirmTitle}>Lost pet alert published</Text>
-            <Text style={styles.confirmText}>
-              Nearby Pet-Connect members and clinics can now see your report.
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setPublished(false);
-                setMode('feed');
-              }}
-              style={({ pressed }) => [styles.publishButton, styles.confirmButton, pressed && styles.pressed]}>
-              <Text style={styles.publishLabel}>View my alert</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.navigate('/dashboard')}
-              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-              <Text style={styles.secondaryLabel}>Return home</Text>
-            </Pressable>
-          </View>
-
-          <BottomNav active="alerts" />
-        </SafeAreaView>
-      </View>
+  const loadNearby = useCallback(async (coordinates: Coordinates) => {
+    const rows = await getNearbyLostReports(
+      coordinates.latitude,
+      coordinates.longitude,
+      10,
     );
+    setNearby(rows);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setLoading(true);
+      loadCore()
+        .catch((cause) => {
+          if (active) setError(authErrorMessage(cause));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }, [loadCore]),
+  );
+
+  async function useGps(loadFeed = false) {
+    setLoadingLocation(true);
+    setError("");
+    try {
+      const next = await requestCurrentCoordinates();
+      setLocation(next);
+      if (loadFeed || mode === "feed") await loadNearby(next);
+      return next;
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+      return null;
+    } finally {
+      setLoadingLocation(false);
+    }
   }
+
+  async function publish() {
+    if (!selectedPetId) {
+      setError("Add a pet before publishing a lost report.");
+      return;
+    }
+    if (!lastSeenText.trim()) {
+      setError("Describe where your pet was last seen.");
+      return;
+    }
+    const pin = location || (await useGps());
+    if (!pin) return;
+
+    setPublishing(true);
+    setError("");
+    setMessage("");
+    try {
+      const report = await createLostReport({
+        petId: selectedPetId,
+        lastSeenText,
+        details,
+        latitude: pin.latitude,
+        longitude: pin.longitude,
+        accuracyM: pin.accuracyM,
+      });
+      setReports(await listMyLostReports());
+      setLastSeenText("");
+      setDetails("");
+      setMessage(
+        `${report.petName} is now in the recovery network. Nearby members with recovery alerts enabled can be notified.`,
+      );
+      setMode("feed");
+      await loadNearby(pin);
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function reunite(report: LostReport) {
+    setError("");
+    try {
+      await markPetReunited(report.id);
+      setReports(await listMyLostReports());
+      if (location) await loadNearby(location);
+      setMessage(`${report.petName} has been marked reunited.`);
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    }
+  }
+
+  async function enablePush() {
+    setPushMessage("");
+    setError("");
+    try {
+      const coordinates = location || (await useGps());
+      const result = await enableRecoveryPush(coordinates || undefined);
+      setPushMessage(
+        result.enabled
+          ? "Recovery push alerts are enabled on this device."
+          : result.reason,
+      );
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    }
+  }
+
+  async function refresh() {
+    setRefreshing(true);
+    setError("");
+    try {
+      await loadCore();
+      if (mode === "feed") {
+        const coordinates = location || (await useGps());
+        if (coordinates) await loadNearby(coordinates);
+      }
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function openUpdate(item: RecoveryNotification) {
+    if (!item.readAt) {
+      try {
+        await markRecoveryNotificationRead(item.id);
+        setNotifications((rows) =>
+          rows.map((row) =>
+            row.id === item.id
+              ? { ...row, readAt: new Date().toISOString() }
+              : row,
+          ),
+        );
+      } catch {
+        // The notification content is still safe to show if read-state sync fails.
+      }
+    }
+  }
+
+  const activeCases = reports.filter((report) => report.status !== "REUNITED");
+  const unreadCount = notifications.filter((item) => !item.readAt).length;
 
   return (
     <View style={styles.container}>
@@ -151,170 +244,393 @@ export default function AlertsScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void refresh()}
+            />
+          }
+        >
           <View style={styles.topBar}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => goBack('/dashboard')}
-              style={styles.iconButton}>
+              onPress={() => goBack("/dashboard")}
+              style={styles.iconButton}
+            >
               <BackArrow />
             </Pressable>
-
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Notifications"
-              style={styles.iconButton}>
+              accessibilityLabel="Recovery notifications"
+              onPress={() => setMode("updates")}
+              style={styles.iconButton}
+            >
               <BellIcon />
-              <View style={styles.bellDot} />
+              {unreadCount ? <View style={styles.bellDot} /> : null}
             </Pressable>
           </View>
 
           <Text style={styles.category}>RECOVERY NETWORK</Text>
-          <Text style={styles.heading}>Lost &amp; Found</Text>
+          <Text style={styles.heading}>Lost, sighted, reunited.</Text>
           <Text style={styles.supporting}>
-            Alert nearby Pet-Connect members and clinics quickly.
+            Publish a GPS-backed lost report, see nearby cases, and receive
+            finder sightings without exposing private account data.
           </Text>
 
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void enablePush()}
+            style={styles.alertButton}
+          >
+            <BellIcon size={18} />
+            <Text style={styles.alertButtonText}>Enable recovery alerts</Text>
+          </Pressable>
+          {pushMessage ? (
+            <Text style={styles.helper}>{pushMessage}</Text>
+          ) : null}
+          {message ? <Text style={styles.success}>{message}</Text> : null}
+          {error ? (
+            <Text accessibilityRole="alert" style={styles.error}>
+              {error}
+            </Text>
+          ) : null}
+
           <View style={styles.segment}>
-            {(['report', 'feed'] as const).map((key) => {
-              const isActive = mode === key;
-              const label = key === 'report' ? 'Report lost' : 'Nearby feed';
-              return (
-                <Pressable
-                  key={key}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: isActive }}
-                  onPress={() => setMode(key)}
-                  style={[styles.segmentItem, isActive && styles.segmentItemActive]}>
-                  <Text style={[styles.segmentLabel, isActive && styles.segmentLabelActive]}>
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+            {(["report", "feed", "updates"] as Mode[]).map((key) => (
+              <Pressable
+                key={key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: mode === key }}
+                onPress={() => {
+                  setMode(key);
+                  if (key === "feed" && location) void loadNearby(location);
+                }}
+                style={[
+                  styles.segmentItem,
+                  mode === key && styles.segmentItemActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.segmentLabel,
+                    mode === key && styles.segmentLabelActive,
+                  ]}
+                >
+                  {key === "report"
+                    ? "Report lost"
+                    : key === "feed"
+                      ? "Nearby"
+                      : `Updates${unreadCount ? ` (${unreadCount})` : ""}`}
+                </Text>
+              </Pressable>
+            ))}
           </View>
 
-          {mode === 'report' ? (
+          {loading ? (
+            <ActivityIndicator
+              color={Palette.forestDark}
+              style={styles.loader}
+            />
+          ) : null}
+
+          {!loading && mode === "report" ? (
             <>
-              <Text style={styles.label}>Pet</Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setPetOpen((open) => !open)}
-                style={[styles.input, styles.fieldRow]}>
-                <Text style={styles.inputText}>{pet || 'Select a pet'}</Text>
-                <ChevronDownIcon />
-              </Pressable>
-              {petOpen ? (
-                <View style={styles.dropdown}>
-                  {petOptions.map((option) => (
-                    <Pressable
-                      key={option}
-                      accessibilityRole="button"
-                      onPress={() => {
-                        setPet(option);
-                        setPetOpen(false);
-                        setErrors((prev) => ({ ...prev, pet: undefined }));
-                      }}
-                      style={({ pressed }) => [styles.dropdownItem, pressed && styles.pressed]}>
-                      <PawIcon size={18} color={Palette.forestDark} />
-                      <Text style={styles.dropdownLabel}>{option}</Text>
-                    </Pressable>
+              {activeCases.length ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>
+                    Your active recovery cases
+                  </Text>
+                  {activeCases.map((report) => (
+                    <View key={report.id} style={styles.caseCard}>
+                      <View style={styles.caseTop}>
+                        <View>
+                          <Text style={styles.caseName}>{report.petName}</Text>
+                          <Text style={styles.caseMeta}>
+                            {statusLabel(report.status)} ·{" "}
+                            {report.sightingCount} sighting
+                            {report.sightingCount === 1 ? "" : "s"}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.statusPill,
+                            report.status === "SIGHTED" && styles.statusSighted,
+                          ]}
+                        >
+                          <Text style={styles.statusText}>
+                            {statusLabel(report.status).toUpperCase()}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.caseLocation}>
+                        {report.lastSeenText}
+                      </Text>
+                      {report.lastSightedAt ? (
+                        <Text style={styles.helper}>
+                          Latest sighting: {when(report.lastSightedAt)}
+                        </Text>
+                      ) : null}
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void reunite(report)}
+                        style={styles.reuniteButton}
+                      >
+                        <CheckIcon size={15} color={Palette.white} />
+                        <Text style={styles.reuniteText}>Mark reunited</Text>
+                      </Pressable>
+                    </View>
                   ))}
                 </View>
               ) : null}
-              {errors.pet ? <Text style={styles.error}>{errors.pet}</Text> : null}
 
-              <Text style={styles.label}>Last seen</Text>
-              <TextInput
-                value={lastSeen}
-                onChangeText={(value) => {
-                  setLastSeen(value);
-                  if (value.trim()) setErrors((prev) => ({ ...prev, lastSeen: undefined }));
-                }}
-                placeholder="e.g. Freedom Park, Tagum"
-                placeholderTextColor={Palette.placeholder}
-                style={styles.input}
-              />
-              {errors.lastSeen ? <Text style={styles.error}>{errors.lastSeen}</Text> : null}
-
-              <Text style={styles.label}>Pin exact location</Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setPinned(true);
-                  setErrors((prev) => ({ ...prev, pin: undefined }));
-                }}
-                style={[styles.locationBox, pinned && styles.locationBoxPinned]}>
-                {pinned ? (
-                  <View style={styles.locationRow}>
-                    <View style={styles.locationCheck}>
-                      <CheckIcon size={14} color={Palette.white} />
-                    </View>
-                    <View style={styles.locationText}>
-                      <Text style={styles.locationTitle}>Pinned · Freedom Park, Tagum</Text>
-                      <Text style={styles.locationHint}>Tap to change pin</Text>
-                    </View>
-                  </View>
-                ) : (
-                  <>
-                    <PinIcon size={26} />
-                    <Text style={styles.locationTitle}>Tap to pin location</Text>
-                    <Text style={styles.locationHint}>Pin where you last saw your pet.</Text>
-                  </>
-                )}
-              </Pressable>
-              {errors.pin ? <Text style={styles.error}>{errors.pin}</Text> : null}
-
-              <Text style={styles.label}>What should people know?</Text>
-              <TextInput
-                value={details}
-                onChangeText={setDetails}
-                placeholder="Collar, behavior, identifying marks..."
-                placeholderTextColor={Palette.placeholder}
-                style={[styles.input, styles.textArea]}
-                multiline
-              />
-
-              {photoAdded ? (
-                <View style={styles.photoPreview}>
-                  <View style={styles.photoThumb}>
-                    <PawIcon size={22} color={Palette.forestDark} />
-                  </View>
-                  <Text style={styles.photoName}>current_photo.jpg</Text>
-                  <Pressable accessibilityRole="button" onPress={() => setPhotoAdded(false)}>
-                    <Text style={styles.photoRemove}>Remove</Text>
-                  </Pressable>
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Publish lost report</Text>
+                <Text style={styles.label}>Pet</Text>
+                <View style={styles.petChoices}>
+                  {pets.map((pet) => (
+                    <Pressable
+                      key={pet.id}
+                      accessibilityRole="button"
+                      accessibilityState={{
+                        selected: selectedPetId === pet.id,
+                      }}
+                      onPress={() => setSelectedPetId(pet.id)}
+                      style={[
+                        styles.petChoice,
+                        selectedPetId === pet.id && styles.petChoiceActive,
+                      ]}
+                    >
+                      <PawIcon size={17} color={Palette.forestDark} />
+                      <Text style={styles.petChoiceText}>{pet.name}</Text>
+                    </Pressable>
+                  ))}
                 </View>
-              ) : null}
 
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setPhotoAdded(true)}
-                style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}>
-                <UploadIcon />
-                <Text style={styles.photoLabel}>
-                  {photoAdded ? 'Replace current photo' : 'Add current photo'}
+                <Text style={styles.label}>Last seen</Text>
+                <TextInput
+                  value={lastSeenText}
+                  onChangeText={setLastSeenText}
+                  placeholder="e.g. Freedom Park, Tagum"
+                  placeholderTextColor={Palette.placeholder}
+                  style={styles.input}
+                />
+
+                <Text style={styles.label}>Details</Text>
+                <TextInput
+                  value={details}
+                  onChangeText={setDetails}
+                  placeholder="Collar, behavior, direction of travel..."
+                  placeholderTextColor={Palette.placeholder}
+                  multiline
+                  style={[styles.input, styles.textArea]}
+                />
+
+                <Text style={styles.label}>Last known GPS pin</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={loadingLocation}
+                  onPress={() => void useGps()}
+                  style={styles.gpsButton}
+                >
+                  {loadingLocation ? (
+                    <ActivityIndicator color={Palette.forestDark} />
+                  ) : (
+                    <>
+                      <PinIcon size={19} />
+                      <Text style={styles.gpsText}>
+                        {location ? "Refresh my GPS" : "Use my GPS"}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+
+                <RecoveryMap
+                  selected={
+                    location
+                      ? {
+                          latitude: location.latitude,
+                          longitude: location.longitude,
+                        }
+                      : null
+                  }
+                  pins={[]}
+                  onSelect={(coordinate) =>
+                    setLocation((current) => ({
+                      ...coordinate,
+                      accuracyM: current?.accuracyM ?? null,
+                    }))
+                  }
+                  height={230}
+                />
+                {location ? (
+                  <Text style={styles.helper}>
+                    Pin: {location.latitude.toFixed(5)},{" "}
+                    {location.longitude.toFixed(5)}
+                    {location.accuracyM
+                      ? ` · ±${Math.round(location.accuracyM)} m`
+                      : ""}
+                  </Text>
+                ) : null}
+
+                <Text style={styles.publicWarning}>
+                  This location becomes public while the report is active so
+                  finders can search around the last known area.
                 </Text>
-              </Pressable>
 
-              <Pressable
-                accessibilityRole="button"
-                onPress={publish}
-                style={({ pressed }) => [styles.publishButton, pressed && styles.pressed]}>
-                <SendIcon />
-                <Text style={styles.publishLabel}>Publish Alert</Text>
-              </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={publishing}
+                  onPress={() => void publish()}
+                  style={styles.publishButton}
+                >
+                  {publishing ? (
+                    <ActivityIndicator color={Palette.forestDark} />
+                  ) : (
+                    <>
+                      <SendIcon />
+                      <Text style={styles.publishText}>
+                        Publish lost report
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
             </>
-          ) : (
-            <View style={styles.feedList}>
-              {nearbyReports.map((report) => (
-                <FeedCard key={report.name} report={report} />
-              ))}
-            </View>
-          )}
-        </ScrollView>
+          ) : null}
 
+          {!loading && mode === "feed" ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>Nearby recovery feed</Text>
+                  <Text style={styles.helper}>Active cases within 10 km.</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={loadingLocation}
+                  onPress={() => void useGps(true)}
+                  style={styles.smallButton}
+                >
+                  <PinIcon size={16} />
+                  <Text style={styles.smallButtonText}>Locate</Text>
+                </Pressable>
+              </View>
+
+              {location ? (
+                <RecoveryMap
+                  pins={nearby.map((report) => ({
+                    id: report.id,
+                    latitude: report.latitude,
+                    longitude: report.longitude,
+                    title: report.petName,
+                    description: `${statusLabel(report.status)} · ${report.distanceKm.toFixed(1)} km`,
+                    status: report.status,
+                  }))}
+                  selected={null}
+                  height={270}
+                />
+              ) : (
+                <View style={styles.emptyCard}>
+                  <PinIcon size={24} />
+                  <Text style={styles.emptyTitle}>Location needed</Text>
+                  <Text style={styles.helper}>
+                    Use your GPS to load reports around you.
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.feedList}>
+                {nearby.map((report) => (
+                  <View key={report.id} style={styles.feedCard}>
+                    <View style={styles.feedTop}>
+                      <View style={styles.feedIdentity}>
+                        <View style={styles.feedPhoto}>
+                          <PawIcon size={24} color={Palette.forestDark} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.caseName}>{report.petName}</Text>
+                          <Text style={styles.caseMeta}>
+                            {report.petBreed || report.petSpecies}
+                          </Text>
+                        </View>
+                      </View>
+                      <View
+                        style={[
+                          styles.statusPill,
+                          report.status === "SIGHTED" && styles.statusSighted,
+                        ]}
+                      >
+                        <Text style={styles.statusText}>
+                          {statusLabel(report.status).toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.caseLocation}>
+                      {report.lastSeenText} · {report.distanceKm.toFixed(1)} km
+                      away
+                    </Text>
+                    {report.details ? (
+                      <Text style={styles.feedDetails}>{report.details}</Text>
+                    ) : null}
+                    <Text style={styles.helper}>
+                      {report.status === "SIGHTED" && report.lastSightedAt
+                        ? `Latest sighting ${when(report.lastSightedAt)}`
+                        : `Reported ${when(report.reportedAt)}`}
+                    </Text>
+                  </View>
+                ))}
+                {location && nearby.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <CheckIcon size={22} color={Palette.forestDark} />
+                    <Text style={styles.emptyTitle}>
+                      No active cases nearby
+                    </Text>
+                    <Text style={styles.helper}>
+                      No LOST or SIGHTED reports were found within 10 km.
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
+          {!loading && mode === "updates" ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Recovery updates</Text>
+              <Text style={styles.helper}>
+                Finder sightings and nearby lost-pet alerts are stored here even
+                when remote push delivery is unavailable.
+              </Text>
+              <View style={styles.feedList}>
+                {notifications.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="button"
+                    onPress={() => void openUpdate(item)}
+                    style={[
+                      styles.updateCard,
+                      !item.readAt && styles.updateUnread,
+                    ]}
+                  >
+                    <Text style={styles.updateTitle}>{item.title}</Text>
+                    <Text style={styles.feedDetails}>{item.body}</Text>
+                    <Text style={styles.helper}>{when(item.createdAt)}</Text>
+                  </Pressable>
+                ))}
+                {notifications.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <BellIcon size={22} />
+                    <Text style={styles.emptyTitle}>
+                      No recovery updates yet
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+        </ScrollView>
         <BottomNav active="alerts" />
       </SafeAreaView>
     </View>
@@ -325,400 +641,384 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Palette.cream,
-    borderWidth: 1,
-    borderColor: Palette.border,
-    borderRadius: 32,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    alignItems: "center",
   },
   safeArea: {
     flex: 1,
+    width: "100%",
     maxWidth: MaxContentWidth,
-    width: '100%',
   },
   content: {
-    flexGrow: 1,
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.five,
   },
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: Spacing.two,
   },
   iconButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
+    backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   bellDot: {
-    position: 'absolute',
-    top: 10,
-    right: 11,
+    position: "absolute",
     width: 8,
     height: 8,
     borderRadius: 4,
+    top: 8,
+    right: 8,
     backgroundColor: Palette.gold,
-    borderWidth: 1.5,
-    borderColor: Palette.surface,
   },
   category: {
     fontFamily: Fonts.sans,
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.6,
+    fontWeight: "800",
+    letterSpacing: 1.5,
     color: Palette.forestDark,
-    marginTop: Spacing.five,
+    marginTop: Spacing.four,
   },
   heading: {
     fontFamily: Fonts.sans,
     fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+    fontWeight: "800",
     color: Palette.forestDark,
     marginTop: Spacing.one,
   },
   supporting: {
     fontFamily: Fonts.sans,
-    fontSize: 14,
+    fontSize: 13,
+    lineHeight: 20,
     color: Palette.inkMuted,
     marginTop: Spacing.two,
   },
+  alertButton: {
+    marginTop: Spacing.three,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: Palette.sage,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
+  },
+  alertButtonText: {
+    fontFamily: Fonts.sans,
+    fontWeight: "800",
+    fontSize: 13,
+    color: Palette.forestDark,
+  },
   segment: {
-    flexDirection: 'row',
-    backgroundColor: Palette.goldTrack,
-    borderRadius: 999,
-    padding: 4,
+    flexDirection: "row",
     marginTop: Spacing.four,
+    padding: 4,
+    backgroundColor: Palette.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
   },
   segmentItem: {
     flex: 1,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
+    minHeight: 38,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   segmentItemActive: {
-    backgroundColor: Palette.forestDark,
+    backgroundColor: Palette.sage,
   },
   segmentLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Palette.forestDark,
+    fontSize: 12,
+    fontWeight: "700",
+    color: Palette.inkMuted,
   },
   segmentLabelActive: {
+    color: Palette.forestDark,
+    fontWeight: "800",
+  },
+  loader: {
+    marginTop: Spacing.five,
+  },
+  section: {
+    marginTop: Spacing.four,
+    gap: Spacing.three,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
+  sectionTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  caseCard: {
+    padding: Spacing.three,
+    borderRadius: 16,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+  },
+  caseTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: Spacing.two,
+  },
+  caseName: {
+    fontFamily: Fonts.sans,
+    fontSize: 16,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  caseMeta: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+    marginTop: 2,
+  },
+  caseLocation: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "700",
+    color: Palette.forestDark,
+    marginTop: Spacing.two,
+  },
+  statusPill: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    backgroundColor: Palette.goldSoft,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+  },
+  statusSighted: {
+    backgroundColor: Palette.sage,
+  },
+  statusText: {
+    fontFamily: Fonts.sans,
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+    letterSpacing: 0.6,
+  },
+  reuniteButton: {
+    marginTop: Spacing.three,
+    minHeight: 38,
+    borderRadius: 10,
+    backgroundColor: Palette.forestDark,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
+  },
+  reuniteText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    fontWeight: "800",
     color: Palette.white,
   },
   label: {
     fontFamily: Fonts.sans,
-    fontSize: 13.5,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: "800",
     color: Palette.forestDark,
-    marginTop: Spacing.four,
-    marginBottom: Spacing.two,
+    marginTop: Spacing.one,
   },
-  input: {
-    minHeight: 44,
-    backgroundColor: Palette.surface,
+  petChoices: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.two,
+  },
+  petChoice: {
+    flexDirection: "row",
+    gap: Spacing.one,
+    alignItems: "center",
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    borderRadius: 12,
+    backgroundColor: Palette.surface,
+    borderRadius: 999,
     paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  petChoiceActive: {
+    backgroundColor: Palette.sage,
+    borderColor: Palette.forestDark,
+  },
+  petChoiceText: {
     fontFamily: Fonts.sans,
-    fontSize: 15,
+    fontSize: 13,
+    fontWeight: "700",
     color: Palette.forestDark,
   },
-  fieldRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  inputText: {
+  input: {
+    minHeight: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    paddingHorizontal: Spacing.three,
     fontFamily: Fonts.sans,
-    fontSize: 15,
+    fontSize: 14,
     color: Palette.forestDark,
   },
   textArea: {
-    minHeight: 96,
+    minHeight: 90,
     paddingTop: Spacing.three,
-    paddingBottom: Spacing.three,
-    textAlignVertical: 'top',
+    textAlignVertical: "top",
   },
-  dropdown: {
-    marginTop: Spacing.two,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
+  gpsButton: {
+    minHeight: 44,
     borderRadius: 12,
-    overflow: 'hidden',
-  },
-  dropdownItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: Palette.goldTrack,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
   },
-  dropdownLabel: {
+  gpsText: {
     fontFamily: Fonts.sans,
-    fontSize: 15,
+    fontSize: 13,
+    fontWeight: "800",
     color: Palette.forestDark,
+  },
+  publicWarning: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    lineHeight: 17,
+    color: Palette.inkMuted,
+    backgroundColor: Palette.goldTrack,
+    borderRadius: 10,
+    padding: Spacing.two,
+  },
+  publishButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: Palette.gold,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
+  },
+  publishText: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  helper: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    lineHeight: 17,
+    color: Palette.inkMuted,
+  },
+  success: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    lineHeight: 18,
+    color: Palette.forestDark,
+    backgroundColor: Palette.sage,
+    borderRadius: 10,
+    padding: Spacing.two,
+    marginTop: Spacing.two,
   },
   error: {
     fontFamily: Fonts.sans,
     fontSize: 12,
+    lineHeight: 18,
     color: Palette.danger,
-    marginTop: Spacing.one,
+    marginTop: Spacing.two,
   },
-  locationBox: {
-    minHeight: 104,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: Palette.borderSoft,
-    backgroundColor: Palette.goldTrack,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.one,
-    padding: Spacing.three,
-  },
-  locationBoxPinned: {
-    alignItems: 'stretch',
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  locationCheck: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: Palette.forestDark,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  locationText: {
-    flex: 1,
-  },
-  locationTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  locationHint: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    color: Palette.inkMuted,
-    marginTop: 2,
-  },
-  photoPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    marginTop: Spacing.four,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    borderRadius: 12,
-    padding: Spacing.two,
-  },
-  photoThumb: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+  smallButton: {
+    minHeight: 36,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 18,
     backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.one,
   },
-  photoName: {
-    flex: 1,
+  smallButtonText: {
     fontFamily: Fonts.sans,
-    fontSize: 13,
-    color: Palette.forestDark,
-  },
-  photoRemove: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Palette.danger,
-    paddingHorizontal: Spacing.two,
-  },
-  photoButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    backgroundColor: Palette.cream,
-    marginTop: Spacing.four,
-  },
-  photoLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  publishButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: Palette.gold,
-    marginTop: Spacing.four,
-    shadowColor: '#F2B632',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  publishLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 11,
+    fontWeight: "800",
     color: Palette.forestDark,
   },
   feedList: {
     gap: Spacing.three,
-    marginTop: Spacing.four,
   },
   feedCard: {
-    flexDirection: 'row',
-    gap: Spacing.three,
+    padding: Spacing.three,
+    borderRadius: 16,
     backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    borderRadius: 16,
-    padding: Spacing.three,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
   },
-  feedPhoto: {
-    width: 60,
-    height: 60,
-    borderRadius: 12,
-    backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  feedBody: {
-    flex: 1,
-    gap: 2,
-  },
-  feedTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  feedName: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  feedPill: {
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 2,
-  },
-  feedPillLost: {
-    backgroundColor: Palette.goldSoft,
-  },
-  feedPillFound: {
-    backgroundColor: Palette.sage,
-  },
-  feedPillText: {
-    fontFamily: Fonts.sans,
-    fontSize: 10,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  feedLocation: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    fontWeight: '600',
-    color: Palette.forestDark,
-  },
-  feedTime: {
-    fontFamily: Fonts.sans,
-    fontSize: 11,
-    color: Palette.inkMuted,
-  },
-  feedDescription: {
-    fontFamily: Fonts.sans,
-    fontSize: 12.5,
-    color: Palette.inkMuted,
-    marginTop: 2,
-  },
-  confirmWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.four,
+  feedTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: Spacing.two,
   },
-  confirmIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: Palette.forestDark,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.two,
+  feedIdentity: {
+    flex: 1,
+    flexDirection: "row",
+    gap: Spacing.two,
+    alignItems: "center",
   },
-  confirmTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 22,
-    fontWeight: '800',
-    color: Palette.forestDark,
-    textAlign: 'center',
-  },
-  confirmText: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    lineHeight: 20,
-    color: Palette.inkMuted,
-    textAlign: 'center',
-    marginBottom: Spacing.three,
-  },
-  confirmButton: {
-    alignSelf: 'stretch',
-    marginTop: Spacing.two,
-  },
-  secondaryButton: {
-    alignSelf: 'stretch',
+  feedPhoto: {
+    width: 46,
     height: 46,
     borderRadius: 12,
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  feedDetails: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: Palette.inkMuted,
+    marginTop: Spacing.two,
+  },
+  emptyCard: {
+    minHeight: 110,
+    borderRadius: 16,
+    backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    backgroundColor: Palette.cream,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.one,
+    padding: Spacing.three,
   },
-  secondaryLabel: {
+  emptyTitle: {
     fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: "800",
     color: Palette.forestDark,
   },
-  pressed: {
-    opacity: 0.85,
+  updateCard: {
+    padding: Spacing.three,
+    borderRadius: 14,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+  },
+  updateUnread: {
+    borderColor: Palette.forestDark,
+    backgroundColor: Palette.sage,
+  },
+  updateTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
   },
 });

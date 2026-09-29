@@ -1,254 +1,599 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Href, useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
   BackArrow,
-  BellIcon,
   CalendarIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  GridIcon,
-  ListIcon,
-} from '@/components/app-icons';
-import { BottomNav } from '@/components/bottom-nav';
-import { Palette } from '@/constants/palette';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { goBack } from '@/lib/navigation';
+  CheckIcon,
+  HealthIcon,
+  PawIcon,
+  PlusIcon,
+} from "@/components/app-icons";
+import { BottomNav } from "@/components/bottom-nav";
+import { Palette } from "@/constants/palette";
+import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
+import { goBack } from "@/lib/navigation";
+import { authErrorMessage } from "@/services/auth-context";
+import {
+  cancelAppointment,
+  createAppointment,
+  createHealthReminder,
+  listAppointments,
+  listClinics,
+  listHealthRecords,
+  listHealthReminders,
+} from "@/services/health-clinic";
+import { listPets } from "@/services/pets";
+import type {
+  Appointment,
+  ClinicSummary,
+  HealthRecord,
+  HealthReminder,
+  Pet,
+} from "../../../shared/contracts";
 
-const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const monthNames = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
+type Mode = "reminders" | "records" | "appointments" | "clinics";
 
-type Reminder = {
-  id: string;
-  title: string;
-  pet: string;
-  when: string;
-  on: { year: number; month: number; day: number };
-  status: 'Due soon' | 'Upcoming';
-};
-
-const reminders: Reminder[] = [
-  {
-    id: 'fvrcp',
-    title: 'FVRCP booster',
-    pet: 'Mingming',
-    when: 'Sep 20 · 9:30 AM',
-    on: { year: 2026, month: 8, day: 20 },
-    status: 'Due soon',
-  },
-  {
-    id: 'evrcp',
-    title: 'EVRCP booster',
-    pet: 'Bantay',
-    when: 'Oct 5 · 2:00 PM',
-    on: { year: 2026, month: 9, day: 5 },
-    status: 'Upcoming',
-  },
-];
-
-const highlighted = { year: 2026, month: 8, day: 20 };
-
-function isSameDay(a: { year: number; month: number; day: number }, y: number, m: number, d: number) {
-  return a.year === y && a.month === m && a.day === d;
+function futureIso(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(9, 0, 0, 0);
+  return date.toISOString();
 }
 
-function ReminderCard({ reminder, onPress }: { reminder: Reminder; onPress: () => void }) {
-  const isDue = reminder.status === 'Due soon';
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.reminderCard, pressed && styles.pressed]}>
-      <View style={styles.reminderIcon}>
-        <CalendarIcon size={24} color={Palette.forestDark} />
-      </View>
-      <View style={styles.reminderBody}>
-        <View style={styles.reminderTopRow}>
-          <Text style={styles.reminderTitle}>{reminder.title}</Text>
-          <View style={[styles.statusPill, isDue ? styles.statusDue : styles.statusUpcoming]}>
-            <Text style={styles.statusText}>{reminder.status}</Text>
-          </View>
-        </View>
-        <Text style={styles.reminderPet}>{reminder.pet}</Text>
-        <Text style={styles.reminderWhen}>{reminder.when}</Text>
-      </View>
-      <ChevronRightIcon />
-    </Pressable>
-  );
-}
-
-function MonthCalendar({ viewDate }: { viewDate: { year: number; month: number } }) {
-  const { year, month } = viewDate;
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < firstDay; i += 1) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d += 1) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-
-  return (
-    <View style={styles.calendarCard}>
-      <View style={styles.calendarHeader}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Previous month" style={styles.calendarNav}>
-          <ChevronLeftIcon />
-        </Pressable>
-        <Text style={styles.calendarMonth}>{`${monthNames[month]} ${year}`}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Next month" style={styles.calendarNav}>
-          <ChevronRightIcon />
-        </Pressable>
-      </View>
-
-      <View style={styles.calendarDivider} />
-
-      <View style={styles.weekRow}>
-        {weekDays.map((label) => (
-          <Text key={label} style={styles.weekLabel}>
-            {label}
-          </Text>
-        ))}
-      </View>
-
-      <View style={styles.dayGrid}>
-        {cells.map((day, index) => {
-          if (day === null) {
-            return <View key={`blank-${index}`} style={styles.dayCell} />;
-          }
-          const isDue = isSameDay(highlighted, year, month, day);
-          const hasReminder = reminders.some((r) => isSameDay(r.on, year, month, day));
-          return (
-            <View key={day} style={styles.dayCell}>
-              <View
-                style={[
-                  styles.dayCircle,
-                  isDue ? styles.dayCircleDue : hasReminder ? styles.dayCircleMarked : null,
-                ]}>
-                <Text
-                  style={[
-                    styles.dayLabel,
-                    isDue ? styles.dayLabelDue : hasReminder ? styles.dayLabelMarked : null,
-                  ]}>
-                  {day}
-                </Text>
-              </View>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
+function statusTone(status: Appointment["status"]) {
+  return status === "REQUESTED"
+    ? styles.statusRequested
+    : status === "SCHEDULED"
+      ? styles.statusScheduled
+      : styles.statusMuted;
 }
 
 export default function HealthRemindersScreen() {
   const router = useRouter();
-  const [view, setView] = useState<'list' | 'calendar'>('list');
-  const [viewDate, setViewDate] = useState({ year: 2026, month: 8 });
+  const [mode, setMode] = useState<Mode>("reminders");
+  const [pets, setPets] = useState<Pet[]>([]);
+  const [clinics, setClinics] = useState<ClinicSummary[]>([]);
+  const [records, setRecords] = useState<HealthRecord[]>([]);
+  const [reminders, setReminders] = useState<HealthReminder[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  const shiftMonth = (delta: number) => {
-    const nextMonth = viewDate.month + delta;
-    if (nextMonth < 0) {
-      setViewDate({ year: viewDate.year - 1, month: 11 });
-    } else if (nextMonth > 11) {
-      setViewDate({ year: viewDate.year + 1, month: 0 });
-    } else {
-      setViewDate({ ...viewDate, month: nextMonth });
+  const [selectedPetId, setSelectedPetId] = useState("");
+  const [reminderTitle, setReminderTitle] = useState("");
+  const [reminderNotes, setReminderNotes] = useState("");
+  const [reminderDays, setReminderDays] = useState(7);
+
+  const [selectedClinicId, setSelectedClinicId] = useState("");
+  const [appointmentReason, setAppointmentReason] = useState("");
+  const [appointmentDays, setAppointmentDays] = useState(3);
+
+  const load = useCallback(async () => {
+    const [petRows, clinicRows, recordRows, reminderRows, appointmentRows] =
+      await Promise.all([
+        listPets(),
+        listClinics(),
+        listHealthRecords(),
+        listHealthReminders(),
+        listAppointments(),
+      ]);
+    setPets(petRows);
+    setClinics(clinicRows);
+    setRecords(recordRows);
+    setReminders(reminderRows);
+    setAppointments(appointmentRows);
+    setSelectedPetId((current) => current || petRows[0]?.id || "");
+    setSelectedClinicId((current) => current || clinicRows[0]?.id || "");
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setLoading(true);
+      load()
+        .catch((cause) => {
+          if (active) setError(authErrorMessage(cause));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }, [load]),
+  );
+
+  async function refresh() {
+    setRefreshing(true);
+    setError("");
+    try {
+      await load();
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setRefreshing(false);
     }
-  };
+  }
+
+  async function addReminder() {
+    if (!selectedPetId) {
+      setError("Add a pet before creating a health reminder.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      await createHealthReminder({
+        petId: selectedPetId,
+        title: reminderTitle,
+        notes: reminderNotes,
+        dueAt: futureIso(reminderDays),
+      });
+      setReminderTitle("");
+      setReminderNotes("");
+      setMessage("Reminder created and notification delivery scheduled.");
+      await load();
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function requestAppointment() {
+    if (!selectedPetId || !selectedClinicId) {
+      setError("Choose a pet and clinic first.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      await createAppointment({
+        petId: selectedPetId,
+        clinicId: selectedClinicId,
+        appointmentDate: futureIso(appointmentDays),
+        reason: appointmentReason,
+        reminderMinutesBefore: 1440,
+      });
+      setAppointmentReason("");
+      setMessage("Appointment request sent to the clinic.");
+      await load();
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function cancel(appointment: Appointment) {
+    setSaving(true);
+    setError("");
+    try {
+      await cancelAppointment(appointment.id);
+      setMessage("Appointment cancelled.");
+      await load();
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView
           contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}>
-          <View style={styles.topBar}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={() => goBack('/dashboard')}
-              style={styles.iconButton}>
-              <BackArrow />
-            </Pressable>
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void refresh()}
+            />
+          }
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            onPress={() => goBack("/dashboard")}
+            style={styles.backButton}
+          >
+            <BackArrow />
+          </Pressable>
 
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Notifications"
-              style={styles.iconButton}>
-              <BellIcon />
-              <View style={styles.bellDot} />
-            </Pressable>
-          </View>
-
-          <Text style={styles.category}>STAY ON SCHEDULE</Text>
-          <Text style={styles.heading}>Health reminders</Text>
+          <Text style={styles.eyebrow}>PET HEALTH</Text>
+          <Text style={styles.heading}>Health & clinic hub</Text>
+          <Text style={styles.supporting}>
+            Your pet&apos;s clinic history, reminders, vaccinations, and visits
+            stay together in PetConnect.
+          </Text>
 
           <View style={styles.segment}>
-            {(['list', 'calendar'] as const).map((key) => {
-              const isActive = view === key;
-              const Icon = key === 'list' ? ListIcon : GridIcon;
-              const label = key === 'list' ? 'List' : 'Calendar';
-              return (
-                <Pressable
-                  key={key}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: isActive }}
-                  onPress={() => setView(key)}
-                  style={[styles.segmentItem, isActive && styles.segmentItemActive]}>
-                  <Icon size={15} color={isActive ? Palette.white : Palette.forestDark} />
-                  <Text style={[styles.segmentLabel, isActive && styles.segmentLabelActive]}>
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+            {(
+              ["reminders", "records", "appointments", "clinics"] as Mode[]
+            ).map((item) => (
+              <Pressable
+                key={item}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: mode === item }}
+                onPress={() => {
+                  setMode(item);
+                  setError("");
+                  setMessage("");
+                }}
+                style={[
+                  styles.segmentItem,
+                  mode === item && styles.segmentItemActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.segmentText,
+                    mode === item && styles.segmentTextActive,
+                  ]}
+                >
+                  {item === "appointments"
+                    ? "Visits"
+                    : item.charAt(0).toUpperCase() + item.slice(1)}
+                </Text>
+              </Pressable>
+            ))}
           </View>
 
-          {view === 'list' ? (
-            <View style={styles.list}>
-              {reminders.map((reminder) => (
-                <ReminderCard
-                  key={reminder.id}
-                  reminder={reminder}
-                  onPress={() => router.push('/reminder-details')}
-                />
-              ))}
-            </View>
-          ) : (
+          {message ? <Text style={styles.success}>{message}</Text> : null}
+          {error ? (
+            <Text accessibilityRole="alert" style={styles.error}>
+              {error}
+            </Text>
+          ) : null}
+
+          {loading ? (
+            <ActivityIndicator
+              color={Palette.forestDark}
+              style={styles.loader}
+            />
+          ) : null}
+
+          {!loading && mode === "reminders" ? (
             <>
-              <MonthCalendar viewDate={viewDate} />
-              <View style={styles.calendarNavRow}>
+              <View style={styles.formCard}>
+                <View style={styles.formHeader}>
+                  <PlusIcon />
+                  <Text style={styles.formTitle}>New reminder</Text>
+                </View>
+                <Text style={styles.label}>Pet</Text>
+                <View style={styles.choiceRow}>
+                  {pets.map((pet) => (
+                    <Pressable
+                      key={pet.id}
+                      onPress={() => setSelectedPetId(pet.id)}
+                      style={[
+                        styles.choice,
+                        selectedPetId === pet.id && styles.choiceActive,
+                      ]}
+                    >
+                      <PawIcon size={15} />
+                      <Text style={styles.choiceText}>{pet.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <TextInput
+                  value={reminderTitle}
+                  onChangeText={setReminderTitle}
+                  placeholder="e.g. Deworming, annual checkup"
+                  placeholderTextColor={Palette.placeholder}
+                  style={styles.input}
+                />
+                <TextInput
+                  value={reminderNotes}
+                  onChangeText={setReminderNotes}
+                  placeholder="Notes"
+                  placeholderTextColor={Palette.placeholder}
+                  multiline
+                  style={[styles.input, styles.textArea]}
+                />
+                <Text style={styles.label}>Due</Text>
+                <View style={styles.choiceRow}>
+                  {[
+                    { label: "Tomorrow", days: 1 },
+                    { label: "1 week", days: 7 },
+                    { label: "1 month", days: 30 },
+                  ].map((option) => (
+                    <Pressable
+                      key={option.days}
+                      onPress={() => setReminderDays(option.days)}
+                      style={[
+                        styles.choice,
+                        reminderDays === option.days && styles.choiceActive,
+                      ]}
+                    >
+                      <Text style={styles.choiceText}>{option.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
                 <Pressable
-                  accessibilityRole="button"
-                  onPress={() => shiftMonth(-1)}
-                  style={({ pressed }) => [styles.calendarNavButton, pressed && styles.pressed]}>
-                  <ChevronLeftIcon size={16} />
-                  <Text style={styles.calendarNavLabel}>Previous</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => shiftMonth(1)}
-                  style={({ pressed }) => [styles.calendarNavButton, pressed && styles.pressed]}>
-                  <Text style={styles.calendarNavLabel}>Next</Text>
-                  <ChevronRightIcon size={16} />
+                  disabled={saving}
+                  onPress={() => void addReminder()}
+                  style={styles.primaryButton}
+                >
+                  {saving ? (
+                    <ActivityIndicator color={Palette.white} />
+                  ) : (
+                    <Text style={styles.primaryText}>Create reminder</Text>
+                  )}
                 </Pressable>
               </View>
+
+              <View style={styles.sectionHeader}>
+                <CalendarIcon size={20} />
+                <Text style={styles.sectionTitle}>Your reminders</Text>
+              </View>
+              <View style={styles.list}>
+                {reminders.map((reminder) => (
+                  <Pressable
+                    key={reminder.id}
+                    accessibilityRole="button"
+                    onPress={() =>
+                      router.push({
+                        pathname: "/reminder-details",
+                        params: { id: reminder.id },
+                      } as unknown as Href)
+                    }
+                    style={styles.card}
+                  >
+                    <View style={styles.cardTop}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cardTitle}>{reminder.title}</Text>
+                        <Text style={styles.meta}>
+                          {reminder.petName} ·{" "}
+                          {new Date(reminder.dueAt).toLocaleString()}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.status,
+                          reminder.status === "PENDING"
+                            ? styles.statusScheduled
+                            : styles.statusMuted,
+                        ]}
+                      >
+                        <Text style={styles.statusText}>{reminder.status}</Text>
+                      </View>
+                    </View>
+                    {reminder.clinic ? (
+                      <Text style={styles.clinicLine}>
+                        From {reminder.clinic.name}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))}
+                {reminders.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <Text style={styles.emptyTitle}>No reminders yet</Text>
+                  </View>
+                ) : null}
+              </View>
             </>
-          )}
+          ) : null}
+
+          {!loading && mode === "records" ? (
+            <>
+              <View style={styles.sectionHeader}>
+                <HealthIcon size={20} />
+                <Text style={styles.sectionTitle}>Health history</Text>
+              </View>
+              <View style={styles.list}>
+                {records.map((record) => (
+                  <View key={record.id} style={styles.card}>
+                    <View style={styles.cardTop}>
+                      <Text style={styles.cardTitle}>{record.title}</Text>
+                      <Text style={styles.typeBadge}>{record.recordType}</Text>
+                    </View>
+                    <Text style={styles.meta}>
+                      {record.petName} ·{" "}
+                      {new Date(record.occurredAt).toLocaleDateString()} ·{" "}
+                      {record.clinic.name}
+                    </Text>
+                    {record.notes ? (
+                      <Text style={styles.notes}>{record.notes}</Text>
+                    ) : null}
+                    {record.vaccineName ? (
+                      <Text style={styles.clinicLine}>
+                        {record.vaccineName}
+                        {record.nextDueAt
+                          ? " · next dose " +
+                            new Date(record.nextDueAt).toLocaleDateString()
+                          : ""}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
+                {records.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <Text style={styles.emptyTitle}>No clinic records yet</Text>
+                    <Text style={styles.meta}>
+                      A clinic can add records after scanning your active Pet
+                      ID.
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </>
+          ) : null}
+
+          {!loading && mode === "appointments" ? (
+            <>
+              <View style={styles.formCard}>
+                <Text style={styles.formTitle}>Request appointment</Text>
+                <Text style={styles.label}>Pet</Text>
+                <View style={styles.choiceRow}>
+                  {pets.map((pet) => (
+                    <Pressable
+                      key={pet.id}
+                      onPress={() => setSelectedPetId(pet.id)}
+                      style={[
+                        styles.choice,
+                        selectedPetId === pet.id && styles.choiceActive,
+                      ]}
+                    >
+                      <Text style={styles.choiceText}>{pet.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={styles.label}>Clinic</Text>
+                <View style={styles.choiceRow}>
+                  {clinics.map((clinic) => (
+                    <Pressable
+                      key={clinic.id}
+                      onPress={() => setSelectedClinicId(clinic.id)}
+                      style={[
+                        styles.choice,
+                        selectedClinicId === clinic.id && styles.choiceActive,
+                      ]}
+                    >
+                      <Text style={styles.choiceText}>{clinic.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <TextInput
+                  value={appointmentReason}
+                  onChangeText={setAppointmentReason}
+                  placeholder="Reason for visit"
+                  placeholderTextColor={Palette.placeholder}
+                  multiline
+                  style={[styles.input, styles.textArea]}
+                />
+                <Text style={styles.label}>Preferred date</Text>
+                <View style={styles.choiceRow}>
+                  {[1, 3, 7].map((days) => (
+                    <Pressable
+                      key={days}
+                      onPress={() => setAppointmentDays(days)}
+                      style={[
+                        styles.choice,
+                        appointmentDays === days && styles.choiceActive,
+                      ]}
+                    >
+                      <Text style={styles.choiceText}>
+                        {days === 1 ? "Tomorrow" : "+" + days + " days"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={styles.preview}>
+                  {new Date(futureIso(appointmentDays)).toLocaleString()}
+                </Text>
+                <Pressable
+                  disabled={saving}
+                  onPress={() => void requestAppointment()}
+                  style={styles.primaryButton}
+                >
+                  {saving ? (
+                    <ActivityIndicator color={Palette.white} />
+                  ) : (
+                    <Text style={styles.primaryText}>Send request</Text>
+                  )}
+                </Pressable>
+              </View>
+
+              <View style={styles.sectionHeader}>
+                <CalendarIcon size={20} />
+                <Text style={styles.sectionTitle}>Appointments</Text>
+              </View>
+              <View style={styles.list}>
+                {appointments.map((appointment) => (
+                  <View key={appointment.id} style={styles.card}>
+                    <View style={styles.cardTop}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cardTitle}>
+                          {appointment.clinic.name}
+                        </Text>
+                        <Text style={styles.meta}>
+                          {appointment.petName} ·{" "}
+                          {new Date(
+                            appointment.appointmentDate,
+                          ).toLocaleString()}
+                        </Text>
+                      </View>
+                      <View
+                        style={[styles.status, statusTone(appointment.status)]}
+                      >
+                        <Text style={styles.statusText}>
+                          {appointment.status}
+                        </Text>
+                      </View>
+                    </View>
+                    {appointment.reason ? (
+                      <Text style={styles.notes}>{appointment.reason}</Text>
+                    ) : null}
+                    {appointment.status === "REQUESTED" ||
+                    appointment.status === "SCHEDULED" ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={saving}
+                        onPress={() => void cancel(appointment)}
+                        style={styles.secondaryButton}
+                      >
+                        <Text style={styles.secondaryText}>
+                          Cancel appointment
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))}
+                {appointments.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <Text style={styles.emptyTitle}>No appointments yet</Text>
+                  </View>
+                ) : null}
+              </View>
+            </>
+          ) : null}
+
+          {!loading && mode === "clinics" ? (
+            <>
+              <View style={styles.sectionHeader}>
+                <HealthIcon size={20} />
+                <Text style={styles.sectionTitle}>Active clinics</Text>
+              </View>
+              <View style={styles.list}>
+                {clinics.map((clinic) => (
+                  <View key={clinic.id} style={styles.card}>
+                    <Text style={styles.cardTitle}>{clinic.name}</Text>
+                    <Text style={styles.meta}>{clinic.address}</Text>
+                    {clinic.phone ? (
+                      <Text style={styles.clinicLine}>{clinic.phone}</Text>
+                    ) : null}
+                  </View>
+                ))}
+                {clinics.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <Text style={styles.emptyTitle}>
+                      No active clinics are available yet
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </>
+          ) : null}
         </ScrollView>
 
         <BottomNav active="home" />
@@ -261,276 +606,289 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Palette.cream,
-    borderWidth: 1,
-    borderColor: Palette.border,
-    borderRadius: 32,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    alignItems: "center",
   },
   safeArea: {
     flex: 1,
+    width: "100%",
     maxWidth: MaxContentWidth,
-    width: '100%',
   },
   content: {
-    flexGrow: 1,
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.five,
   },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  backButton: {
     marginTop: Spacing.two,
-  },
-  iconButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
+    backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  bellDot: {
-    position: 'absolute',
-    top: 10,
-    right: 11,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Palette.gold,
-    borderWidth: 1.5,
-    borderColor: Palette.surface,
-  },
-  category: {
+  eyebrow: {
+    marginTop: Spacing.four,
     fontFamily: Fonts.sans,
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.6,
-    color: Palette.forestDark,
-    marginTop: Spacing.five,
+    fontWeight: "800",
+    letterSpacing: 1.5,
+    color: Palette.inkMuted,
   },
   heading: {
+    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
     fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+    fontWeight: "800",
     color: Palette.forestDark,
-    marginTop: Spacing.one,
+  },
+  supporting: {
+    marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    lineHeight: 20,
+    color: Palette.inkMuted,
   },
   segment: {
-    flexDirection: 'row',
-    backgroundColor: Palette.goldTrack,
-    borderRadius: 999,
-    padding: 4,
+    flexDirection: "row",
     marginTop: Spacing.four,
+    padding: 4,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 14,
   },
   segmentItem: {
     flex: 1,
-    height: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    borderRadius: 999,
+    minHeight: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
   },
-  segmentItemActive: {
-    backgroundColor: Palette.forestDark,
-  },
-  segmentLabel: {
+  segmentItemActive: { backgroundColor: Palette.sage },
+  segmentText: {
     fontFamily: Fonts.sans,
-    fontSize: 13.5,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: Palette.inkMuted,
+  },
+  segmentTextActive: {
     color: Palette.forestDark,
+    fontWeight: "800",
   },
-  segmentLabelActive: {
-    color: Palette.white,
-  },
-  list: {
-    gap: Spacing.three,
-    marginTop: Spacing.four,
-  },
-  reminderCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    borderRadius: 16,
-    padding: Spacing.three,
-    minHeight: 88,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
-  },
-  reminderIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+  success: {
+    marginTop: Spacing.three,
+    padding: Spacing.two,
+    borderRadius: 10,
     backgroundColor: Palette.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reminderBody: {
-    flex: 1,
-    gap: 2,
-  },
-  reminderTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
-  reminderTitle: {
-    flexShrink: 1,
-    fontFamily: Fonts.sans,
-    fontSize: 14.5,
-    fontWeight: '800',
-    color: Palette.forestDark,
-  },
-  statusPill: {
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 3,
-  },
-  statusDue: {
-    backgroundColor: Palette.goldSoft,
-  },
-  statusUpcoming: {
-    backgroundColor: Palette.sage,
-  },
-  statusText: {
-    fontFamily: Fonts.sans,
-    fontSize: 10,
-    fontWeight: '700',
-    color: Palette.forestDark,
-  },
-  reminderPet: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Palette.forestDark,
-  },
-  reminderWhen: {
     fontFamily: Fonts.sans,
     fontSize: 12,
-    color: Palette.inkMuted,
+    color: Palette.forestDark,
   },
-  calendarCard: {
+  error: {
+    marginTop: Spacing.three,
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    color: Palette.danger,
+  },
+  loader: { marginTop: Spacing.five },
+  formCard: {
     marginTop: Spacing.four,
+    padding: Spacing.three,
+    borderRadius: 18,
     backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    borderRadius: 20,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    shadowColor: '#1B4332',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    gap: Spacing.two,
   },
-  calendarHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.one,
+  formHeader: {
+    flexDirection: "row",
+    gap: Spacing.two,
+    alignItems: "center",
   },
-  calendarNav: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  calendarMonth: {
+  formTitle: {
     fontFamily: Fonts.sans,
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 17,
+    fontWeight: "800",
     color: Palette.forestDark,
   },
-  calendarDivider: {
-    height: 1,
-    backgroundColor: Palette.borderSoft,
-    marginVertical: Spacing.three,
-  },
-  weekRow: {
-    flexDirection: 'row',
-  },
-  weekLabel: {
-    flex: 1,
-    textAlign: 'center',
+  label: {
+    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
-    fontSize: 11,
-    fontWeight: '700',
-    color: Palette.inkMuted,
-  },
-  dayGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: Spacing.two,
-  },
-  dayCell: {
-    width: `${100 / 7}%` as unknown as number,
-    aspectRatio: 1,
-    maxHeight: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayCircleDue: {
-    backgroundColor: Palette.gold,
-  },
-  dayCircleMarked: {
-    backgroundColor: Palette.goldTrack,
-  },
-  dayLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: "800",
     color: Palette.forestDark,
   },
-  dayLabelDue: {
-    fontWeight: '800',
+  choiceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.two,
   },
-  dayLabelMarked: {
-    fontWeight: '700',
-  },
-  calendarNavRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: Spacing.three,
-  },
-  calendarNavButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-    height: 40,
+  choice: {
+    minHeight: 34,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    backgroundColor: Palette.surface,
+    backgroundColor: Palette.cream,
     paddingHorizontal: Spacing.three,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: Spacing.one,
   },
-  calendarNavLabel: {
+  choiceActive: {
+    backgroundColor: Palette.sage,
+    borderColor: Palette.forestDark,
+  },
+  choiceText: {
     fontFamily: Fonts.sans,
-    fontSize: 12.5,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: "700",
     color: Palette.forestDark,
   },
-  pressed: {
-    opacity: 0.85,
+  input: {
+    minHeight: 44,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.cream,
+    paddingHorizontal: Spacing.three,
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    color: Palette.forestDark,
+  },
+  textArea: {
+    minHeight: 80,
+    paddingTop: Spacing.three,
+    textAlignVertical: "top",
+  },
+  primaryButton: {
+    minHeight: 46,
+    marginTop: Spacing.one,
+    borderRadius: 12,
+    backgroundColor: Palette.forestDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "800",
+    color: Palette.white,
+  },
+  preview: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+  },
+  sectionHeader: {
+    marginTop: Spacing.four,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
+  sectionTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 17,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  list: {
+    marginTop: Spacing.two,
+    gap: Spacing.two,
+  },
+  card: {
+    padding: Spacing.three,
+    borderRadius: 15,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+  },
+  cardTop: {
+    flexDirection: "row",
+    gap: Spacing.two,
+    justifyContent: "space-between",
+  },
+  cardTitle: {
+    flex: 1,
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  meta: {
+    marginTop: 3,
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    lineHeight: 17,
+    color: Palette.inkMuted,
+  },
+  notes: {
+    marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    lineHeight: 18,
+    color: Palette.forestDark,
+  },
+  clinicLine: {
+    marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: Palette.forestDark,
+  },
+  typeBadge: {
+    fontFamily: Fonts.sans,
+    fontSize: 9,
+    fontWeight: "800",
+    color: Palette.forestDark,
+    backgroundColor: Palette.sage,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+  },
+  status: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+  },
+  statusRequested: { backgroundColor: Palette.goldSoft },
+  statusScheduled: { backgroundColor: Palette.sage },
+  statusMuted: { backgroundColor: Palette.segmentTrack },
+  statusText: {
+    fontFamily: Fonts.sans,
+    fontSize: 9,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  secondaryButton: {
+    marginTop: Spacing.three,
+    minHeight: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryText: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  emptyCard: {
+    padding: Spacing.four,
+    borderRadius: 16,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+  },
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
   },
 });
