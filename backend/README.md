@@ -2,7 +2,7 @@
 
 The backend foundation supports email/password owner registration, profile
 updates, session validation, operator-provisioned clinic accounts, account
-disabling, and local media uploads. It uses **Firebase Authentication** for identity
+disabling, pet profile creation, listing, and updates, and local media uploads. It uses **Firebase Authentication** for identity
 and **MySQL Server** for relational data persistence.
 
 ```text
