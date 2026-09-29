@@ -362,7 +362,12 @@ test("authenticated owner can update their own pet", async () => {
   );
   assert.equal(rows[0].name, "Buddy Jr");
   assert.equal(rows[0].breed, "Beagle");
-  assert.equal(String(rows[0].birth_date), "2021-02-03");
+  assert.equal(
+    rows[0].birth_date instanceof Date
+      ? rows[0].birth_date.toISOString().slice(0, 10)
+      : String(rows[0].birth_date),
+    "2021-02-03",
+  );
   assert.equal(rows[0].photo_url, "/uploads/x.jpg");
 });
 
