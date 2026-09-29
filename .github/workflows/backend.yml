@@ -37,6 +37,7 @@ jobs:
       - run: npm run check:backend
       - run: npm run test:backend
         env:
+          NODE_ENV: "test"
           MYSQL_HOST: "127.0.0.1"
           MYSQL_USER: "root"
           MYSQL_PASSWORD: "root"
