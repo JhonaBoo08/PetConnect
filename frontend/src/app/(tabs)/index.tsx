@@ -50,6 +50,7 @@ export default function WelcomeScreen() {
 
           <Pressable
             accessibilityRole="button"
+            onPress={() => router.push('/scan')}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
             <FinderIcon size={20} />
             <Text style={styles.secondaryLabel}>I found a pet</Text>

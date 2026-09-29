@@ -1,6 +1,7 @@
-import { Image } from 'expo-image';
-import { type ReactNode, useState } from 'react';
+import { Image } from "expo-image";
+import { type ReactNode, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,16 +10,21 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
-import { Palette } from '@/constants/palette';
+import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
+import { Palette } from "@/constants/palette";
+import { authErrorMessage } from "@/services/auth-context";
 
-export type AccountType = 'owner' | 'vet';
-
-function BackArrow({ size = 22, color = Palette.forestDark }: { size?: number; color?: string }) {
+function BackArrow({
+  size = 22,
+  color = Palette.forestDark,
+}: {
+  size?: number;
+  color?: string;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path
@@ -32,7 +38,13 @@ function BackArrow({ size = 22, color = Palette.forestDark }: { size?: number; c
   );
 }
 
-function PawIcon({ size = 16, color = Palette.forestDark }: { size?: number; color?: string }) {
+function PawIcon({
+  size = 16,
+  color = Palette.forestDark,
+}: {
+  size?: number;
+  color?: string;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Circle cx={7} cy={8.5} r={2.4} />
@@ -43,34 +55,17 @@ function PawIcon({ size = 16, color = Palette.forestDark }: { size?: number; col
   );
 }
 
-function VetIcon({ size = 16, color = Palette.forestDark }: { size?: number; color?: string }) {
+function VetIcon({
+  size = 16,
+  color = Palette.forestDark,
+}: {
+  size?: number;
+  color?: string;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Rect x={10} y={3.5} width={4} height={17} rx={1.6} />
       <Rect x={3.5} y={10} width={17} height={4} rx={1.6} />
-    </Svg>
-  );
-}
-
-function GoogleIcon({ size = 18 }: { size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 48 48">
-      <Path
-        fill="#FFC107"
-        d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
-      />
-      <Path
-        fill="#FF3D00"
-        d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"
-      />
-      <Path
-        fill="#4CAF50"
-        d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"
-      />
-      <Path
-        fill="#1976D2"
-        d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C40.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
-      />
     </Svg>
   );
 }
@@ -82,153 +77,367 @@ export function AuthFooter({
 }: {
   text: string;
   linkLabel: string;
-  onPress: () => void;
+  onPress: () => void | Promise<void>;
 }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  async function handlePress() {
+    if (pending) return;
+    setPending(true);
+    setError("");
+    try {
+      await onPress();
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setPending(false);
+    }
+  }
   return (
-    <View style={styles.footerRow}>
-      <Text style={styles.footerText}>{text}</Text>
-      <Pressable accessibilityRole="link" onPress={onPress}>
-        <Text style={styles.footerLink}>{linkLabel}</Text>
-      </Pressable>
+    <View>
+      <View style={styles.footerRow}>
+        <Text style={styles.footerText}>{text}</Text>
+        <Pressable
+          accessibilityRole="link"
+          disabled={pending}
+          onPress={() => void handlePress()}
+        >
+          <Text style={styles.footerLink}>{linkLabel}</Text>
+        </Pressable>
+      </View>
+      {error ? (
+        <Text accessibilityRole="alert" style={styles.message}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
+export type AccountType = "owner" | "vet";
+export type AuthValues = {
+  accountType: AccountType;
+  email: string;
+  password: string;
+  displayName: string;
+};
+
 type AuthScreenProps = {
+  mode: "signIn" | "signUp" | "reset";
   title: string;
   subtitle: string;
   submitLabel: string;
+  existingEmail?: string;
   clinicNote?: string;
   footer: ReactNode;
-  onBack: () => void;
-  onSubmit: () => void;
+  onBack: () => void | Promise<void>;
+  onForgotPassword?: () => void;
+  onSubmit: (values: AuthValues) => Promise<void | string>;
 };
 
 export function AuthScreen({
+  mode,
   title,
   subtitle,
   submitLabel,
+  existingEmail,
   clinicNote,
   footer,
   onBack,
+  onForgotPassword,
   onSubmit,
 }: AuthScreenProps) {
-  const [accountType, setAccountType] = useState<AccountType>('owner');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [accountType, setAccountType] = useState<AccountType>("owner");
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState(existingEmail || "");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const completing = mode === "signUp" && !!existingEmail;
+  const clinicSignup = mode === "signUp" && accountType === "vet";
+
+  async function submit() {
+    if (pending || clinicSignup) return;
+    setError("");
+    setSuccess("");
+    const address = (existingEmail || email).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+    if (
+      mode === "signUp" &&
+      (displayName.trim().length < 2 || displayName.trim().length > 80)
+    ) {
+      setError("Your name must be between 2 and 80 characters.");
+      return;
+    }
+    if (mode !== "reset" && !completing && password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (mode === "signUp" && !completing && password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setPending(true);
+    try {
+      const result = await onSubmit({
+        accountType,
+        displayName: displayName.trim(),
+        email: address,
+        password,
+      });
+      if (result) setSuccess(result);
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.flex}>
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.flex}
+        >
           <ScrollView
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled">
+            keyboardShouldPersistTaps="handled"
+          >
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
               hitSlop={10}
-              onPress={onBack}
-              style={styles.backButton}>
+              onPress={() =>
+                void Promise.resolve(onBack()).catch((cause) =>
+                  setError(authErrorMessage(cause)),
+                )
+              }
+              style={styles.backButton}
+            >
               <BackArrow />
             </Pressable>
 
             <View style={styles.brandRow}>
               <View style={styles.brandMark}>
                 <Image
-                  source={require('@/assets/images/logo.png')}
+                  source={require("@/assets/images/logo.png")}
                   style={styles.brandMarkImage}
                   contentFit="contain"
                 />
               </View>
               <View>
                 <Text style={styles.brandName}>Pet-Connect</Text>
-                <Text style={styles.brandTagline}>SCAN · PROTECT · RECONNECT</Text>
+                <Text style={styles.brandTagline}>
+                  SCAN · PROTECT · RECONNECT
+                </Text>
               </View>
             </View>
 
             <View style={styles.heading}>
-              <Text style={styles.title}>{title}</Text>
-              <Text style={styles.subtitle}>{subtitle}</Text>
+              <Text style={styles.title}>
+                {completing ? "Finish your account" : title}
+              </Text>
+              <Text style={styles.subtitle}>
+                {completing
+                  ? "Your email is registered. Add your name to complete setup."
+                  : subtitle}
+              </Text>
             </View>
 
-            <View style={styles.segment}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: accountType === 'owner' }}
-                onPress={() => setAccountType('owner')}
-                style={[styles.segmentItem, accountType === 'owner' && styles.segmentItemActive]}>
-                <PawIcon color={accountType === 'owner' ? '#FFFFFF' : Palette.forestDark} />
-                <Text
+            {mode !== "reset" && !completing ? (
+              <View style={styles.segment}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: accountType === "owner" }}
+                  onPress={() => {
+                    setAccountType("owner");
+                    setError("");
+                  }}
                   style={[
-                    styles.segmentLabel,
-                    accountType === 'owner' && styles.segmentLabelActive,
-                  ]}>
-                  Pet Owner
-                </Text>
-              </Pressable>
-
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: accountType === 'vet' }}
-                onPress={() => setAccountType('vet')}
-                style={[styles.segmentItem, accountType === 'vet' && styles.segmentItemActive]}>
-                <VetIcon color={accountType === 'vet' ? '#FFFFFF' : Palette.forestDark} />
-                <Text
-                  style={[styles.segmentLabel, accountType === 'vet' && styles.segmentLabelActive]}>
-                  Vet Clinic
-                </Text>
-              </Pressable>
-            </View>
-
-            {clinicNote && accountType === 'vet' ? (
-              <Text style={styles.clinicNote}>{clinicNote}</Text>
+                    styles.segmentItem,
+                    accountType === "owner" && styles.segmentItemActive,
+                  ]}
+                >
+                  <PawIcon
+                    color={
+                      accountType === "owner" ? "#FFFFFF" : Palette.forestDark
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.segmentLabel,
+                      accountType === "owner" && styles.segmentLabelActive,
+                    ]}
+                  >
+                    Pet Owner
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: accountType === "vet" }}
+                  onPress={() => {
+                    setAccountType("vet");
+                    setError("");
+                  }}
+                  style={[
+                    styles.segmentItem,
+                    accountType === "vet" && styles.segmentItemActive,
+                  ]}
+                >
+                  <VetIcon
+                    color={
+                      accountType === "vet" ? "#FFFFFF" : Palette.forestDark
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.segmentLabel,
+                      accountType === "vet" && styles.segmentLabelActive,
+                    ]}
+                  >
+                    Vet Clinic
+                  </Text>
+                </Pressable>
+              </View>
             ) : null}
 
-            <View style={styles.form}>
-              <View style={styles.field}>
-                <Text style={styles.label}>Email address</Text>
-                <TextInput
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="you@example.com"
-                  placeholderTextColor={Palette.placeholder}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={styles.input}
-                />
-              </View>
+            {clinicSignup ? (
+              <Text style={styles.clinicNote}>
+                {clinicNote ||
+                  "Clinic accounts are set up by the Pet-Connect team. If you have credentials, sign in as Vet Clinic."}
+              </Text>
+            ) : (
+              <>
+                <View style={styles.form}>
+                  {mode === "signUp" ? (
+                    <View style={styles.field}>
+                      <Text style={styles.label}>Full name</Text>
+                      <TextInput
+                        accessibilityLabel="Full name"
+                        value={displayName}
+                        onChangeText={(value) => {
+                          setDisplayName(value);
+                          setError("");
+                        }}
+                        placeholder="Your name"
+                        placeholderTextColor={Palette.placeholder}
+                        autoComplete="name"
+                        style={styles.input}
+                      />
+                    </View>
+                  ) : null}
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Email address</Text>
+                    <TextInput
+                      accessibilityLabel="Email address"
+                      value={existingEmail || email}
+                      onChangeText={(value) => {
+                        setEmail(value);
+                        setError("");
+                      }}
+                      editable={!completing && !pending}
+                      placeholder="you@example.com"
+                      placeholderTextColor={Palette.placeholder}
+                      keyboardType="email-address"
+                      autoComplete="email"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={styles.input}
+                    />
+                  </View>
+                  {mode !== "reset" && !completing ? (
+                    <View style={styles.field}>
+                      <Text style={styles.label}>Password</Text>
+                      <TextInput
+                        accessibilityLabel="Password"
+                        value={password}
+                        onChangeText={(value) => {
+                          setPassword(value);
+                          setError("");
+                        }}
+                        placeholder="At least 6 characters"
+                        placeholderTextColor={Palette.placeholder}
+                        secureTextEntry
+                        autoComplete={
+                          mode === "signUp"
+                            ? "new-password"
+                            : "current-password"
+                        }
+                        style={styles.input}
+                      />
+                    </View>
+                  ) : null}
+                  {mode === "signUp" && !completing ? (
+                    <View style={styles.field}>
+                      <Text style={styles.label}>Confirm password</Text>
+                      <TextInput
+                        accessibilityLabel="Confirm password"
+                        value={confirmPassword}
+                        onChangeText={(value) => {
+                          setConfirmPassword(value);
+                          setError("");
+                        }}
+                        placeholder="Repeat your password"
+                        placeholderTextColor={Palette.placeholder}
+                        secureTextEntry
+                        autoComplete="new-password"
+                        style={styles.input}
+                      />
+                    </View>
+                  ) : null}
+                </View>
 
-              <View style={styles.field}>
-                <Text style={styles.label}>Password</Text>
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="At least 6 characters"
-                  placeholderTextColor={Palette.placeholder}
-                  secureTextEntry
-                  style={styles.input}
-                />
-              </View>
-            </View>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={onSubmit}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-              <Text style={styles.primaryLabel}>{submitLabel}</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.googleButton, pressed && styles.pressed]}>
-              <GoogleIcon />
-              <Text style={styles.googleLabel}>Continue with Google</Text>
-            </Pressable>
+                {mode === "signIn" && onForgotPassword ? (
+                  <Pressable
+                    accessibilityRole="link"
+                    onPress={onForgotPassword}
+                    style={styles.inlineLink}
+                  >
+                    <Text style={styles.inlineLinkText}>Forgot password?</Text>
+                  </Pressable>
+                ) : null}
+                {error ? (
+                  <Text accessibilityRole="alert" style={styles.message}>
+                    {error}
+                  </Text>
+                ) : null}
+                {success ? (
+                  <Text
+                    accessibilityRole="alert"
+                    style={[styles.message, styles.success]}
+                  >
+                    {success}
+                  </Text>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: pending }}
+                  disabled={pending}
+                  onPress={() => void submit()}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    pending && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {pending ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.primaryLabel}>
+                      {completing ? "Finish Account" : submitLabel}
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            )}
 
             {footer}
           </ScrollView>
@@ -248,14 +457,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.border,
     borderRadius: 32,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    overflow: "hidden",
+    flexDirection: "row",
+    justifyContent: "center",
   },
   safeArea: {
     flex: 1,
     maxWidth: MaxContentWidth,
-    width: '100%',
+    width: "100%",
   },
   content: {
     flexGrow: 1,
@@ -266,14 +475,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: Spacing.two,
     marginLeft: -Spacing.two,
   },
   brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.three,
     marginTop: Spacing.three,
   },
@@ -281,27 +490,27 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   brandMarkImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
     borderRadius: 22,
   },
   brandName: {
     fontFamily: Fonts.sans,
     fontSize: 19,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
     letterSpacing: -0.3,
   },
   brandTagline: {
     fontFamily: Fonts.sans,
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.inkMuted,
     letterSpacing: 1.2,
     marginTop: 2,
@@ -314,7 +523,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 29,
     lineHeight: 36,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
     letterSpacing: -0.5,
   },
@@ -322,11 +531,11 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: '400',
+    fontWeight: "400",
     color: Palette.inkMuted,
   },
   segment: {
-    flexDirection: 'row',
+    flexDirection: "row",
     backgroundColor: Palette.segmentTrack,
     borderRadius: 999,
     padding: 4,
@@ -337,9 +546,9 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 40,
     borderRadius: 999,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: Spacing.two,
   },
   segmentItemActive: {
@@ -348,11 +557,11 @@ const styles = StyleSheet.create({
   segmentLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.forestDark,
   },
   segmentLabelActive: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
   },
   clinicNote: {
     fontFamily: Fonts.sans,
@@ -371,7 +580,7 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.forestDark,
   },
   input: {
@@ -389,10 +598,10 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 22,
     backgroundColor: Palette.forestDark,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: Spacing.five,
-    shadowColor: '#1B4332',
+    shadowColor: "#1B4332",
     shadowOpacity: 0.25,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -401,8 +610,8 @@ const styles = StyleSheet.create({
   primaryLabel: {
     fontFamily: Fonts.sans,
     fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   googleButton: {
     height: 48,
@@ -410,22 +619,22 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
     gap: Spacing.two,
     marginTop: Spacing.three,
   },
   googleLabel: {
     fontFamily: Fonts.sans,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.forestDark,
   },
   footerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: Spacing.four,
   },
   footerText: {
@@ -436,8 +645,31 @@ const styles = StyleSheet.create({
   footerLink: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Palette.forestDark,
+  },
+  inlineLink: {
+    alignSelf: "flex-end",
+    marginTop: Spacing.two,
+  },
+  inlineLinkText: {
+    color: Palette.forestDark,
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  message: {
+    marginTop: Spacing.three,
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#9E342C",
+  },
+  success: {
+    color: Palette.forestDark,
+  },
+  disabled: {
+    opacity: 0.6,
   },
   pressed: {
     opacity: 0.85,
