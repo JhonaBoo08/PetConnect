@@ -1,14 +1,15 @@
-import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import path from "path";
-import fs from "fs";
-import multer from "multer";
 import { randomUUID } from "crypto";
 import dotenv from "dotenv";
-import { initializeApp, getApps, App } from "firebase-admin/app";
-import { getAuth, DecodedIdToken } from "firebase-admin/auth";
-import { createPool } from "./db.js";
+import express, { NextFunction, Request, Response } from "express";
+import { App, getApps, initializeApp } from "firebase-admin/app";
+import { DecodedIdToken, getAuth } from "firebase-admin/auth";
+import fs from "fs";
+import multer from "multer";
+import path from "path";
 import { Accounts } from "./accounts.js";
+import { createPool } from "./db.js";
+import { parsePet, Pets } from "./pets.js";
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ if (getApps().length === 0) {
 const auth = getAuth(adminApp);
 export const pool = createPool();
 export const accounts = new Accounts(auth, pool);
+export const pets = new Pets(pool);
 
 export const app = express();
 
@@ -163,6 +165,45 @@ app.patch(
       const message =
         err instanceof Error ? err.message : "Update profile failed";
       res.status(400).json({ error: "invalid-argument", message });
+    }
+  },
+);
+
+app.post(
+  "/v1/pets",
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    // parsePet errors describe the request body, so they map to 400;
+    // everything after validation is a database/server concern and maps to 500.
+    try {
+      parsePet(req.body);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Invalid pet input";
+      return res.status(400).json({ error: "invalid-argument", message });
+    }
+    try {
+      const pet = await pets.create(req.user!.uid, req.body);
+      res.status(201).json(pet);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to create pet";
+      res.status(500).json({ error: "internal", message });
+    }
+  },
+);
+
+app.get(
+  "/v1/pets",
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const list = await pets.list(req.user!.uid);
+      res.json(list);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to list pets";
+      res.status(500).json({ error: "internal", message });
     }
   },
 );
