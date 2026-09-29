@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { Pool, RowDataPacket } from "mysql2/promise";
+import { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { PetInput, Pet } from "../../../shared/contracts.js";
 
 export function parsePet(input: unknown): PetInput {
@@ -159,6 +159,49 @@ export class Pets {
     );
 
     return rows.map((row) => this.toPet(row));
+  }
+
+  async update(ownerId: string, petId: string, input: PetInput): Promise<Pet> {
+    const pet = parsePet(input);
+
+    // Owner scope in the WHERE clause makes a foreign pet indistinguishable
+    // from a missing one: both affect zero rows.
+    const [result] = await this.pool.query<ResultSetHeader>(
+      `UPDATE pets
+       SET name = ?, species = ?, breed = ?, birth_date = ?, photo_url = ?
+       WHERE id = ? AND owner_id = ?`,
+      [
+        pet.name,
+        pet.species,
+        pet.breed ?? null,
+        pet.birthDate ?? null,
+        pet.photoUrl ?? null,
+        petId,
+        ownerId,
+      ],
+    );
+
+    if (result.affectedRows === 0) {
+      throw new Error("Pet not found");
+    }
+
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT
+        id,
+        owner_id,
+        name,
+        species,
+        breed,
+        birth_date,
+        photo_url,
+        created_at,
+        updated_at
+       FROM pets
+       WHERE id = ? AND owner_id = ?`,
+      [petId, ownerId],
+    );
+
+    return this.toPet(rows[0]);
   }
 
   private toPet(row: RowDataPacket): Pet {

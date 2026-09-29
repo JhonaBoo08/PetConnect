@@ -314,3 +314,146 @@ test("GET /v1/pets returns only the authenticated owner's pets", async () => {
   assert.equal(listB.body[0].name, "Rex");
   assert.equal(listB.body[0].ownerId, ownerB.uid);
 });
+
+test("PATCH /v1/pets/:petId requires authentication", async () => {
+  const res = await request(app)
+    .patch("/v1/pets/some-pet-id")
+    .send({ name: "Buddy", species: "Dog" });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.error, "unauthenticated");
+});
+
+test("authenticated owner can update their own pet", async () => {
+  const { uid, token } = await createOwnerAuth(
+    "pet-update",
+    "pet-update@example.test",
+  );
+  const created = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ name: "Buddy", species: "Dog", birthDate: "2020-01-01" });
+  assert.equal(created.status, 201);
+  const petId = created.body.id;
+
+  const res = await request(app)
+    .patch(`/v1/pets/${petId}`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      name: "Buddy Jr",
+      species: "Dog",
+      breed: "Beagle",
+      birthDate: "2021-02-03",
+      photoUrl: "/uploads/x.jpg",
+    });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.id, petId);
+  assert.equal(res.body.ownerId, uid);
+  assert.equal(res.body.name, "Buddy Jr");
+  assert.equal(res.body.species, "Dog");
+  assert.equal(res.body.breed, "Beagle");
+  assert.equal(res.body.birthDate, "2021-02-03");
+  assert.equal(res.body.photoUrl, "/uploads/x.jpg");
+  assert.ok(res.body.updatedAt >= created.body.createdAt);
+
+  // Persistence check directly against the database.
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT name, breed, birth_date, photo_url FROM pets WHERE id = ?",
+    [petId],
+  );
+  assert.equal(rows[0].name, "Buddy Jr");
+  assert.equal(rows[0].breed, "Beagle");
+  assert.equal(String(rows[0].birth_date), "2021-02-03");
+  assert.equal(rows[0].photo_url, "/uploads/x.jpg");
+});
+
+test("PATCH /v1/pets/:petId rejects invalid and unexpected input", async () => {
+  const { token } = await createOwnerAuth(
+    "pet-update-invalid",
+    "pet-update-invalid@example.test",
+  );
+  const created = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ name: "Buddy", species: "Dog" });
+  assert.equal(created.status, 201);
+  const petId = created.body.id;
+
+  const patch = (body: Record<string, unknown>) =>
+    request(app)
+      .patch(`/v1/pets/${petId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send(body);
+
+  const missingName = await patch({ species: "Dog" });
+  assert.equal(missingName.status, 400);
+  assert.equal(missingName.body.error, "invalid-argument");
+
+  const missingSpecies = await patch({ name: "Buddy" });
+  assert.equal(missingSpecies.status, 400);
+
+  const badDate = await patch({
+    name: "Buddy",
+    species: "Dog",
+    birthDate: "01-01-2020",
+  });
+  assert.equal(badDate.status, 400);
+
+  const unexpected = await patch({
+    name: "Buddy",
+    species: "Dog",
+    ownerId: "someone-else",
+  });
+  assert.equal(unexpected.status, 400);
+  assert.equal(unexpected.body.error, "invalid-argument");
+
+  // Rejected updates leave the pet unchanged.
+  const unchanged = await request(app)
+    .get("/v1/pets")
+    .set("Authorization", `Bearer ${token}`);
+  assert.equal(unchanged.body[0].name, "Buddy");
+  assert.equal(unchanged.body[0].breed, undefined);
+});
+
+test("owner cannot update another owner's pet", async () => {
+  const ownerA = await createOwnerAuth(
+    "pet-update-a",
+    "pet-update-a@example.test",
+  );
+  const ownerB = await createOwnerAuth(
+    "pet-update-b",
+    "pet-update-b@example.test",
+  );
+
+  const createdB = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${ownerB.token}`)
+    .send({ name: "Rex", species: "Dog" });
+  assert.equal(createdB.status, 201);
+  const rexBid = createdB.body.id;
+
+  const hijack = await request(app)
+    .patch(`/v1/pets/${rexBid}`)
+    .set("Authorization", `Bearer ${ownerA.token}`)
+    .send({ name: "Stolen", species: "Dog" });
+  assert.equal(hijack.status, 404);
+  assert.equal(hijack.body.error, "not-found");
+
+  // The foreign pet is untouched.
+  const listB = await request(app)
+    .get("/v1/pets")
+    .set("Authorization", `Bearer ${ownerB.token}`);
+  assert.equal(listB.body[0].name, "Rex");
+
+  // And owner A's own pet still updates normally afterwards.
+  const createdA = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${ownerA.token}`)
+    .send({ name: "Buddy", species: "Dog" });
+  assert.equal(createdA.status, 201);
+  const ownUpdate = await request(app)
+    .patch(`/v1/pets/${createdA.body.id}`)
+    .set("Authorization", `Bearer ${ownerA.token}`)
+    .send({ name: "Buddy Jr", species: "Dog" });
+  assert.equal(ownUpdate.status, 200);
+  assert.equal(ownUpdate.body.name, "Buddy Jr");
+});
