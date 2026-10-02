@@ -24,6 +24,7 @@ export default function CreateAccountScreen() {
       onSubmit={async ({ email, password, displayName }) => {
         if (existingEmail) await finishRegistration({ displayName });
         else await signUp(email, password, { displayName });
+        router.replace("/dashboard");
       }}
       footer={
         <AuthFooter
