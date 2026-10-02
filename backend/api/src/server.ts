@@ -663,8 +663,15 @@ app.get(
   petRoute(async (req, res) => {
     const petId =
       typeof req.query.petId === "string" ? req.query.petId : undefined;
+    const range =
+      req.query.from === undefined && req.query.to === undefined
+        ? undefined
+        : {
+            from: typeof req.query.from === "string" ? req.query.from : "",
+            to: typeof req.query.to === "string" ? req.query.to : "",
+          };
     res.json({
-      reminders: await healthClinic.ownerReminders(req.user!.uid, petId),
+      reminders: await healthClinic.ownerReminders(req.user!.uid, petId, range),
     });
   }),
 );
@@ -724,8 +731,15 @@ app.get(
   requireAuth,
   requireOwner,
   petRoute(async (req, res) => {
+    const range =
+      req.query.from === undefined && req.query.to === undefined
+        ? undefined
+        : {
+            from: typeof req.query.from === "string" ? req.query.from : "",
+            to: typeof req.query.to === "string" ? req.query.to : "",
+          };
     res.json({
-      appointments: await healthClinic.ownerAppointments(req.user!.uid),
+      appointments: await healthClinic.ownerAppointments(req.user!.uid, range),
     });
   }),
 );
