@@ -3,6 +3,7 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
 import type {
   Appointment,
   AppointmentInput,
+  CareCalendarRange,
   ClinicAppointmentInput,
   ClinicAppointmentUpdate,
   ClinicPatient,
@@ -292,6 +293,21 @@ function reminderNotifyAt(dueAt: Date, notifyAt?: unknown): Date {
   return new Date(Math.max(Date.now(), dueAt.getTime() - 24 * 60 * 60 * 1000));
 }
 
+function calendarBounds(range?: CareCalendarRange) {
+  if (!range) return null;
+  const from = parseDate(range.from, "calendar start");
+  const to = parseDate(range.to, "calendar end");
+  if (
+    to.getTime() <= from.getTime() ||
+    to.getTime() - from.getTime() > 62 * 86400000
+  ) {
+    throw new HealthClinicValidationError(
+      "Calendar range must end after its start and span at most 62 days.",
+    );
+  }
+  return { from: sqlDate(from), to: sqlDate(to) };
+}
+
 export class HealthClinic {
   constructor(
     private pool: Pool,
@@ -549,6 +565,7 @@ export class HealthClinic {
   async ownerReminders(
     ownerId: string,
     petId?: string,
+    range?: CareCalendarRange,
   ): Promise<HealthReminder[]> {
     const params: string[] = [ownerId];
     let where = " WHERE r.owner_id = ?";
@@ -556,10 +573,16 @@ export class HealthClinic {
       where += " AND r.pet_id = ?";
       params.push(petId);
     }
+    const bounds = calendarBounds(range);
+    if (bounds) {
+      where += " AND r.due_at >= ? AND r.due_at < ?";
+      params.push(bounds.from, bounds.to);
+    }
     const [rows] = await this.pool.query<ReminderRow[]>(
       reminderSelect +
         where +
-        " ORDER BY FIELD(r.status, 'PENDING', 'COMPLETED', 'CANCELLED'), r.due_at ASC LIMIT 250",
+        " ORDER BY FIELD(r.status, 'PENDING', 'COMPLETED', 'CANCELLED'), r.due_at ASC" +
+        (bounds ? "" : " LIMIT 250"),
       params,
     );
     return rows.map(mapReminder);
@@ -666,11 +689,23 @@ export class HealthClinic {
     return affected > 0;
   }
 
-  async ownerAppointments(ownerId: string): Promise<Appointment[]> {
+  async ownerAppointments(
+    ownerId: string,
+    range?: CareCalendarRange,
+  ): Promise<Appointment[]> {
+    const bounds = calendarBounds(range);
+    const params: string[] = [ownerId];
+    let where = " WHERE a.owner_id = ?";
+    if (bounds) {
+      where += " AND a.appointment_date >= ? AND a.appointment_date < ?";
+      params.push(bounds.from, bounds.to);
+    }
     const [rows] = await this.pool.query<AppointmentRow[]>(
       appointmentSelect +
-        " WHERE a.owner_id = ? ORDER BY a.appointment_date DESC LIMIT 250",
-      [ownerId],
+        where +
+        " ORDER BY a.appointment_date DESC" +
+        (bounds ? "" : " LIMIT 250"),
+      params,
     );
     return rows.map(mapAppointment);
   }
