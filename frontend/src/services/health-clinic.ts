@@ -1,6 +1,7 @@
 import type {
   Appointment,
   AppointmentInput,
+  CareCalendarRange,
   ClinicAppointmentInput,
   ClinicAppointmentUpdate,
   ClinicPatient,
@@ -30,10 +31,23 @@ export async function listHealthRecords(
   ).records;
 }
 
+function careQuery(range?: CareCalendarRange, petId?: string): string {
+  const parts: string[] = [];
+  if (petId) parts.push("petId=" + encodeURIComponent(petId));
+  if (range) {
+    parts.push(
+      "from=" + encodeURIComponent(range.from),
+      "to=" + encodeURIComponent(range.to),
+    );
+  }
+  return parts.length ? "?" + parts.join("&") : "";
+}
+
 export async function listHealthReminders(
   petId?: string,
+  range?: CareCalendarRange,
 ): Promise<HealthReminder[]> {
-  const query = petId ? `?petId=${encodeURIComponent(petId)}` : "";
+  const query = careQuery(range, petId);
   return (
     await authenticatedFetch<{ reminders: HealthReminder[] }>(
       `/v1/reminders${query}`,
@@ -61,10 +75,12 @@ export const deleteHealthReminder = (id: string) =>
     method: "DELETE",
   });
 
-export async function listAppointments(): Promise<Appointment[]> {
+export async function listAppointments(
+  range?: CareCalendarRange,
+): Promise<Appointment[]> {
   return (
     await authenticatedFetch<{ appointments: Appointment[] }>(
-      "/v1/appointments",
+      "/v1/appointments" + careQuery(range),
     )
   ).appointments;
 }
