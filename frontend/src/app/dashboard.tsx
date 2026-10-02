@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -15,48 +15,21 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   BellIcon,
   CalendarIcon,
-  ChevronRightIcon,
   HealthIcon,
-  PawIcon,
   PlusIcon,
   PinIcon,
   QrIcon,
 } from "@/components/app-icons";
 import { BottomNav } from "@/components/bottom-nav";
+import {
+  OwnerCareCalendar,
+  type CareCalendarHandle,
+} from "@/components/owner-care-calendar";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { authErrorMessage, useAuth } from "@/services/auth-context";
-import { listPets, petPhotoUri } from "@/services/pets";
+import { listPets } from "@/services/pets";
 import type { Pet } from "../../../shared/contracts";
-
-function PetCard({ pet, onPress }: { pet: Pet; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.petCard, pressed && styles.pressed]}
-    >
-      <View style={styles.petPhoto}>
-        {pet.photoUrl ? (
-          <Image
-            source={{ uri: petPhotoUri(pet.photoUrl)! }}
-            style={styles.petPhoto}
-            contentFit="cover"
-          />
-        ) : (
-          <PawIcon size={30} color={Palette.forestDark} />
-        )}
-      </View>
-      <View style={styles.petInfo}>
-        <Text style={styles.petName}>{pet.name}</Text>
-        <Text style={styles.petDetails}>
-          {[pet.breed || pet.species, pet.ageLabel].filter(Boolean).join(" · ")}
-        </Text>
-      </View>
-      <ChevronRightIcon />
-    </Pressable>
-  );
-}
 
 function QuickCareCard({
   icon,
@@ -120,6 +93,7 @@ export default function DashboardScreen() {
       ? state.session.displayName.split(" ")[0]
       : "there";
   const router = useRouter();
+  const calendarRef = useRef<CareCalendarHandle>(null);
   const addGlow = useState(() => new Animated.Value(0))[0];
   const [pets, setPets] = useState<Pet[]>([]);
   const [loadingPets, setLoadingPets] = useState(true);
@@ -196,10 +170,27 @@ export default function DashboardScreen() {
             {greeting}, {firstName}!
           </Text>
 
-          <View style={styles.sectionRow}>
-            <Text style={styles.sectionTitle}>
-              Your pets{!loadingPets && !petsError ? ` (${pets.length})` : ""}
+          {petsError ? (
+            <Text accessibilityRole="alert" style={styles.petDetails}>
+              {petsError}
             </Text>
+          ) : null}
+          {petsError ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setRetryKey((key) => key + 1)}
+            >
+              <Text style={styles.addPetLabel}>Retry loading pets</Text>
+            </Pressable>
+          ) : null}
+          <OwnerCareCalendar
+            ref={calendarRef}
+            pets={pets}
+            loadingPets={loadingPets}
+          />
+
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionTitle}>Quick care</Text>
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push("/add-pet")}
@@ -215,44 +206,6 @@ export default function DashboardScreen() {
               <Text style={styles.addPetLabel}>Add pet</Text>
             </Pressable>
           </View>
-
-          <View style={styles.petList}>
-            {loadingPets ? (
-              <ActivityIndicator color={Palette.forestDark} />
-            ) : null}
-            {petsError ? (
-              <View>
-                <Text accessibilityRole="alert" style={styles.petDetails}>
-                  {petsError}
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setRetryKey((key) => key + 1)}
-                >
-                  <Text style={styles.addPetLabel}>Retry loading pets</Text>
-                </Pressable>
-              </View>
-            ) : null}
-            {!loadingPets && !petsError && pets.length === 0 ? (
-              <Text style={styles.petDetails}>
-                No pets yet. Add your first pet to get started.
-              </Text>
-            ) : null}
-            {!petsError &&
-              pets.map((pet) => (
-                <PetCard
-                  key={pet.id}
-                  pet={pet}
-                  onPress={() =>
-                    router.push({ pathname: "/pet-id", params: { id: pet.id } })
-                  }
-                />
-              ))}
-          </View>
-
-          <Text style={[styles.sectionTitle, styles.sectionSpacing]}>
-            Quick care
-          </Text>
           <View style={styles.quickRow}>
             <QuickCareCard
               icon={<QrIcon />}
@@ -275,7 +228,7 @@ export default function DashboardScreen() {
             <QuickCareCard
               icon={<CalendarIcon />}
               label="Reminders"
-              onPress={() => router.push("/health-reminders")}
+              onPress={() => calendarRef.current?.addReminder()}
             />
           </View>
 
@@ -300,7 +253,7 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Palette.cream,
+    backgroundColor: "#FBF8F0",
     borderWidth: 1,
     borderColor: Palette.border,
     borderRadius: 32,
@@ -448,10 +401,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: Spacing.three,
     minHeight: 88,
-    shadowColor: "#1B4332",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    boxShadow: "0px 3px 8px rgba(27, 67, 50, 0.06)",
     elevation: 2,
   },
   petPhoto: {
@@ -528,10 +478,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: Palette.gold,
     marginTop: Spacing.five,
-    shadowColor: "#F2B632",
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    boxShadow: "0px 4px 10px rgba(242, 182, 50, 0.3)",
     elevation: 3,
   },
   lostLabel: {

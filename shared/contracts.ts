@@ -203,6 +203,11 @@ export interface VaccinationInput {
 export type ReminderStatus = "PENDING" | "COMPLETED" | "CANCELLED";
 export type ReminderSource = "MANUAL" | "VACCINATION" | "APPOINTMENT";
 
+export interface CareCalendarRange {
+  from: string;
+  to: string;
+}
+
 export interface HealthReminderInput {
   petId: string;
   title: string;
