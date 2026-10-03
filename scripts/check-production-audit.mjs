@@ -23,6 +23,50 @@ const targets = [
   ["frontend", path.join(root, "frontend")],
 ];
 
+function validateReport(report) {
+  const object = (value) =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  const severities = ["info", "low", "moderate", "high", "critical"];
+  if (
+    !object(report) ||
+    report.error ||
+    report.auditReportVersion !== 2 ||
+    !object(report.vulnerabilities) ||
+    !object(report.metadata?.vulnerabilities)
+  ) {
+    throw new Error(
+      "npm audit returned an error or incomplete report; no clean audit can be inferred.",
+    );
+  }
+  const counts = report.metadata.vulnerabilities;
+  if (
+    ![...severities, "total"].every(
+      (key) => Number.isSafeInteger(counts[key]) && counts[key] >= 0,
+    )
+  ) {
+    throw new Error("npm audit returned invalid vulnerability counts.");
+  }
+  const entries = Object.values(report.vulnerabilities);
+  if (
+    entries.some(
+      (item) =>
+        !object(item) ||
+        !severities.includes(item.severity) ||
+        !Array.isArray(item.via),
+    ) ||
+    counts.total !== entries.length ||
+    severities.some(
+      (severity) =>
+        counts[severity] !==
+        entries.filter((item) => item.severity === severity).length,
+    )
+  ) {
+    throw new Error(
+      "npm audit vulnerability entries and counts are inconsistent.",
+    );
+  }
+}
+
 function audit(cwd) {
   let stdout = "";
   try {
@@ -30,7 +74,7 @@ function audit(cwd) {
       cwd,
       encoding: "utf8",
       windowsHide: true,
-      shell: isWindows ? (process.env.ComSpec || "cmd.exe") : "/bin/sh",
+      shell: isWindows ? process.env.ComSpec || "cmd.exe" : "/bin/sh",
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
@@ -45,11 +89,14 @@ function audit(cwd) {
     }
   }
 
+  let report;
   try {
-    return JSON.parse(stdout);
+    report = JSON.parse(stdout);
   } catch {
     throw new Error("npm audit did not return valid JSON");
   }
+  validateReport(report);
+  return report;
 }
 
 function rootAdvisories(vulnerabilities, name, seen = new Set()) {
@@ -102,9 +149,14 @@ for (const [label, cwd] of targets) {
   }
 
   out(
-    "[" + label + "] critical=" + (counts.critical ?? 0) +
-      " high=" + (counts.high ?? 0) +
-      " moderate=" + (counts.moderate ?? 0),
+    "[" +
+      label +
+      "] critical=" +
+      (counts.critical ?? 0) +
+      " high=" +
+      (counts.high ?? 0) +
+      " moderate=" +
+      (counts.moderate ?? 0),
   );
 
   if (allowed.length) {
@@ -118,8 +170,13 @@ for (const [label, cwd] of targets) {
     failed = true;
     for (const item of blocked) {
       err(
-        "  BLOCKED " + item.severity + ": " + item.name +
-          " (" + (item.urls.join(", ") || "unresolved root cause") + ")",
+        "  BLOCKED " +
+          item.severity +
+          ": " +
+          item.name +
+          " (" +
+          (item.urls.join(", ") || "unresolved root cause") +
+          ")",
       );
     }
   }

@@ -319,13 +319,17 @@ export class RecoveryNetwork {
     const longitude = coordinate(longitudeInput, -180, 180, "longitude");
     const radiusKm = Math.max(0.5, Math.min(50, Number(radiusInput) || 10));
 
+    const publicLatitudeSql =
+      "(CASE WHEN u.share_precise_recovery_location = 1 THEN lr.last_known_latitude ELSE FLOOR(lr.last_known_latitude * 1000 + 0.5) / 1000 END)";
+    const publicLongitudeSql =
+      "(CASE WHEN u.share_precise_recovery_location = 1 THEN lr.last_known_longitude ELSE FLOOR(lr.last_known_longitude * 1000 + 0.5) / 1000 END)";
     const distanceSql = `(
       6371 * ACOS(
         LEAST(
           1,
-          COS(RADIANS(?)) * COS(RADIANS(lr.last_known_latitude))
-            * COS(RADIANS(lr.last_known_longitude) - RADIANS(?))
-            + SIN(RADIANS(?)) * SIN(RADIANS(lr.last_known_latitude))
+          COS(RADIANS(?)) * COS(RADIANS(${publicLatitudeSql}))
+            * COS(RADIANS(${publicLongitudeSql}) - RADIANS(?))
+            + SIN(RADIANS(?)) * SIN(RADIANS(${publicLatitudeSql}))
         )
       )
     )`;
@@ -426,9 +430,13 @@ export class RecoveryNetwork {
       );
       await connection.query(
         `UPDATE lost_reports
-            SET last_sighted_at = CURRENT_TIMESTAMP
-          WHERE id = ?`,
-        [reportId],
+            SET status = 'SIGHTED',
+                last_known_latitude = ?,
+                last_known_longitude = ?,
+                last_known_accuracy_m = ?,
+                last_sighted_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND status IN ('LOST', 'SIGHTED')`,
+        [latitude, longitude, accuracyM, reportId],
       );
       await connection.commit();
     } catch (error) {

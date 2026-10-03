@@ -22,7 +22,11 @@ Do not expose MySQL port 3306 or the internal API port 3000 publicly.
 ## 2. Clone and install
 
 ```bash
-sudo mkdir -p /opt/petconnect /var/lib/petconnect/uploads /var/lib/petconnect/backups /etc/petconnect
+sudo useradd --system --user-group --home-dir /var/lib/petconnect --shell /usr/sbin/nologin petconnect
+sudo install -d -m 0755 /opt/petconnect /var/lib/petconnect
+sudo install -d -o petconnect -g petconnect -m 0750 /var/lib/petconnect/uploads
+sudo install -d -o root -g root -m 0700 /var/lib/petconnect/backups
+sudo install -d -o root -g petconnect -m 0750 /etc/petconnect
 sudo chown "$USER":"$USER" /opt/petconnect
 git clone <YOUR_REPOSITORY_URL> /opt/petconnect
 cd /opt/petconnect
@@ -33,7 +37,7 @@ npm --prefix frontend ci
 npm --prefix backend/api run build
 ```
 
-Deploy by normal `git clone` / `git pull --ff-only`.
+Deploy by normal `git clone` / `git pull --ff-only`. Create the service account once; on subsequent deployments confirm it already exists with `id petconnect`. Keep source owned by the deployer and readable/traversable by `petconnect` and the reverse proxy. Only the upload directory needs runtime write access.
 
 ## 3. Production MySQL users
 
@@ -86,7 +90,18 @@ Do not set `FIREBASE_AUTH_EMULATOR_HOST` in production.
 
 The API validates production configuration during startup and refuses unsafe defaults such as root/blank database credentials, emulator/demo Firebase configuration, localhost/non-HTTPS public URLs, placeholder recovery secrets, or a relative upload path.
 
-Keep database migration credentials in a separate root-only environment file that the runtime service cannot read.
+After creating the configuration and Admin credential files, apply their permissions:
+
+```bash
+sudo chown root:petconnect /etc/petconnect/api.env /etc/petconnect/firebase-admin.json
+sudo chmod 0640 /etc/petconnect/api.env /etc/petconnect/firebase-admin.json
+sudo chown root:root /etc/petconnect/db-maintenance.env
+sudo chmod 0600 /etc/petconnect/db-maintenance.env
+sudo -u petconnect test -r /etc/petconnect/firebase-admin.json
+sudo -u petconnect test -w /var/lib/petconnect/uploads
+```
+
+Keep database migration credentials in that separate root-only environment file. Include `UPLOAD_DIR=/var/lib/petconnect/uploads` so backups include the same photos used by the service.
 
 ## 6. Database bootstrap/migration
 

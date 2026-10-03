@@ -1,5 +1,10 @@
-import { Href, useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import {
+  Href,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
+  BellIcon,
   CalendarIcon,
   CheckIcon,
   HealthIcon,
@@ -26,7 +32,15 @@ import {
   listClinicAppointments,
   updateClinicAppointment,
 } from "@/services/health-clinic";
-import type { Appointment, ClinicSummary } from "../../../shared/contracts";
+import {
+  listRecoveryNotifications,
+  markRecoveryNotificationRead,
+} from "@/services/recovery-network";
+import type {
+  RecoveryNotification,
+  Appointment,
+  ClinicSummary,
+} from "../../../shared/contracts";
 
 function appointmentTime(value: string) {
   return new Date(value).toLocaleString();
@@ -41,14 +55,31 @@ export default function ClinicDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
+  const params = useLocalSearchParams<{ appointmentId?: string }>();
+  const [updates, setUpdates] = useState<RecoveryNotification[]>([]);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState("");
+  const [notificationBusyId, setNotificationBusyId] = useState("");
+
+  useEffect(() => {
+    const id =
+      typeof params.appointmentId === "string" ? params.appointmentId : "";
+    if (id && appointments.some((item) => item.id === id)) {
+      setSelectedAppointmentId(id);
+      setUpdatesOpen(false);
+    }
+  }, [params.appointmentId, appointments]);
 
   const load = useCallback(async () => {
-    const [clinicRow, rows] = await Promise.all([
+    const [clinicRow, rows, notifications] = await Promise.all([
       getClinic(),
       listClinicAppointments(),
+      listRecoveryNotifications(),
     ]);
     setClinic(clinicRow);
     setAppointments(rows);
+    setUpdates(notifications);
+    setError("");
   }, []);
 
   useFocusEffect(
@@ -107,6 +138,44 @@ export default function ClinicDashboard() {
     }
   }
 
+  async function openUpdate(item: RecoveryNotification) {
+    if (notificationBusyId) return;
+    setNotificationBusyId(item.id);
+    try {
+      if (!item.readAt) {
+        await markRecoveryNotificationRead(item.id);
+        setUpdates((current) =>
+          current.map((row) =>
+            row.id === item.id
+              ? { ...row, readAt: new Date().toISOString() }
+              : row,
+          ),
+        );
+      }
+    } catch (cause) {
+      setError(authErrorMessage(cause));
+    } finally {
+      setNotificationBusyId("");
+    }
+    const appointmentId = item.data?.appointmentId;
+    if (typeof appointmentId === "string") {
+      if (
+        appointments.some((appointment) => appointment.id === appointmentId)
+      ) {
+        setSelectedAppointmentId(appointmentId);
+        setUpdatesOpen(false);
+      } else {
+        setError("This appointment is no longer in the clinic queue.");
+      }
+    } else if (item.data?.healthRecordId || item.data?.petId) {
+      router.push("/clinic-scan");
+    }
+  }
+
+  const unread = updates.filter((item) => !item.readAt).length;
+  const visibleAppointments = selectedAppointmentId
+    ? appointments.filter((item) => item.id === selectedAppointmentId)
+    : appointments;
   const requested = appointments.filter((item) => item.status === "REQUESTED");
   const scheduled = appointments.filter((item) => item.status === "SCHEDULED");
 
@@ -127,13 +196,27 @@ export default function ClinicDashboard() {
             <View style={styles.brandIcon}>
               <HealthIcon size={25} color={Palette.forestDark} />
             </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => void handleLogout()}
-              style={styles.iconButton}
-            >
-              <LogoutIcon />
-            </Pressable>
+            <View style={{ flexDirection: "row", gap: Spacing.two }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Clinic updates, ${unread} unread`}
+                onPress={() => setUpdatesOpen((open) => !open)}
+                style={styles.iconButton}
+              >
+                <BellIcon />
+                {unread ? (
+                  <Text style={styles.unreadCount}>{unread}</Text>
+                ) : null}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Log out"
+                onPress={() => void handleLogout()}
+                style={styles.iconButton}
+              >
+                <LogoutIcon />
+              </Pressable>
+            </View>
           </View>
 
           <Text style={styles.eyebrow}>PETCONNECT · CLINIC</Text>
@@ -179,110 +262,175 @@ export default function ClinicDashboard() {
             </Text>
           ) : null}
 
-          <View style={styles.sectionHeader}>
-            <CalendarIcon size={20} />
-            <Text style={styles.sectionTitle}>Appointment queue</Text>
-          </View>
-
-          {loading ? (
-            <ActivityIndicator
-              color={Palette.forestDark}
-              style={styles.loader}
-            />
-          ) : appointments.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No appointments yet</Text>
-              <Text style={styles.meta}>
-                Owner requests and clinic-created appointments will appear here.
-              </Text>
+          {updatesOpen ? (
+            <View style={styles.list}>
+              <Text style={styles.sectionTitle}>Clinic updates</Text>
+              {updates.length === 0 ? (
+                <Text style={styles.meta}>No updates yet</Text>
+              ) : (
+                updates.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${item.title}`}
+                    disabled={Boolean(notificationBusyId)}
+                    onPress={() => void openUpdate(item)}
+                    style={styles.card}
+                  >
+                    <Text style={styles.petName}>{item.title}</Text>
+                    <Text style={styles.meta}>{item.body}</Text>
+                    <Text style={styles.meta}>
+                      {item.readAt ? "Read" : "Unread"}
+                    </Text>
+                  </Pressable>
+                ))
+              )}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setUpdatesOpen(false)}
+                style={styles.actionButton}
+              >
+                <Text style={styles.actionText}>Appointment queue</Text>
+              </Pressable>
             </View>
           ) : (
-            <View style={styles.list}>
-              {appointments.map((appointment) => {
-                const busy = busyId === appointment.id;
-                return (
-                  <View key={appointment.id} style={styles.card}>
-                    <View style={styles.cardTop}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.petName}>
-                          {appointment.petName}
-                        </Text>
-                        <Text style={styles.meta}>
-                          {appointment.ownerName}
-                          {appointment.ownerPhone
-                            ? " · " + appointment.ownerPhone
-                            : ""}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.status,
-                          appointment.status === "REQUESTED"
-                            ? styles.statusRequested
-                            : appointment.status === "SCHEDULED"
-                              ? styles.statusScheduled
-                              : styles.statusMuted,
-                        ]}
-                      >
-                        <Text style={styles.statusText}>
-                          {appointment.status}
-                        </Text>
-                      </View>
-                    </View>
+            <>
+              {selectedAppointmentId ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setSelectedAppointmentId("")}
+                  style={[styles.actionButton, { marginTop: Spacing.three }]}
+                >
+                  <Text style={styles.actionText}>View all appointments</Text>
+                </Pressable>
+              ) : null}
+              <View style={styles.sectionHeader}>
+                <CalendarIcon size={20} />
+                <Text style={styles.sectionTitle}>Appointment queue</Text>
+              </View>
 
-                    <Text style={styles.time}>
-                      {appointmentTime(appointment.appointmentDate)}
-                    </Text>
-                    {appointment.reason ? (
-                      <Text style={styles.reason}>{appointment.reason}</Text>
-                    ) : null}
+              {loading ? (
+                <ActivityIndicator
+                  color={Palette.forestDark}
+                  style={styles.loader}
+                />
+              ) : appointments.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>No appointments yet</Text>
+                  <Text style={styles.meta}>
+                    Owner requests and clinic-created appointments will appear
+                    here.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.list}>
+                  {visibleAppointments.map((appointment) => {
+                    const busy = busyId === appointment.id;
+                    return (
+                      <View key={appointment.id} style={styles.card}>
+                        <View style={styles.cardTop}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.petName}>
+                              {appointment.petName}
+                            </Text>
+                            <Text style={styles.meta}>
+                              {appointment.ownerName}
+                              {appointment.ownerPhone
+                                ? " · " + appointment.ownerPhone
+                                : ""}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.status,
+                              appointment.status === "REQUESTED"
+                                ? styles.statusRequested
+                                : appointment.status === "SCHEDULED"
+                                  ? styles.statusScheduled
+                                  : styles.statusMuted,
+                            ]}
+                          >
+                            <Text style={styles.statusText}>
+                              {appointment.status}
+                            </Text>
+                          </View>
+                        </View>
 
-                    {busy ? (
-                      <ActivityIndicator
-                        color={Palette.forestDark}
-                        style={styles.actionLoader}
-                      />
-                    ) : appointment.status === "REQUESTED" ? (
-                      <View style={styles.actions}>
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => void update(appointment, "SCHEDULED")}
-                          style={[styles.actionButton, styles.primaryAction]}
-                        >
-                          <CheckIcon size={15} color={Palette.white} />
-                          <Text style={styles.primaryActionText}>Confirm</Text>
-                        </Pressable>
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => void update(appointment, "CANCELLED")}
-                          style={styles.actionButton}
-                        >
-                          <Text style={styles.actionText}>Decline</Text>
-                        </Pressable>
+                        <Text style={styles.time}>
+                          {appointmentTime(appointment.appointmentDate)}
+                        </Text>
+                        {appointment.reason ? (
+                          <Text style={styles.reason}>
+                            {appointment.reason}
+                          </Text>
+                        ) : null}
+
+                        {busy ? (
+                          <ActivityIndicator
+                            color={Palette.forestDark}
+                            style={styles.actionLoader}
+                          />
+                        ) : appointment.status === "REQUESTED" ? (
+                          <View style={styles.actions}>
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() =>
+                                void update(appointment, "SCHEDULED")
+                              }
+                              style={[
+                                styles.actionButton,
+                                styles.primaryAction,
+                              ]}
+                            >
+                              <CheckIcon size={15} color={Palette.white} />
+                              <Text style={styles.primaryActionText}>
+                                Confirm
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() =>
+                                void update(appointment, "CANCELLED")
+                              }
+                              style={styles.actionButton}
+                            >
+                              <Text style={styles.actionText}>Decline</Text>
+                            </Pressable>
+                          </View>
+                        ) : appointment.status === "SCHEDULED" ? (
+                          <View style={styles.actions}>
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() =>
+                                void update(appointment, "COMPLETED")
+                              }
+                              style={[
+                                styles.actionButton,
+                                styles.primaryAction,
+                              ]}
+                            >
+                              <CheckIcon size={15} color={Palette.white} />
+                              <Text style={styles.primaryActionText}>
+                                Complete
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() =>
+                                void update(appointment, "CANCELLED")
+                              }
+                              style={styles.actionButton}
+                            >
+                              <Text style={styles.actionText}>Cancel</Text>
+                            </Pressable>
+                          </View>
+                        ) : null}
                       </View>
-                    ) : appointment.status === "SCHEDULED" ? (
-                      <View style={styles.actions}>
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => void update(appointment, "COMPLETED")}
-                          style={[styles.actionButton, styles.primaryAction]}
-                        >
-                          <CheckIcon size={15} color={Palette.white} />
-                          <Text style={styles.primaryActionText}>Complete</Text>
-                        </Pressable>
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => void update(appointment, "CANCELLED")}
-                          style={styles.actionButton}
-                        >
-                          <Text style={styles.actionText}>Cancel</Text>
-                        </Pressable>
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })}
-            </View>
+                    );
+                  })}
+                </View>
+              )}
+            </>
           )}
         </ScrollView>
       </SafeAreaView>
@@ -327,6 +475,16 @@ const styles = StyleSheet.create({
     borderColor: Palette.borderSoft,
     alignItems: "center",
     justifyContent: "center",
+  },
+  unreadCount: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    backgroundColor: Palette.gold,
+    borderRadius: 10,
+    paddingHorizontal: 4,
+    fontSize: 10,
+    color: Palette.forestDark,
   },
   eyebrow: {
     marginTop: Spacing.four,

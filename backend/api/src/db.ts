@@ -7,7 +7,7 @@ export function createPool(config?: {
   database?: string;
   port?: number;
 }): Pool {
-  return mysql.createPool({
+  const pool = mysql.createPool({
     host: config?.host || process.env.MYSQL_HOST || "127.0.0.1",
     user: config?.user || process.env.MYSQL_USER || "root",
     password: config?.password || process.env.MYSQL_PASSWORD || "",
@@ -18,6 +18,13 @@ export function createPool(config?: {
     queueLimit: 0,
     timezone: "Z",
   });
+  pool.pool.on("connection", (connection) => {
+    // The driver timezone controls parsing; MySQL also needs UTC for
+    // TIMESTAMP columns and database-generated dates. This query is queued
+    // before the connection is handed to its first caller.
+    connection.query("SET time_zone = '+00:00'");
+  });
+  return pool;
 }
 
 export async function withTransaction<T>(

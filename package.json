@@ -33,7 +33,7 @@
     "lint:backend": "eslint backend/api/src backend/api/scripts backend/api/tests frontend/src/services shared/contracts.ts",
     "format:backend": "prettier --check --end-of-line auto backend/api/src backend/api/scripts backend/api/tests frontend/src/services shared/contracts.ts backend/firebase.json",
     "check:backend": "npm run build:backend && npm run typecheck && npm run lint:backend && npm run format:backend",
-    "test:backend:run": "cross-env NODE_ENV=test MYSQL_DATABASE=petconnect_test tsx --test --test-concurrency=1 backend/api/tests/config.test.ts backend/api/tests/uploads.test.ts backend/api/tests/care-calendar.test.ts backend/api/tests/backend.test.ts",
+    "test:backend:run": "cross-env NODE_ENV=test MYSQL_DATABASE=petconnect_test tsx --test --test-concurrency=1 backend/api/tests/config.test.ts backend/api/tests/uploads.test.ts backend/api/tests/care-calendar.test.ts backend/api/tests/migrations.test.ts backend/api/tests/backend.test.ts",
     "test:backend": "npm run build:backend && firebase --config backend/firebase.json emulators:exec --project demo-petconnect --only auth \"npm run test:backend:run\"",
     "emulators": "npm run build:backend && firebase --config backend/firebase.json emulators:start --project demo-petconnect --only auth",
     "db:bootstrap": "npm --prefix backend/api run db:bootstrap",
@@ -50,7 +50,8 @@
     "test:e2e:integration": "cross-env PETCONNECT_E2E_INTEGRATION=1 playwright test",
     "test:e2e:install": "playwright install chromium",
     "release:static": "npm run check:backend && npm run lint:frontend && npm run test:frontend && npm run doctor:frontend && npm run web:export",
-    "audit:prod": "node scripts/check-production-audit.mjs",
+    "test:audit": "node --test scripts/tests/audit.test.mjs",
+    "audit:prod": "npm run test:audit && node scripts/check-production-audit.mjs",
     "release:check": "npm run audit:prod && npm run release:static && npm run test:e2e && npm run release:android && npm run release:ios",
     "release:verify": "npm run release:check && npm run test:backend"
   },

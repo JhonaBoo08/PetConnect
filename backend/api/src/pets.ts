@@ -151,10 +151,35 @@ export class Pets {
   }
 
   async delete(ownerId: string, id: string): Promise<boolean> {
-    const [result] = await this.pool.query<ResultSetHeader>(
-      "DELETE FROM pets WHERE id = ? AND owner_id = ?",
-      [id, ownerId],
-    );
-    return result.affectedRows > 0;
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [owned] = await connection.query<RowDataPacket[]>(
+        "SELECT id FROM pets WHERE id = ? AND owner_id = ? FOR UPDATE",
+        [id, ownerId],
+      );
+      if (!owned.length) {
+        await connection.rollback();
+        return false;
+      }
+      await connection.query(
+        `UPDATE scheduled_notifications sn
+          JOIN health_reminders r ON sn.dedupe_key = CONCAT('health-reminder:', r.id)
+          SET sn.status = 'CANCELLED', sn.claimed_at = NULL
+          WHERE r.pet_id = ? AND r.owner_id = ? AND sn.status IN ('PENDING', 'PROCESSING')`,
+        [id, ownerId],
+      );
+      const [result] = await connection.query<ResultSetHeader>(
+        "DELETE FROM pets WHERE id = ? AND owner_id = ?",
+        [id, ownerId],
+      );
+      await connection.commit();
+      return result.affectedRows > 0;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }

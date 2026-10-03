@@ -22,6 +22,30 @@ test("production configuration accepts explicit safe values", () => {
   assert.doesNotThrow(() => assertProductionEnvironment({ ...valid }));
 });
 
+for (const publicUrl of [
+  "https://[::1]",
+  "https://localhost.",
+  "https://127.12.34.56",
+  "https://user:password@pets.example.org",
+]) {
+  test(`production configuration rejects unsafe public URL ${publicUrl}`, () => {
+    assert.throws(() =>
+      assertProductionEnvironment({ ...valid, PUBLIC_APP_BASE_URL: publicUrl }),
+    );
+  });
+}
+
+for (const origin of [
+  "https://pets.example.org/recover",
+  "https://pets.example.org?token=value",
+]) {
+  test(`production configuration rejects a CORS value that is not an origin: ${origin}`, () => {
+    assert.throws(() =>
+      assertProductionEnvironment({ ...valid, CORS_ALLOWED_ORIGINS: origin }),
+    );
+  });
+}
+
 test("production configuration rejects development defaults", () => {
   assert.throws(
     () =>

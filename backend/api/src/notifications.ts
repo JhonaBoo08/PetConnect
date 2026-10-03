@@ -120,11 +120,16 @@ export class Notifications {
 
   async processPushReceipts(limit = 100): Promise<number> {
     if (process.env.NODE_ENV === "test") return 0;
+    // Expo removes receipts after 24 hours. Expired tickets must not occupy
+    // the front of every bounded batch and starve newer delivery results.
+    await this.pool.query(
+      "DELETE FROM expo_push_receipts WHERE created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)",
+    );
     const [rows] = await this.pool.query<PushReceiptRow[]>(
       `SELECT receipt_id, expo_push_token
          FROM expo_push_receipts
         WHERE checked_at IS NULL
-          AND created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 SECOND)
+          AND created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)
         ORDER BY created_at ASC
         LIMIT ?`,
       [Math.max(1, Math.min(300, limit))],
@@ -171,9 +176,6 @@ export class Notifications {
       processed += 1;
     }
 
-    await this.pool.query(
-      "DELETE FROM expo_push_receipts WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)",
-    );
     return processed;
   }
 
@@ -224,7 +226,7 @@ export class Notifications {
         WHERE user_id = ? AND enabled = TRUE`,
       [userId],
     );
-    await this.sendPush(devices, title, body, data);
+    await this.sendPush(devices, title, body, { ...data, type });
   }
 
   async notifyClinicMembers(
@@ -287,7 +289,7 @@ export class Notifications {
         this.insertNotification(userId, type, title, body, data),
       ),
     );
-    await this.sendPush(devices, title, body, data);
+    await this.sendPush(devices, title, body, { ...data, type });
   }
 
   private async insertNotification(

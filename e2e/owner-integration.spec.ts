@@ -19,7 +19,7 @@ test.describe("owner integration", () => {
     await page.goto("/create-account");
     await page.getByLabel("Full name").fill("PetConnect Test Owner");
     await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Password").fill(password);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByLabel("Confirm password").fill(password);
     await page.getByRole("button", { name: "Create Account" }).click();
 
@@ -51,7 +51,9 @@ test.describe("owner integration", () => {
         recoveryUrl: string | null;
       };
       await expect(page).toHaveURL(/\/pet-id\?id=/);
-      await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+      await expect(
+        page.getByText(name, { exact: true }).filter({ visible: true }).first(),
+      ).toBeVisible();
       expect(recovery.active).toBeTruthy();
       expect(recovery.recoveryUrl).toContain("/recover?token=");
       return recovery.recoveryUrl!;
@@ -75,22 +77,75 @@ test.describe("owner integration", () => {
 
     await page.getByRole("button", { name: "View Luna Pet ID" }).click();
     await expect(page).toHaveURL(/\/pet-id\?id=/);
-    await expect(page.getByText("Luna", { exact: true }).first()).toBeVisible();
+    await expect(
+      page.getByText("Luna", { exact: true }).filter({ visible: true }).first(),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Edit pet" }).click();
     await page.getByLabel("Pet name").fill("Luna Updated");
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(
-      page.getByText("Luna Updated", { exact: true }).first(),
+      page
+        .getByText("Luna Updated", { exact: true })
+        .filter({ visible: true })
+        .first(),
     ).toBeVisible();
 
     await page.goto("/my-pets");
     await page.getByRole("button", { name: "Report Bantay lost" }).click();
     await expect(page).toHaveURL(/\/alerts\?.*petId=/);
-    await expect(page.getByText("Publish lost report")).toBeVisible();
     await expect(
-      page.getByText("Bantay", { exact: true }).first(),
+      page.getByRole("button", { name: "Publish lost report", exact: true }),
     ).toBeVisible();
+    await expect(
+      page
+        .getByText("Bantay", { exact: true })
+        .filter({ visible: true })
+        .first(),
+    ).toBeVisible();
+
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation({ latitude: 7.4479, longitude: 125.8079 });
+    await page.getByLabel("Last seen").fill("Tagum test landmark");
+    await page
+      .getByRole("button", { name: "Publish lost report", exact: true })
+      .click();
+    await expect(
+      page.getByText(/Bantay is now in the recovery network/),
+    ).toBeVisible();
+
+    const finderPage = await context.newPage();
+    await finderPage.goto(firstRecoveryUrl);
+    await expect(finderPage.getByText("LOST", { exact: true })).toBeVisible();
+    await finderPage.getByPlaceholder("Finder name").fill("Test Finder");
+    await finderPage
+      .getByPlaceholder("Phone, email, or messaging handle")
+      .fill("private-finder@example.test");
+    await finderPage
+      .getByPlaceholder("Direction, condition, landmark, behavior...")
+      .fill("Near the test landmark");
+    await finderPage.getByRole("button", { name: "Send GPS sighting" }).click();
+    await expect(
+      finderPage.getByText(/Your GPS sighting of Bantay was sent to the owner/),
+    ).toBeVisible();
+    await expect(
+      finderPage.getByText("SIGHTED", { exact: true }),
+    ).toBeVisible();
+
+    await page.goto("/alerts?mode=updates");
+    await expect(
+      page.getByRole("button", { name: /Bantay was sighted/ }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /Bantay was sighted/ }).click();
+    await expect(page.getByText("Your active recovery cases")).toBeVisible();
+    await expect(page.getByText("SIGHTED", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Mark reunited" }).click();
+    await expect(
+      page.getByText("Bantay has been marked reunited."),
+    ).toBeVisible();
+    await finderPage.reload();
+    await expect(finderPage.getByText("No active lost report")).toBeVisible();
+    await finderPage.close();
 
     await page.goto("/privacy-settings");
     const publicPhone = page.getByRole("switch", {

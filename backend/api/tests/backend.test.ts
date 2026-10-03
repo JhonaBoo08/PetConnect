@@ -12,6 +12,12 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { app, pool, accounts, scheduledNotifications } from "../src/server.js";
+import { Notifications } from "../src/notifications.js";
+import { createPool } from "../src/db.js";
+import {
+  HealthClinic,
+  HealthClinicValidationError,
+} from "../src/health-clinic.js";
 
 const projectId = "demo-petconnect";
 const apps: ReturnType<typeof initializeApp>[] = [];
@@ -76,6 +82,249 @@ beforeEach(async () => {
 after(async () => {
   await Promise.all(apps.map(deleteApp));
   await pool.end();
+});
+
+test("push receipts wait for delivery, discard expired tickets and disable unregistered devices", async (t) => {
+  await pool.query(
+    "INSERT INTO users (id, email, display_name, role, status) VALUES (?, ?, ?, ?, ?)",
+    [
+      "receipt-owner",
+      "receipts@example.test",
+      "Receipt Owner",
+      "OWNER",
+      "ACTIVE",
+    ],
+  );
+  const notifications = new Notifications(pool);
+  const token = "ExpoPushToken[test-receipts]";
+  await notifications.registerDevice("receipt-owner", {
+    expoPushToken: token,
+    platform: "android",
+  });
+  await pool.query(
+    "INSERT INTO expo_push_receipts (receipt_id, expo_push_token, created_at) VALUES " +
+      "('expired', ?, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 25 HOUR)), " +
+      "('ready', ?, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 20 MINUTE)), " +
+      "('young', ?, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE))",
+    [token, token, token],
+  );
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (_url: unknown, options?: RequestInit) => {
+      assert.deepEqual(JSON.parse(String(options?.body)).ids, ["ready"]);
+      return new Response(
+        JSON.stringify({
+          data: {
+            ready: {
+              status: "error",
+              details: { error: "DeviceNotRegistered" },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    },
+  );
+  const previousEnvironment = process.env.NODE_ENV;
+  process.env.NODE_ENV = "development";
+  try {
+    assert.equal(await notifications.processPushReceipts(1), 1);
+    const [devices] = await pool.query<RowDataPacket[]>(
+      "SELECT enabled FROM push_devices WHERE expo_push_token = ?",
+      [token],
+    );
+    assert.equal(Number(devices[0].enabled), 0);
+    const [receipts] = await pool.query<RowDataPacket[]>(
+      "SELECT receipt_id FROM expo_push_receipts ORDER BY receipt_id",
+    );
+    assert.deepEqual(
+      receipts.map((row) => row.receipt_id),
+      ["young"],
+    );
+    assert.equal(await notifications.processPushReceipts(1), 0);
+  } finally {
+    process.env.NODE_ENV = previousEnvironment;
+  }
+});
+
+test("private nearby proximity uses only the disclosed coordinate grid", async () => {
+  const owner = await ownerToken("Grid Owner", "grid-owner@example.test");
+  const header = `Bearer ${owner.token}`;
+  const ids: string[] = [];
+  for (const name of ["Older", "Newer"]) {
+    const pet = await request(app)
+      .post("/v1/pets")
+      .set("Authorization", header)
+      .send({ name, species: "Dog" })
+      .expect(201);
+    const report = await request(app)
+      .post("/v1/lost-reports")
+      .set("Authorization", header)
+      .send({
+        petId: pet.body.id,
+        lastSeenText: "Test location",
+        latitude: 7.448,
+        longitude: 125.808,
+      })
+      .expect(201);
+    ids.push(report.body.id);
+  }
+  await pool.query(
+    "UPDATE lost_reports SET last_known_latitude = ?, reported_at = ? WHERE id = ?",
+    [7.4481, "2026-10-01 00:00:00", ids[0]],
+  );
+  await pool.query(
+    "UPDATE lost_reports SET last_known_latitude = ?, reported_at = ? WHERE id = ?",
+    [7.4484, "2026-10-02 00:00:00", ids[1]],
+  );
+  const feed = await request(app)
+    .get("/v1/recovery/nearby")
+    .query({ latitude: 7.448, longitude: 125.808, radiusKm: 2 })
+    .expect(200);
+  assert.deepEqual(
+    feed.body.reports.map((item: { id: string }) => item.id),
+    [ids[1], ids[0]],
+  );
+  assert.ok(
+    feed.body.reports.every(
+      (item: { latitude: number }) => item.latitude === 7.448,
+    ),
+  );
+});
+
+test("deleting a pet cancels its care schedules and prevents phantom updates", async () => {
+  const owner = await ownerToken(
+    "Delete Care Owner",
+    "delete-care@example.test",
+  );
+  const header = `Bearer ${owner.token}`;
+  const pet = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", header)
+    .send({ name: "Delete Care", species: "Cat" })
+    .expect(201);
+  const reminder = await request(app)
+    .post("/v1/reminders")
+    .set("Authorization", header)
+    .send({
+      petId: pet.body.id,
+      title: "Care",
+      dueAt: new Date(Date.now() + 86400000).toISOString(),
+    })
+    .expect(201);
+  const key = `health-reminder:${reminder.body.id}`;
+  await pool.query(
+    "UPDATE scheduled_notifications SET scheduled_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE dedupe_key = ?",
+    [key],
+  );
+  await request(app)
+    .delete(`/v1/pets/${pet.body.id}`)
+    .set("Authorization", header)
+    .expect(204);
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT status FROM scheduled_notifications WHERE dedupe_key = ?",
+    [key],
+  );
+  assert.equal(rows[0].status, "CANCELLED");
+  assert.deepEqual(await scheduledNotifications.processDue(), {
+    sent: 0,
+    failed: 0,
+  });
+  const updates = await request(app)
+    .get("/v1/notifications")
+    .set("Authorization", header)
+    .expect(200);
+  assert.equal(
+    updates.body.notifications.some(
+      (item: { data?: { reminderId?: string } }) =>
+        item.data?.reminderId === reminder.body.id,
+    ),
+    false,
+  );
+});
+
+test("deletion stops a care update already claimed behind another delivery", async (t) => {
+  const owner = await ownerToken(
+    "Claimed Care Owner",
+    "claimed-care@example.test",
+  );
+  const header = "Bearer " + owner.token;
+  const reminders: { id: string; petId: string }[] = [];
+  for (const name of ["Keep Care", "Delete Claimed Care"]) {
+    const pet = await request(app)
+      .post("/v1/pets")
+      .set("Authorization", header)
+      .send({ name, species: "Cat" })
+      .expect(201);
+    const reminder = await request(app)
+      .post("/v1/reminders")
+      .set("Authorization", header)
+      .send({
+        petId: pet.body.id,
+        title: name,
+        dueAt: new Date(Date.now() + 86400000).toISOString(),
+      })
+      .expect(201);
+    reminders.push({ id: reminder.body.id, petId: pet.body.id });
+  }
+  for (let index = 0; index < reminders.length; index += 1) {
+    await pool.query(
+      "UPDATE scheduled_notifications SET scheduled_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE) WHERE dedupe_key = ?",
+      [2 - index, "health-reminder:" + reminders[index].id],
+    );
+  }
+  let start!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    start = resolve;
+  });
+  const paused = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const delivered: unknown[] = [];
+  t.mock.method(
+    Notifications.prototype,
+    "notifyUser",
+    async (
+      _userId: string,
+      _type: string,
+      _title: string,
+      _body: string,
+      data: Record<string, unknown> = {},
+    ) => {
+      delivered.push(data.reminderId);
+      start();
+      await paused;
+    },
+  );
+  const processing = scheduledNotifications.processDue();
+  try {
+    await Promise.race([
+      started,
+      processing.then(() => {
+        throw new Error("Worker finished before beginning the first delivery.");
+      }),
+    ]);
+    const [claimed] = await pool.query<RowDataPacket[]>(
+      "SELECT status FROM scheduled_notifications WHERE dedupe_key = ?",
+      ["health-reminder:" + reminders[1].id],
+    );
+    assert.equal(claimed[0].status, "PROCESSING");
+    await request(app)
+      .delete("/v1/pets/" + reminders[1].petId)
+      .set("Authorization", header)
+      .expect(204);
+  } finally {
+    release();
+  }
+  assert.deepEqual(await processing, { sent: 1, failed: 0 });
+  assert.deepEqual(delivered, [reminders[0].id]);
+  const [cancelled] = await pool.query<RowDataPacket[]>(
+    "SELECT status FROM scheduled_notifications WHERE dedupe_key = ?",
+    ["health-reminder:" + reminders[1].id],
+  );
+  assert.equal(cancelled[0].status, "CANCELLED");
 });
 
 test("GET /v1/health returns ok", async () => {
@@ -676,9 +925,11 @@ test("recovery network transitions LOST to SIGHTED to REUNITED with privacy boun
     .get("/v1/lost-reports")
     .set("Authorization", ownerHeader)
     .expect(200);
-  assert.equal(mine.body.reports[0].status, "LOST");
+  assert.equal(mine.body.reports[0].status, "SIGHTED");
   assert.equal(mine.body.reports[0].sightingCount, 1);
-  assert.equal(Number(mine.body.reports[0].lastKnownLatitude), 7.4479);
+  assert.equal(Number(mine.body.reports[0].lastKnownLatitude), 7.452);
+  assert.equal(Number(mine.body.reports[0].lastKnownLongitude), 125.812);
+  assert.equal(Number(mine.body.reports[0].lastKnownAccuracyM), 6);
   assert.ok(mine.body.reports[0].lastSightedAt);
 
   const ownerDetail = await request(app)
@@ -699,11 +950,12 @@ test("recovery network transitions LOST to SIGHTED to REUNITED with privacy boun
   const publicSighted = await request(app)
     .get(`/v1/recovery/${encodeURIComponent(token)}`)
     .expect(200);
-  assert.equal(publicSighted.body.activeReport.status, "LOST");
+  assert.equal(publicSighted.body.activeReport.status, "SIGHTED");
   assert.equal(publicSighted.body.activeReport.sightingCount, 1);
   assert.equal(publicSighted.body.activeReport.finderContact, undefined);
-  assert.equal(publicSighted.body.activeReport.latitude, 7.4479);
-  assert.equal(publicSighted.body.activeReport.longitude, 125.8079);
+  assert.equal(publicSighted.body.activeReport.latitude, 7.452);
+  assert.equal(publicSighted.body.activeReport.longitude, 125.812);
+  assert.equal(publicSighted.body.activeReport.accuracyM, 6);
 
   const ownerAlerts = await request(app)
     .get("/v1/notifications")
@@ -749,6 +1001,140 @@ test("recovery network transitions LOST to SIGHTED to REUNITED with privacy boun
     .set("Authorization", ownerHeader)
     .expect(200);
   assert.equal(historical.body.reports[0].status, "REUNITED");
+});
+
+test("each pooled database connection uses UTC for server timestamps", async () => {
+  const freshPool = createPool();
+  const connections = await Promise.all([
+    freshPool.getConnection(),
+    freshPool.getConnection(),
+  ]);
+  try {
+    for (const connection of connections) {
+      const [rows] = await connection.query<RowDataPacket[]>(
+        "SELECT @@SESSION.time_zone AS session_zone, CURRENT_TIMESTAMP AS created_at",
+      );
+      assert.equal(rows[0].session_zone, "+00:00");
+      assert.ok(
+        Math.abs(rows[0].created_at.getTime() - Date.now()) < 5000,
+        "Database timestamps must represent the current instant.",
+      );
+    }
+  } finally {
+    for (const connection of connections) connection.release();
+    await freshPool.end();
+  }
+});
+
+test("invalid vaccination notification times leave no clinical record", async () => {
+  await pool.query(
+    "INSERT INTO users (id, email, display_name, role, status) VALUES " +
+      "('vaccine-owner', 'vaccine-owner@example.test', 'Owner', 'OWNER', 'ACTIVE'), " +
+      "('vaccine-vet', 'vaccine-vet@example.test', 'Vet', 'CLINIC', 'ACTIVE')",
+  );
+  await pool.query(
+    "INSERT INTO clinics (id, name, address, status) VALUES ('vaccine-clinic', 'Test Clinic', 'Tagum', 'ACTIVE')",
+  );
+  await pool.query(
+    "INSERT INTO pets (id, owner_id, name, species) VALUES ('vaccine-pet', 'vaccine-owner', 'Mochi', 'Cat')",
+  );
+  const nextDueAt = new Date(Date.now() + 7 * 86400000).toISOString();
+  await pool.query(
+    "INSERT INTO appointments (id, pet_id, owner_id, clinic_id, appointment_date, status) VALUES (?, ?, ?, ?, ?, 'REQUESTED')",
+    [
+      "vaccine-appointment",
+      "vaccine-pet",
+      "vaccine-owner",
+      "vaccine-clinic",
+      new Date(nextDueAt),
+    ],
+  );
+  const healthClinic = new HealthClinic(
+    pool,
+    new Notifications(pool),
+    scheduledNotifications,
+  );
+
+  for (const notifyAt of [
+    "not-a-date",
+    new Date(Date.now() + 8 * 86400000).toISOString(),
+  ]) {
+    await assert.rejects(
+      healthClinic.createVaccination(
+        "vaccine-clinic",
+        "vaccine-vet",
+        "vaccine-pet",
+        { vaccineName: "Rabies", nextDueAt, notifyAt },
+      ),
+      HealthClinicValidationError,
+    );
+    assert.deepEqual(
+      await healthClinic.ownerHealthRecords("vaccine-owner"),
+      [],
+    );
+    assert.deepEqual(await healthClinic.ownerReminders("vaccine-owner"), []);
+    const [jobs] = await pool.query<RowDataPacket[]>(
+      "SELECT id FROM scheduled_notifications WHERE user_id = 'vaccine-owner'",
+    );
+    assert.equal(jobs.length, 0);
+  }
+
+  const saved = await healthClinic.createVaccination(
+    "vaccine-clinic",
+    "vaccine-vet",
+    "vaccine-pet",
+    { vaccineName: "Rabies", nextDueAt, notifyAt: nextDueAt },
+  );
+  assert.equal(saved.recordType, "VACCINATION");
+  assert.equal(
+    (await healthClinic.ownerHealthRecords("vaccine-owner")).length,
+    1,
+  );
+  assert.equal((await healthClinic.ownerReminders("vaccine-owner")).length, 1);
+});
+
+test("reminder edits reject a retained notification after the new due time", async () => {
+  const owner = await ownerToken(
+    "Reminder Dates",
+    "reminder-dates@example.test",
+  );
+  const header = "Bearer " + owner.token;
+  const pet = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", header)
+    .send({ name: "Milo", species: "Dog" })
+    .expect(201);
+  const dueAt = new Date(Date.now() + 7 * 86400000).toISOString();
+  const notifyAt = new Date(Date.now() + 6 * 86400000).toISOString();
+  const reminder = await request(app)
+    .post("/v1/reminders")
+    .set("Authorization", header)
+    .send({ petId: pet.body.id, title: "Checkup", dueAt, notifyAt })
+    .expect(201);
+  const earlierDueAt = new Date(Date.now() + 3 * 86400000).toISOString();
+
+  await request(app)
+    .patch("/v1/reminders/" + reminder.body.id)
+    .set("Authorization", header)
+    .send({ dueAt: earlierDueAt })
+    .expect(400);
+  const unchanged = await request(app)
+    .get("/v1/reminders")
+    .set("Authorization", header)
+    .expect(200);
+  assert.deepEqual(unchanged.body.reminders, [reminder.body]);
+  const [jobs] = await pool.query<RowDataPacket[]>(
+    "SELECT scheduled_at FROM scheduled_notifications WHERE dedupe_key = ?",
+    ["health-reminder:" + reminder.body.id],
+  );
+  assert.equal(jobs[0].scheduled_at.toISOString(), reminder.body.notifyAt);
+
+  const corrected = await request(app)
+    .patch("/v1/reminders/" + reminder.body.id)
+    .set("Authorization", header)
+    .send({ dueAt: earlierDueAt, notifyAt: earlierDueAt })
+    .expect(200);
+  assert.equal(corrected.body.dueAt, corrected.body.notifyAt);
 });
 
 test("health and clinic ecosystem enforces QR scope, vaccination reminders, appointments, and scheduled notifications", async () => {

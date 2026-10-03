@@ -136,6 +136,29 @@ export class ScheduledNotifications {
     let failed = 0;
     for (const row of rows) {
       try {
+        const [current] = await this.pool.query<ScheduledRow[]>(
+          `SELECT s.id, s.user_id, s.type, s.title, s.body, s.data
+             FROM scheduled_notifications s
+            WHERE s.id = ? AND s.status = 'PROCESSING'
+              AND (
+                JSON_EXTRACT(s.data, '$.reminderId') IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM health_reminders r
+                   WHERE r.id = JSON_UNQUOTE(JSON_EXTRACT(s.data, '$.reminderId'))
+                     AND r.owner_id = s.user_id
+                )
+              )`,
+          [row.id],
+        );
+        if (!current.length) {
+          await this.pool.query(
+            `UPDATE scheduled_notifications
+                SET status = 'CANCELLED', claimed_at = NULL
+              WHERE id = ? AND status = 'PROCESSING'`,
+            [row.id],
+          );
+          continue;
+        }
         const data =
           typeof row.data === "string"
             ? (JSON.parse(row.data) as Record<string, unknown>)

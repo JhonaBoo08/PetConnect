@@ -123,18 +123,22 @@ async function withMigrationLock<T>(
   pool: Pool,
   action: () => Promise<T>,
 ): Promise<T> {
+  // Keep the namespaced lock within MySQL's 64-character limit.
+  const lockName = createHash("sha256")
+    .update(`petconnect:migrate:${dbName()}`)
+    .digest("hex");
   const connection = await pool.getConnection();
   try {
     const [lockRows] = await connection.query<
       (RowDataPacket & { acquired: number | null })[]
-    >("SELECT GET_LOCK(?, 30) AS acquired", [`petconnect:migrate:${dbName()}`]);
+    >("SELECT GET_LOCK(?, 30) AS acquired", [lockName]);
     if (Number(lockRows[0]?.acquired) !== 1) {
       throw new Error("Could not acquire the PetConnect migration lock.");
     }
     return await action();
   } finally {
     await connection
-      .query("SELECT RELEASE_LOCK(?)", [`petconnect:migrate:${dbName()}`])
+      .query("SELECT RELEASE_LOCK(?)", [lockName])
       .catch(() => {});
     connection.release();
   }
@@ -282,9 +286,21 @@ async function inferLegacyBaseline(pool: Pool): Promise<boolean> {
     "users",
     "share_recovery_phone",
   );
+  // Only migrations represented by this explicitly recognized legacy shape
+  // can be baselined. Later migrations must execute even on old installations.
+  const legacyFiles = new Set([
+    "20260928_pet_profile_fields.sql",
+    "20260929_health_clinic_ecosystem.sql",
+    "20260929_pet_recovery_tokens.sql",
+    "20260929_recovery_network.sql",
+    "20260929_release_hardening.sql",
+  ]);
+  const legacyMigrations = known.filter((item) =>
+    legacyFiles.has(item.filename),
+  );
   const baseline = privacyAlreadyPresent
-    ? known
-    : known.filter(
+    ? legacyMigrations
+    : legacyMigrations.filter(
         (item) => item.filename !== "20260929_release_hardening.sql",
       );
 

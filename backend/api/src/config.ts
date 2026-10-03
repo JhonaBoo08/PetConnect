@@ -1,7 +1,7 @@
 import path from "node:path";
 
 const placeholderPattern =
-  /(change[-_ ]?me|placeholder|your[_ -]|example|demo-petconnect|replace[_ -]?with)/i;
+  /(change[-_ ]?(?:me|this)|placeholder|your[_ -]|example|demo-petconnect|replace[_ -]?with)/i;
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
   const value = env[key]?.trim();
@@ -19,8 +19,21 @@ function productionUrl(value: string, key: string): URL {
   if (url.protocol !== "https:") {
     throw new Error(`${key} must use HTTPS in production.`);
   }
-  const host = url.hostname.toLowerCase();
-  if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+  if (url.username || url.password) {
+    throw new Error(`${key} must not contain URL credentials in production.`);
+  }
+  const host = url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    /^127\./.test(host) ||
+    host === "::1" ||
+    host === "0.0.0.0" ||
+    host === "::"
+  ) {
     throw new Error(`${key} cannot point to localhost in production.`);
   }
   return url;
@@ -81,8 +94,14 @@ export function assertProductionEnvironment(
   if (!corsOrigins.length) {
     throw new Error("CORS_ALLOWED_ORIGINS must contain at least one origin.");
   }
-  for (const origin of corsOrigins)
-    productionUrl(origin, "CORS_ALLOWED_ORIGINS");
+  for (const origin of corsOrigins) {
+    const url = productionUrl(origin, "CORS_ALLOWED_ORIGINS");
+    if (origin !== url.origin) {
+      throw new Error(
+        "CORS_ALLOWED_ORIGINS entries must be HTTPS origins without paths, queries or fragments.",
+      );
+    }
+  }
 
   productionUrl(required(env, "PUBLIC_APP_BASE_URL"), "PUBLIC_APP_BASE_URL");
 

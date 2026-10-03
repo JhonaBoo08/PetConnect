@@ -507,6 +507,9 @@ export class HealthClinic {
       ? futureDate(input.nextDueAt, "Next dose date")
       : null;
 
+    const notifyAt = nextDueAt
+      ? reminderNotifyAt(nextDueAt, input.notifyAt)
+      : null;
     const ownerId = await this.petOwner(petId);
     if (!ownerId) throw new HealthClinicConflictError("Pet not found.");
     await this.assertClinicAccess(clinicId, petId);
@@ -542,7 +545,7 @@ export class HealthClinic {
         title: `${vaccineName} next dose`,
         notes: `Vaccination follow-up from ${(await this.currentClinic(clinicId))?.name || "your clinic"}.`,
         dueAt: nextDueAt,
-        notifyAt: reminderNotifyAt(nextDueAt, input.notifyAt),
+        notifyAt: notifyAt!,
       });
     }
 
@@ -632,10 +635,12 @@ export class HealthClinic {
       input.dueAt === undefined
         ? current.due_at
         : futureDate(input.dueAt, "Due date");
-    const notifyAt =
+    const notifyAt = reminderNotifyAt(
+      dueAt,
       input.notifyAt === undefined
-        ? current.notify_at
-        : reminderNotifyAt(dueAt, input.notifyAt);
+        ? current.notify_at.toISOString()
+        : input.notifyAt,
+    );
     const status = input.status || current.status;
     if (!["PENDING", "COMPLETED", "CANCELLED"].includes(status)) {
       throw new HealthClinicValidationError("Invalid reminder status.");

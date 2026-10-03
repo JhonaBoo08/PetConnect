@@ -31,7 +31,7 @@ const integrationServers: WebServerConfig[] = [
     timeout: 120_000,
     env: {
       ...inheritedEnv,
-      NODE_ENV: "test",
+      NODE_ENV: "development",
       MYSQL_DATABASE: process.env.MYSQL_DATABASE || "petconnect_e2e",
       FIREBASE_PROJECT_ID: "demo-petconnect",
       FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",

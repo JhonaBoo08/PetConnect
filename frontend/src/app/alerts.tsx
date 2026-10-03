@@ -1,5 +1,5 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -63,7 +63,11 @@ function when(value: string) {
 
 export default function AlertsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ mode?: string; petId?: string }>();
+  const params = useLocalSearchParams<{
+    mode?: string;
+    petId?: string;
+    reportId?: string;
+  }>();
   const routeMode = Array.isArray(params.mode) ? params.mode[0] : params.mode;
   const routePetId = Array.isArray(params.petId)
     ? params.petId[0]
@@ -98,13 +102,24 @@ export default function AlertsScreen() {
     setPets(petRows);
     setReports(reportRows);
     setNotifications(notificationRows);
+    const reportPetId = reportRows.find(
+      (row) => row.id === params.reportId,
+    )?.petId;
     setSelectedPetId((current) => {
+      if (reportPetId && petRows.some((pet) => pet.id === reportPetId))
+        return reportPetId;
       if (routePetId && petRows.some((pet) => pet.id === routePetId))
         return routePetId;
       if (current && petRows.some((pet) => pet.id === current)) return current;
       return petRows.length === 1 ? petRows[0].id : "";
     });
-  }, [routePetId]);
+  }, [routePetId, params.reportId]);
+
+  useEffect(() => {
+    setMode(
+      routeMode === "feed" || routeMode === "updates" ? routeMode : "report",
+    );
+  }, [routeMode, params.reportId]);
 
   const loadNearby = useCallback(async (coordinates: Coordinates) => {
     const rows = await getNearbyLostReports(
@@ -250,6 +265,34 @@ export default function AlertsScreen() {
         // The notification content is still safe to show if read-state sync fails.
       }
     }
+
+    const data = item.data || {};
+    if (typeof data.reminderId === "string" && data.reminderId) {
+      router.push({
+        pathname: "/reminder-details",
+        params: { id: data.reminderId },
+      });
+    } else if (
+      typeof data.appointmentId === "string" ||
+      typeof data.healthRecordId === "string"
+    ) {
+      router.push({
+        pathname: "/health-reminders",
+        params: typeof data.petId === "string" ? { petId: data.petId } : {},
+      });
+    } else if (item.type === "PET_SIGHTED") {
+      const report = reports.find((row) => row.id === data.reportId);
+      if (report) setSelectedPetId(report.petId);
+      setMode("report");
+    } else if (item.type === "LOST_PET_NEARBY") {
+      setMode("feed");
+      try {
+        if (location) await loadNearby(location);
+        else await useGps(true);
+      } catch (cause) {
+        setError(authErrorMessage(cause));
+      }
+    }
   }
 
   const activeCases = reports.filter((report) => report.status !== "REUNITED");
@@ -264,6 +307,7 @@ export default function AlertsScreen() {
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
+              accessibilityLabel="Refresh recovery updates"
               refreshing={refreshing}
               onRefresh={() => void refresh()}
             />
@@ -629,9 +673,9 @@ export default function AlertsScreen() {
 
           {!loading && mode === "updates" ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Recovery updates</Text>
+              <Text style={styles.sectionTitle}>Your updates</Text>
               <Text style={styles.helper}>
-                Finder sightings and nearby lost-pet alerts are stored here even
+                Recovery, care, and appointment updates are stored here even
                 when remote push delivery is unavailable.
               </Text>
               <View style={styles.feedList}>
@@ -639,6 +683,7 @@ export default function AlertsScreen() {
                   <Pressable
                     key={item.id}
                     accessibilityRole="button"
+                    accessibilityLabel={`Open ${item.title}`}
                     onPress={() => void openUpdate(item)}
                     style={[
                       styles.updateCard,
@@ -653,9 +698,7 @@ export default function AlertsScreen() {
                 {notifications.length === 0 ? (
                   <View style={styles.emptyCard}>
                     <BellIcon size={22} />
-                    <Text style={styles.emptyTitle}>
-                      No recovery updates yet
-                    </Text>
+                    <Text style={styles.emptyTitle}>No updates yet</Text>
                   </View>
                 ) : null}
               </View>

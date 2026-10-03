@@ -17,6 +17,11 @@ import {
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { Palette } from "@/constants/palette";
+import { notificationTarget } from "@/lib/notification-target";
+import {
+  observeNotificationResponses,
+  observePushTokenChanges,
+} from "@/services/device-recovery";
 import { AuthProvider, useAuth } from "@/services/auth-context";
 
 void SplashScreen.preventAutoHideAsync();
@@ -25,6 +30,32 @@ function AppNavigator() {
   const { state } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const role = state.status === "ready" ? state.session.role : null;
+
+  useEffect(() => {
+    if (!role) return;
+    let active = true;
+    const stops: (() => void)[] = [];
+    const observers = [
+      () =>
+        observeNotificationResponses((data) => {
+          if (active) router.push(notificationTarget(data, role));
+        }),
+      observePushTokenChanges,
+    ];
+    for (const observe of observers) {
+      void observe()
+        .then((dispose) => {
+          if (active) stops.push(dispose);
+          else dispose();
+        })
+        .catch(() => {});
+    }
+    return () => {
+      active = false;
+      stops.forEach((stop) => stop());
+    };
+  }, [role, router]);
 
   useEffect(() => {
     if (state.status === "loading") return;

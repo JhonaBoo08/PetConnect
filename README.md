@@ -24,7 +24,7 @@ shared/                frontend/backend TypeScript contracts
 sql/
   schema.sql           current complete schema
   migrations/          ordered forward migrations
-tests/e2e/             Playwright browser tests
+e2e/                   Playwright browser tests
 docs/                  operator-facing legal/privacy templates
 .github/workflows/     CI
 ```
@@ -35,7 +35,7 @@ For local development install:
 
 - Node.js 22 or newer
 - npm
-- MySQL 8
+- MySQL 8, including the `mysql` and `mysqldump` CLI tools
 - Java 21 for the Firebase Auth emulator
 - Playwright Chromium for browser E2E tests
 - Android Studio/Xcode only when building or running the corresponding native platform
@@ -132,7 +132,7 @@ Backend integration tests need a disposable `petconnect_test` MySQL database and
 npm run test:backend
 ```
 
-They truncate test data. Never point them at a database containing real user data.
+They truncate test data. Never point them at a database containing real user data. Migration and backup/restore tests also create temporary test databases and upload directories. Make `mysql` and `mysqldump` available on PATH, or set `MYSQL_BIN` and `MYSQLDUMP_BIN` to their executable paths.
 
 Browser tests:
 
@@ -141,7 +141,9 @@ npm run test:e2e:install
 npm run test:e2e
 ```
 
-The CI workflow installs Chromium and provides disposable MySQL/Firebase emulator infrastructure.
+Run the owner/recovery integration flows against disposable MySQL with `npm run test:e2e:integration`. The test configuration starts the Auth emulator and API; provide your test MySQL connection through `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, and `MYSQL_PASSWORD`.
+
+The CI workflow installs Chromium and provides disposable MySQL/Firebase emulator infrastructure. If the browser download is unavailable locally, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chrome/Chromium executable. Record that override when reporting results, since it differs from Playwright's pinned browser.
 
 Full release verification, where all local prerequisites are available:
 
