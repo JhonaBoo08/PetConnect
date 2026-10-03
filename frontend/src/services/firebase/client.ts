@@ -43,9 +43,21 @@ function createClient() {
       name,
     );
   const auth = persistentAuth(app);
-  if (emulator && !existing) {
-    const host = process.env.EXPO_PUBLIC_EMULATOR_HOST || "127.0.0.1";
-    connectAuthEmulator(auth, `http://${host}:9099`, { disableWarnings: true });
+  if (emulator) {
+    // Guard on the Auth instance itself rather than on whether the app was
+    // just created. Fast Refresh re-runs this module and the module-level
+    // cache is rebuilt, but getApps() still returns the already-created app.
+    // Keying off `existing` would then skip connectAuthEmulator and silently
+    // send requests to the real demo-petconnect.firebaseapp.com endpoints
+    // with the placeholder "demo-key". Connecting twice is itself an error
+    // (auth/emulator-config-failed), so the SDK's own flag is the only safe
+    // idempotency check.
+    if (!auth.emulatorConfig) {
+      const host = process.env.EXPO_PUBLIC_EMULATOR_HOST || "127.0.0.1";
+      connectAuthEmulator(auth, `http://${host}:9099`, {
+        disableWarnings: true,
+      });
+    }
   }
   return { auth };
 }

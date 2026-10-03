@@ -54,6 +54,8 @@ backend/api/.env
 .firebase/
 *-debug.log*
 firebase-debug.log
+expo-server.log
+expo-server-error.log
 test-results/
 test-results-backend.log
 dist-native/

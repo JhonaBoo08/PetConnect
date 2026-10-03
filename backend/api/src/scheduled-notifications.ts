@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
+import { randomUUID } from "node:crypto";
 import { Notifications } from "./notifications.js";
 
 type ScheduledRow = RowDataPacket & {
@@ -112,7 +112,7 @@ export class ScheduledNotifications {
             AND scheduled_at <= UTC_TIMESTAMP()
           ORDER BY scheduled_at ASC
           LIMIT ?
-          FOR UPDATE SKIP LOCKED`,
+          FOR UPDATE`,
         [Math.max(1, Math.min(100, limit))],
       );
       rows = selected;

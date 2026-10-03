@@ -1,10 +1,11 @@
 # Frontend Development & Git Workflow Guide
 
-Refer to [frontend/README.md](file:///c:/Users/Administrator/Desktop/PetConnect/frontend/README.md) for the full guide.
+Refer to [frontend/README.md](../frontend/README.md) for the full guide.
 
 ## Quick Reference Commands
 
 ### Development
+
 ```bash
 # Start Web App from root
 npm run web
@@ -14,6 +15,7 @@ npm run typecheck
 ```
 
 ### Git Workflow Steps
+
 ```bash
 # 1. Update local main
 git checkout main
