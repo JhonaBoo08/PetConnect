@@ -38,11 +38,12 @@ function QuickCareCard({
 }: {
   icon: ReactNode;
   label: string;
-  onPress?: () => void;
+  onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}
     >
@@ -158,6 +159,12 @@ export default function DashboardScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
+              onPress={() =>
+                router.push({
+                  pathname: "/alerts",
+                  params: { mode: "updates" },
+                })
+              }
               style={styles.bellButton}
             >
               <BellIcon />
@@ -210,15 +217,19 @@ export default function DashboardScreen() {
             <QuickCareCard
               icon={<QrIcon />}
               label="View ID"
-              onPress={
-                pets[0]
-                  ? () =>
-                      router.push({
-                        pathname: "/pet-id",
-                        params: { id: pets[0].id },
-                      })
-                  : undefined
-              }
+              onPress={() => {
+                if (pets.length === 0) router.push("/add-pet");
+                else if (pets.length === 1)
+                  router.push({
+                    pathname: "/pet-id",
+                    params: { id: pets[0].id },
+                  });
+                else
+                  router.push({
+                    pathname: "/my-pets",
+                    params: { action: "id" },
+                  });
+              }}
             />
             <QuickCareCard
               icon={<HealthIcon />}
@@ -234,6 +245,20 @@ export default function DashboardScreen() {
 
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Report a lost pet"
+            onPress={() => {
+              if (pets.length === 0) router.push("/add-pet");
+              else if (pets.length === 1)
+                router.push({
+                  pathname: "/alerts",
+                  params: { mode: "report", petId: pets[0].id },
+                });
+              else
+                router.push({
+                  pathname: "/my-pets",
+                  params: { action: "lost" },
+                });
+            }}
             style={({ pressed }) => [
               styles.lostButton,
               pressed && styles.pressed,

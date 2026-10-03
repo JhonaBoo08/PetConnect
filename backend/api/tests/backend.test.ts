@@ -39,6 +39,7 @@ async function resetTestDb() {
   await pool.query("TRUNCATE TABLE appointments");
   await pool.query("TRUNCATE TABLE health_records");
   await pool.query("TRUNCATE TABLE notifications");
+  await pool.query("TRUNCATE TABLE expo_push_receipts");
   await pool.query("TRUNCATE TABLE push_devices");
   await pool.query("TRUNCATE TABLE sightings");
   await pool.query("TRUNCATE TABLE lost_reports");

@@ -262,8 +262,10 @@ export const OwnerCareCalendar = forwardRef<
     const next = new Date(Date.now() + 30 * 60 * 1000);
     if (localDateKey(date) === today && localDateKey(next) !== today)
       date = next;
-    setFormPetId(petFilter || pets[0].id);
-    setChoosePet(false);
+    const initialPetId =
+      petFilter || (pets.length === 1 ? pets[0].id : "");
+    setFormPetId(initialPetId);
+    setChoosePet(!initialPetId && pets.length > 1);
     setTitle("");
     setDateValue(dateInputValue(localDateKey(date)));
     setTimeValue(defaultReminderTime(date));

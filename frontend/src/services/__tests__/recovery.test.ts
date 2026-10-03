@@ -23,8 +23,9 @@ describe("recoveryTokenFromQrData", () => {
     ).toBe(token);
   });
 
-  it("rejects malformed, unsigned, and unrelated QR content", () => {
+  it("rejects malformed, unsigned, arbitrary-URL, and unrelated QR content", () => {
     expect(recoveryTokenFromQrData("hello")).toBeNull();
+    expect(recoveryTokenFromQrData("https://example.com/anything")).toBeNull();
     expect(recoveryTokenFromQrData("a".repeat(32))).toBeNull();
     expect(
       recoveryTokenFromQrData("https://petconnect.example/recover?token=bad"),

@@ -1,7 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as Location from "expo-location";
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import type { Coordinates } from "../../../shared/contracts";
@@ -9,14 +8,31 @@ import { registerPushDevice, unregisterPushDevice } from "./recovery-network";
 
 const pushTokenStorageKey = "petconnect.recoveryPushToken";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+type NotificationsModule = typeof import("expo-notifications");
+
+function isExpoGo(): boolean {
+  return (
+    Constants.appOwnership === "expo" ||
+    Constants.executionEnvironment === "storeClient"
+  );
+}
+
+let notificationsPromise: Promise<NotificationsModule> | undefined;
+
+async function loadNotifications(): Promise<NotificationsModule> {
+  notificationsPromise ??= import("expo-notifications").then((module) => {
+    module.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+    return module;
+  });
+  return notificationsPromise;
+}
 
 export async function requestCurrentCoordinates(): Promise<Coordinates> {
   const permission = await Location.requestForegroundPermissionsAsync();
@@ -49,13 +65,15 @@ export type PushRegistrationResult =
 export async function enableRecoveryPush(
   coordinates?: Coordinates,
 ): Promise<PushRegistrationResult> {
-  if (Platform.OS === "web") {
+  if (Platform.OS === "web" || isExpoGo()) {
     return {
       enabled: false,
       reason:
-        "Recovery push notifications require an installed iOS or Android build.",
+        "Recovery push notifications require a development build or an installed iOS or Android build, not Expo Go.",
     };
   }
+
+  const Notifications = await loadNotifications();
 
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("recovery", {
@@ -87,6 +105,7 @@ export async function enableRecoveryPush(
   }
 
   try {
+    const previousToken = await AsyncStorage.getItem(pushTokenStorageKey);
     const token = (
       await Notifications.getExpoPushTokenAsync({
         projectId,
@@ -100,6 +119,14 @@ export async function enableRecoveryPush(
       platform: Platform.OS as "ios" | "android",
       ...(coordinates || {}),
     });
+    if (previousToken && previousToken !== token) {
+      try {
+        await unregisterPushDevice(previousToken);
+      } catch {
+        // The new token is already active. A stale previous token can be
+        // disabled later by Expo receipts or removed on a future registration.
+      }
+    }
     return { enabled: true, token };
   } catch (error) {
     return {
@@ -113,7 +140,7 @@ export async function enableRecoveryPush(
 }
 
 export async function disableRecoveryPush(): Promise<void> {
-  if (Platform.OS === "web") return;
+  if (Platform.OS === "web" || isExpoGo()) return;
   const token = await AsyncStorage.getItem(pushTokenStorageKey);
   if (!token) return;
   await unregisterPushDevice(token);

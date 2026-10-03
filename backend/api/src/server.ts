@@ -38,8 +38,10 @@ import {
   requestObservability,
   type RequestWithId,
 } from "./observability.js";
+import { assertProductionEnvironment } from "./config.js";
 
 dotenv.config();
+assertProductionEnvironment();
 
 function firebaseServiceAccount(): ServiceAccount | undefined {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();

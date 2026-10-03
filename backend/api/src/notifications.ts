@@ -20,6 +20,24 @@ type NotificationRow = RowDataPacket & {
   created_at: Date;
 };
 
+type PushReceiptRow = RowDataPacket & {
+  receipt_id: string;
+  expo_push_token: string;
+};
+
+type ExpoPushTicket = {
+  status: "ok" | "error";
+  id?: string;
+  message?: string;
+  details?: { error?: string };
+};
+
+type ExpoPushReceipt = {
+  status: "ok" | "error";
+  message?: string;
+  details?: { error?: string };
+};
+
 const expoTokenPattern = /^(ExponentPushToken|ExpoPushToken)\[[^\]]+\]$/;
 
 function validLatitude(value: number) {
@@ -91,6 +109,72 @@ export class Notifications {
       "DELETE FROM push_devices WHERE expo_push_token = ? AND user_id = ?",
       [token, userId],
     );
+  }
+
+  private async disableToken(token: string): Promise<void> {
+    await this.pool.query(
+      "UPDATE push_devices SET enabled = FALSE WHERE expo_push_token = ?",
+      [token],
+    );
+  }
+
+  async processPushReceipts(limit = 100): Promise<number> {
+    if (process.env.NODE_ENV === "test") return 0;
+    const [rows] = await this.pool.query<PushReceiptRow[]>(
+      `SELECT receipt_id, expo_push_token
+         FROM expo_push_receipts
+        WHERE checked_at IS NULL
+          AND created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 SECOND)
+        ORDER BY created_at ASC
+        LIMIT ?`,
+      [Math.max(1, Math.min(300, limit))],
+    );
+    if (!rows.length) return 0;
+
+    const response = await fetch(
+      "https://exp.host/--/api/v2/push/getReceipts",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...(process.env.EXPO_ACCESS_TOKEN
+            ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` }
+            : {}),
+        },
+        body: JSON.stringify({ ids: rows.map((row) => row.receipt_id) }),
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (!response.ok) {
+      console.error("Expo push receipt request failed:", response.status);
+      return 0;
+    }
+
+    const payload = (await response.json()) as {
+      data?: Record<string, ExpoPushReceipt>;
+    };
+    let processed = 0;
+    for (const row of rows) {
+      const receipt = payload.data?.[row.receipt_id];
+      if (!receipt) continue;
+      if (
+        receipt.status === "error" &&
+        receipt.details?.error === "DeviceNotRegistered"
+      ) {
+        await this.disableToken(row.expo_push_token);
+      }
+      await this.pool.query(
+        "DELETE FROM expo_push_receipts WHERE receipt_id = ?",
+        [row.receipt_id],
+      );
+      processed += 1;
+    }
+
+    await this.pool.query(
+      "DELETE FROM expo_push_receipts WHERE created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)",
+    );
+    return processed;
   }
 
   async list(userId: string): Promise<RecoveryNotification[]> {
@@ -245,6 +329,7 @@ export class Notifications {
 
     for (let offset = 0; offset < messages.length; offset += 100) {
       const chunk = messages.slice(offset, offset + 100);
+      const chunkDevices = devices.slice(offset, offset + 100);
       try {
         const response = await fetch("https://exp.host/--/api/v2/push/send", {
           method: "POST",
@@ -259,11 +344,30 @@ export class Notifications {
           signal: AbortSignal.timeout(5000),
         });
         if (!response.ok) {
-          console.error(
-            "Expo push request failed:",
-            response.status,
-            await response.text(),
-          );
+          console.error("Expo push request failed:", response.status);
+          continue;
+        }
+        const payload = (await response.json()) as { data?: ExpoPushTicket[] };
+        const tickets = Array.isArray(payload.data) ? payload.data : [];
+        for (let index = 0; index < tickets.length; index += 1) {
+          const ticket = tickets[index];
+          const token = chunkDevices[index]?.expo_push_token;
+          if (!token) continue;
+          if (
+            ticket.status === "error" &&
+            ticket.details?.error === "DeviceNotRegistered"
+          ) {
+            await this.disableToken(token);
+            continue;
+          }
+          if (ticket.status === "ok" && ticket.id) {
+            await this.pool.query(
+              `INSERT INTO expo_push_receipts (receipt_id, expo_push_token)
+               VALUES (?, ?)
+               ON DUPLICATE KEY UPDATE expo_push_token = VALUES(expo_push_token)`,
+              [ticket.id, token],
+            );
+          }
         }
       } catch (error) {
         console.error("Expo push delivery failed:", error);

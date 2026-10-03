@@ -37,18 +37,29 @@ function SettingsCard({
   subtitle: string;
   onPress?: () => void;
 }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
-    >
+  const content = (
+    <>
       <View style={styles.cardIcon}>{icon}</View>
       <View style={styles.cardBody}>
         <Text style={styles.cardTitle}>{title}</Text>
         <Text style={styles.cardSubtitle}>{subtitle}</Text>
       </View>
-      <ChevronRightIcon />
+      {onPress ? <ChevronRightIcon /> : null}
+    </>
+  );
+
+  if (!onPress) {
+    return <View style={styles.card}>{content}</View>;
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      onPress={onPress}
+      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+    >
+      {content}
     </Pressable>
   );
 }
@@ -123,6 +134,12 @@ export default function ProfileScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
+              onPress={() =>
+                router.push({
+                  pathname: "/alerts",
+                  params: { mode: "updates" },
+                })
+              }
               style={styles.bellButton}
             >
               <BellIcon />
@@ -161,7 +178,7 @@ export default function ProfileScreen() {
               onPress={() =>
                 petsError
                   ? setRetryKey((key) => key + 1)
-                  : router.push("/dashboard")
+                  : router.push("/my-pets")
               }
             />
             <SettingsCard

@@ -200,6 +200,12 @@ export default function AddPetScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
+              onPress={() =>
+                router.push({
+                  pathname: "/alerts",
+                  params: { mode: "updates" },
+                })
+              }
               style={styles.iconButton}
             >
               <BellIcon />
@@ -294,6 +300,7 @@ export default function AddPetScreen() {
 
           <Text style={styles.label}>Pet name</Text>
           <TextInput
+            accessibilityLabel="Pet name"
             value={name}
             onChangeText={(value) => {
               setName(value);
@@ -309,6 +316,7 @@ export default function AddPetScreen() {
           <Text style={styles.label}>Species</Text>
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Species"
             onPress={() => setSpeciesOpen((open) => !open)}
             style={[styles.input, styles.fieldRow]}
           >
@@ -342,6 +350,7 @@ export default function AddPetScreen() {
 
           <Text style={styles.label}>Breed</Text>
           <TextInput
+            accessibilityLabel="Breed"
             value={breed}
             onChangeText={setBreed}
             placeholder="e.g. Golden Retriever"
@@ -379,6 +388,7 @@ export default function AddPetScreen() {
 
           <Text style={styles.label}>Age</Text>
           <TextInput
+            accessibilityLabel="Age"
             value={age}
             onChangeText={setAge}
             placeholder="e.g. 3 years"
@@ -388,6 +398,7 @@ export default function AddPetScreen() {
 
           <Text style={styles.label}>Identifying details</Text>
           <TextInput
+            accessibilityLabel="Identifying details"
             value={notes}
             onChangeText={setNotes}
             placeholder="Collar, markings, temperament..."

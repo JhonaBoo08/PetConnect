@@ -1,5 +1,13 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import {
+  DarkTheme,
+  DefaultTheme,
+  Stack,
+  ThemeProvider,
+  usePathname,
+  useRouter,
+} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { useEffect } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -15,6 +23,53 @@ void SplashScreen.preventAutoHideAsync();
 
 function AppNavigator() {
   const { state } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (state.status === "loading") return;
+
+    const publicRoutes = ["/scan", "/recover"];
+    if (publicRoutes.includes(pathname)) return;
+
+    let destination:
+      | "/"
+      | "/create-account"
+      | "/dashboard"
+      | "/clinic-dashboard"
+      | "/session-status";
+    let allowedRoutes: string[];
+
+    if (state.status === "guest") {
+      destination = "/";
+      allowedRoutes = ["/", "/sign-in", "/reset-password", "/create-account"];
+    } else if (state.status === "setup") {
+      destination = "/create-account";
+      allowedRoutes = ["/create-account"];
+    } else if (state.status === "blocked" || state.status === "error") {
+      destination = "/session-status";
+      allowedRoutes = ["/session-status"];
+    } else if (state.session.role === "CLINIC") {
+      destination = "/clinic-dashboard";
+      allowedRoutes = ["/clinic-dashboard", "/clinic-scan", "/clinic-patient"];
+    } else {
+      destination = "/dashboard";
+      allowedRoutes = [
+        "/dashboard",
+        "/alerts",
+        "/profile",
+        "/privacy-settings",
+        "/pet-id",
+        "/add-pet",
+        "/my-pets",
+        "/health-reminders",
+        "/reminder-details",
+      ];
+    }
+
+    if (!allowedRoutes.includes(pathname)) router.replace(destination);
+  }, [pathname, router, state]);
+
   if (state.status === "loading") {
     return (
       <View style={styles.loading}>
@@ -47,6 +102,7 @@ function AppNavigator() {
         <Stack.Screen name="privacy-settings" />
         <Stack.Screen name="pet-id" />
         <Stack.Screen name="add-pet" />
+        <Stack.Screen name="my-pets" />
         <Stack.Screen name="health-reminders" />
         <Stack.Screen name="reminder-details" />
       </Stack.Protected>

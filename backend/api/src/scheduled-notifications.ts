@@ -171,7 +171,10 @@ export class ScheduledNotifications {
   start(intervalMs = 60_000): void {
     if (this.timer) return;
     const run = () => {
-      void this.processDue().catch((error) =>
+      void (async () => {
+        await this.processDue();
+        await this.notifications.processPushReceipts();
+      })().catch((error) =>
         console.error("Scheduled notification worker failed:", error),
       );
     };

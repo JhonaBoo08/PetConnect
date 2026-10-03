@@ -1,6 +1,6 @@
-import { useRouter } from 'expo-router';
-import { type ComponentType } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from "expo-router";
+import { type ComponentType } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
   BellIcon,
@@ -8,24 +8,26 @@ import {
   type IconProps,
   ProfileIcon,
   QrIcon,
-} from '@/components/app-icons';
-import { Palette } from '@/constants/palette';
-import { Fonts, Spacing } from '@/constants/theme';
+} from "@/components/app-icons";
+import { Palette } from "@/constants/palette";
+import { Fonts, Spacing } from "@/constants/theme";
 
-export type TabKey = 'home' | 'scan' | 'alerts' | 'profile';
+export type TabKey = "home" | "scan" | "alerts" | "profile";
 
-const tabRoutes: Partial<Record<TabKey, '/dashboard' | '/scan' | '/alerts' | '/profile'>> = {
-  home: '/dashboard',
-  scan: '/scan',
-  alerts: '/alerts',
-  profile: '/profile',
+const tabRoutes: Partial<
+  Record<TabKey, "/dashboard" | "/scan" | "/alerts" | "/profile">
+> = {
+  home: "/dashboard",
+  scan: "/scan",
+  alerts: "/alerts",
+  profile: "/profile",
 };
 
 const tabs: { key: TabKey; label: string; Icon: ComponentType<IconProps> }[] = [
-  { key: 'home', label: 'Home', Icon: HomeIcon },
-  { key: 'scan', label: 'Scan', Icon: QrIcon },
-  { key: 'alerts', label: 'Alerts', Icon: BellIcon },
-  { key: 'profile', label: 'Profile', Icon: ProfileIcon },
+  { key: "home", label: "Home", Icon: HomeIcon },
+  { key: "scan", label: "Scan", Icon: QrIcon },
+  { key: "alerts", label: "Alerts", Icon: BellIcon },
+  { key: "profile", label: "Profile", Icon: ProfileIcon },
 ];
 
 export function BottomNav({ active }: { active: TabKey }) {
@@ -40,16 +42,25 @@ export function BottomNav({ active }: { active: TabKey }) {
           <Pressable
             key={key}
             accessibilityRole="button"
+            accessibilityLabel={label}
             accessibilityState={{ selected: isActive }}
             onPress={() => {
               if (route) {
                 router.navigate(route);
               }
             }}
-            style={styles.navItem}>
+            style={styles.navItem}
+          >
             <View style={[styles.navInner, isActive && styles.navInnerActive]}>
-              <Icon size={22} color={isActive ? Palette.forestDark : Palette.inkMuted} />
-              <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{label}</Text>
+              <Icon
+                size={22}
+                color={isActive ? Palette.forestDark : Palette.inkMuted}
+              />
+              <Text
+                style={[styles.navLabel, isActive && styles.navLabelActive]}
+              >
+                {label}
+              </Text>
             </View>
           </Pressable>
         );
@@ -60,7 +71,7 @@ export function BottomNav({ active }: { active: TabKey }) {
 
 const styles = StyleSheet.create({
   bottomNav: {
-    flexDirection: 'row',
+    flexDirection: "row",
     borderTopWidth: 1,
     borderTopColor: Palette.borderSoft,
     backgroundColor: Palette.surface,
@@ -70,11 +81,11 @@ const styles = StyleSheet.create({
   },
   navItem: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
   },
   navInner: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     gap: 3,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.one,
@@ -86,11 +97,11 @@ const styles = StyleSheet.create({
   navLabel: {
     fontFamily: Fonts.sans,
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Palette.inkMuted,
   },
   navLabelActive: {
-    fontWeight: '800',
+    fontWeight: "800",
     color: Palette.forestDark,
   },
 });

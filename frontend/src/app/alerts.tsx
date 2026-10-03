@@ -1,4 +1,4 @@
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -62,7 +62,15 @@ function when(value: string) {
 }
 
 export default function AlertsScreen() {
-  const [mode, setMode] = useState<Mode>("report");
+  const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string; petId?: string }>();
+  const routeMode = Array.isArray(params.mode) ? params.mode[0] : params.mode;
+  const routePetId = Array.isArray(params.petId)
+    ? params.petId[0]
+    : params.petId;
+  const [mode, setMode] = useState<Mode>(
+    routeMode === "feed" || routeMode === "updates" ? routeMode : "report",
+  );
   const [pets, setPets] = useState<Pet[]>([]);
   const [reports, setReports] = useState<LostReport[]>([]);
   const [nearby, setNearby] = useState<NearbyLostReport[]>([]);
@@ -90,8 +98,13 @@ export default function AlertsScreen() {
     setPets(petRows);
     setReports(reportRows);
     setNotifications(notificationRows);
-    setSelectedPetId((current) => current || petRows[0]?.id || "");
-  }, []);
+    setSelectedPetId((current) => {
+      if (routePetId && petRows.some((pet) => pet.id === routePetId))
+        return routePetId;
+      if (current && petRows.some((pet) => pet.id === current)) return current;
+      return petRows.length === 1 ? petRows[0].id : "";
+    });
+  }, [routePetId]);
 
   const loadNearby = useCallback(async (coordinates: Coordinates) => {
     const rows = await getNearbyLostReports(
@@ -137,7 +150,11 @@ export default function AlertsScreen() {
 
   async function publish() {
     if (!selectedPetId) {
-      setError("Add a pet before publishing a lost report.");
+      setError(
+        pets.length === 0
+          ? "Add a pet before publishing a lost report."
+          : "Choose the pet you want to report lost.",
+      );
       return;
     }
     if (!lastSeenText.trim()) {
@@ -393,6 +410,7 @@ export default function AlertsScreen() {
                     <Pressable
                       key={pet.id}
                       accessibilityRole="button"
+                      accessibilityLabel={`Select ${pet.name} for lost report`}
                       accessibilityState={{
                         selected: selectedPetId === pet.id,
                       }}
@@ -407,9 +425,21 @@ export default function AlertsScreen() {
                     </Pressable>
                   ))}
                 </View>
+                {pets.length === 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Add a pet"
+                    onPress={() => router.push("/add-pet")}
+                    style={styles.smallButton}
+                  >
+                    <PawIcon size={16} />
+                    <Text style={styles.smallButtonText}>Add a pet</Text>
+                  </Pressable>
+                ) : null}
 
                 <Text style={styles.label}>Last seen</Text>
                 <TextInput
+                  accessibilityLabel="Last seen"
                   value={lastSeenText}
                   onChangeText={setLastSeenText}
                   placeholder="e.g. Freedom Park, Tagum"
@@ -419,6 +449,7 @@ export default function AlertsScreen() {
 
                 <Text style={styles.label}>Details</Text>
                 <TextInput
+                  accessibilityLabel="Lost pet details"
                   value={details}
                   onChangeText={setDetails}
                   placeholder="Collar, behavior, direction of travel..."
