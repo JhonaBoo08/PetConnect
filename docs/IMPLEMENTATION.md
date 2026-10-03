@@ -14,14 +14,14 @@ when adding Expo packages.
 
 ## Development milestones
 
-| Phase | Work | Completion criteria |
-| --- | --- | --- |
-| 1. Define the MVP | Agree on target users, supported platforms, primary pet-related journey, required screens, and exclusions. Decide whether accounts, pet profiles, discovery, or messaging belong in the first release. | Document the agreed scope and acceptance criteria before implementing product features. |
-| 2. Establish quality checks | Verify a clean `npm ci` install; configure linting explicitly; add a type-check command and CI for the agreed checks. | A fresh checkout passes the checks; the starter launches on each supported platform. |
-| 3. Build the app foundation | Adapt `src/app` navigation, shared components, theme, and accessibility to the approved screens. | Navigation works; loading, empty, and error states are defined; layouts work on supported screen sizes. |
-| 4. Implement one complete journey | Deliver the highest-priority approved flow using fixtures first, then the selected persistence/backend. Define data ownership and access rules before connecting real user data. | The journey meets its acceptance criteria, including validation and failure states. |
-| 5. Add remaining MVP flows | Deliver each approved feature in a separate small branch. Add meaningful tests for business logic and integration boundaries. | Each feature is reviewed and verified independently; existing journeys still work. |
-| 6. Prepare release | Test on supported devices, verify permissions and data handling, document configuration, and prepare a reproducible build and rollback procedure. | Release checklist passes and known limitations are recorded. |
+| Phase                             | Work                                                                                                                                                                                                   | Completion criteria                                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| 1. Define the MVP                 | Agree on target users, supported platforms, primary pet-related journey, required screens, and exclusions. Decide whether accounts, pet profiles, discovery, or messaging belong in the first release. | Document the agreed scope and acceptance criteria before implementing product features.                 |
+| 2. Establish quality checks       | Verify a clean `npm ci` install; configure linting explicitly; add a type-check command and CI for the agreed checks.                                                                                  | A fresh checkout passes the checks; the starter launches on each supported platform.                    |
+| 3. Build the app foundation       | Adapt `src/app` navigation, shared components, theme, and accessibility to the approved screens.                                                                                                       | Navigation works; loading, empty, and error states are defined; layouts work on supported screen sizes. |
+| 4. Implement one complete journey | Deliver the highest-priority approved flow using fixtures first, then the selected persistence/backend. Define data ownership and access rules before connecting real user data.                       | The journey meets its acceptance criteria, including validation and failure states.                     |
+| 5. Add remaining MVP flows        | Deliver each approved feature in a separate small branch. Add meaningful tests for business logic and integration boundaries.                                                                          | Each feature is reviewed and verified independently; existing journeys still work.                      |
+| 6. Prepare release                | Test on supported devices, verify permissions and data handling, document configuration, and prepare a reproducible build and rollback procedure.                                                      | Release checklist passes and known limitations are recorded.                                            |
 
 Do not introduce a backend, authentication provider, or extra product features
 until phase 1 establishes the need. Keep secrets out of Git; document required
@@ -76,9 +76,10 @@ git commit -m "docs: add development plan and Git workflow"
 Review new files in the staged diff because ordinary `git diff` does not show
 untracked file contents. For application changes, also run `npx tsc --noEmit`,
 the configured lint/test checks, and relevant platform smoke tests before
-committing. The starter declares `npm run lint`, but lint configuration and a
-test suite still need to be established; do not report them as passing without
-running them. Documentation-only changes require content, link, and diff review.
+committing. The repository includes configured lint and test suites. Run them,
+along with the relevant platform smoke tests, before reporting an application
+change as verified. Documentation-only changes require content, link, and diff
+review.
 
 ### 3. Push the branch and integrate
 

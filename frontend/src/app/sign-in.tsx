@@ -22,9 +22,6 @@ export default function SignInScreen() {
           password,
           accountType === "vet" ? "CLINIC" : "OWNER",
         );
-        router.replace(
-          accountType === "vet" ? "/clinic-dashboard" : "/dashboard",
-        );
       }}
       footer={
         <AuthFooter
