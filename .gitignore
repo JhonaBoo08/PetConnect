@@ -68,3 +68,11 @@ backups/
 frontend/dist-android/
 frontend/dist-ios/
 backend/api/.e2e-uploads/
+
+# Private deployment bundles and disposable validation output
+.deployment/
+.env.production
+.env.production.*
+!.env.production.example
+.finder-*-output.txt
+jest-*.json
