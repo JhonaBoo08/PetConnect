@@ -27,6 +27,31 @@ export class ApiError extends Error {
   }
 }
 
+const AUTH_NETWORK_TIMEOUT_MS = 15_000;
+
+function authTimeoutError(): Error & { code: string } {
+  return Object.assign(new Error("Authentication request timed out."), {
+    code: "auth/timeout",
+  });
+}
+
+async function withAuthTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs = AUTH_NETWORK_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(authTimeoutError()), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function getApiBaseUrl(): string {
   const configured = process.env.EXPO_PUBLIC_API_BASE_URL;
   const environment = process.env.EXPO_PUBLIC_FIREBASE_ENV ?? "emulator";
@@ -54,18 +79,20 @@ export async function authenticatedFetch<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const auth = firebaseClient().auth;
-  await auth.authStateReady();
+  await withAuthTimeout(auth.authStateReady());
   if (!auth.currentUser) throw new Error("Sign in to continue.");
-  const idToken = await auth.currentUser.getIdToken();
+  const idToken = await withAuthTimeout(auth.currentUser.getIdToken());
 
   const headers = new Headers(options.headers);
   headers.set("Authorization", `Bearer ${idToken}`);
   if (options.body && !(options.body instanceof FormData))
     headers.set("Content-Type", "application/json");
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...options,
-    headers,
-  });
+  const response = await withAuthTimeout(
+    fetch(`${getApiBaseUrl()}${path}`, {
+      ...options,
+      headers,
+    }),
+  );
   const data: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const body = data as { message?: string; error?: string } | null;
@@ -87,7 +114,7 @@ export async function completeOwnerRegistration(input: InitializeOwnerRequest) {
   });
   // The API has just assigned an OWNER custom claim; the old token cannot
   // authorize /v1/session until this token is refreshed.
-  await user.getIdToken(true);
+  await withAuthTimeout(user.getIdToken(true));
   return currentSession();
 }
 
@@ -96,10 +123,12 @@ export async function registerOwner(
   password: string,
   input: InitializeOwnerRequest,
 ) {
-  await createUserWithEmailAndPassword(
-    firebaseClient().auth,
-    email.trim(),
-    password,
+  await withAuthTimeout(
+    createUserWithEmailAndPassword(
+      firebaseClient().auth,
+      email.trim(),
+      password,
+    ),
   );
   // Keep the Firebase user signed in if the API fails so registration can resume.
   return completeOwnerRegistration(input);
@@ -107,7 +136,9 @@ export async function registerOwner(
 
 export async function login(email: string, password: string, role: UserRole) {
   const auth = firebaseClient().auth;
-  await signInWithEmailAndPassword(auth, email.trim(), password);
+  await withAuthTimeout(
+    signInWithEmailAndPassword(auth, email.trim(), password),
+  );
   const session = await currentSession();
   if (session.role !== role) {
     await signOut(auth);
@@ -141,6 +172,6 @@ export const updatePrivacySettings = (input: UpdatePrivacySettings) =>
   });
 
 export const resetPassword = (email: string) =>
-  sendPasswordResetEmail(firebaseClient().auth, email.trim());
+  withAuthTimeout(sendPasswordResetEmail(firebaseClient().auth, email.trim()));
 
-export const logout = () => signOut(firebaseClient().auth);
+export const logout = () => withAuthTimeout(signOut(firebaseClient().auth));
