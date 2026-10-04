@@ -39,6 +39,10 @@ describe("development API endpoints", () => {
         manifest2?: unknown;
       }
     ).manifest2 = undefined;
+    Object.assign(Constants, {
+      experienceUrl: undefined,
+      linkingUri: undefined,
+    });
   });
 
   it("preserves the Expo tunnel scheme instead of phone localhost", () => {
@@ -46,8 +50,9 @@ describe("development API endpoints", () => {
     process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
     globalThis.__DEV__ = true;
     expect(getApiBaseUrl()).toBe(
-      "http://phone-preview.exp.direct/petconnect-api",
+      "https://phone-preview.exp.direct/petconnect-api",
     );
+    expect(authEmulatorUrl()).toBe("https://phone-preview.exp.direct");
   });
 
   it("uses the same Metro port for LAN development", () => {
@@ -102,6 +107,29 @@ describe("development API endpoints", () => {
 
     expect(getApiBaseUrl()).toBe("http://192.168.1.44:8081/petconnect-api");
   });
+
+  it.each([
+    ["exp://192.168.1.50:8081/--/dashboard", "http://192.168.1.50:8081"],
+    [
+      "exp://phone-preview.exp.direct/--/dashboard",
+      "https://phone-preview.exp.direct",
+    ],
+    [
+      "exps://phone-preview.exp.direct/--/dashboard",
+      "https://phone-preview.exp.direct",
+    ],
+  ])(
+    "uses the Expo experience URL %s when other runtime hints are absent",
+    (experienceUrl, origin) => {
+      delete process.env.EXPO_PUBLIC_API_BASE_URL;
+      process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
+      globalThis.__DEV__ = true;
+      Constants.expoConfig!.hostUri = undefined;
+      Object.assign(Constants, { experienceUrl });
+      expect(getApiBaseUrl()).toBe(origin + "/petconnect-api");
+      expect(authEmulatorUrl()).toBe(origin);
+    },
+  );
 
   it("preserves an explicit API override", () => {
     process.env.EXPO_PUBLIC_API_BASE_URL = "https://api.example.test/";

@@ -184,9 +184,27 @@ export default function NotificationsScreen() {
           ) : null}
 
           {error ? (
-            <Text accessibilityRole="alert" style={styles.error}>
-              {error}
-            </Text>
+            <View>
+              <Text accessibilityRole="alert" style={styles.error}>
+                {error}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Retry notifications"
+                accessibilityState={{ disabled: refreshing, busy: refreshing }}
+                disabled={refreshing}
+                onPress={() => void refresh()}
+                style={[styles.pushButton, styles.retryButton]}
+              >
+                {refreshing ? (
+                  <ActivityIndicator color={Palette.white} />
+                ) : (
+                  <Text style={[styles.pushButtonText, styles.retryButtonText]}>
+                    Retry
+                  </Text>
+                )}
+              </Pressable>
+            </View>
           ) : null}
           {loading ? (
             <ActivityIndicator
@@ -391,5 +409,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Palette.forestDark,
   },
+  retryButton: { backgroundColor: Palette.forestDark },
+  retryButtonText: { color: Palette.white },
   pressed: { opacity: 0.82 },
 });

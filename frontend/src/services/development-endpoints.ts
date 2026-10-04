@@ -20,11 +20,16 @@ function normalizeOrigin(candidate?: string | null): string | undefined {
 
   try {
     const withProtocol = value.includes("://") ? value : `http://${value}`;
-    const url = new URL(withProtocol);
+    // Custom Expo schemes must be converted before parsing: URL.protocol
+    // cannot switch a non-HTTP URL into an HTTP URL.
+    const url = new URL(
+      withProtocol.replace(/^exp:/i, "http:").replace(/^exps:/i, "https:"),
+    );
 
-    if (url.protocol === "exp:") {
-      url.protocol = "http:";
-    } else if (url.protocol === "exps:") {
+    // Expo tunnel hosts redirect plain HTTP to HTTPS. Firebase Auth's React
+    // Native transport is more reliable when pointed at the final secure
+    // origin directly instead of depending on that redirect.
+    if (url.hostname.endsWith(".exp.direct")) {
       url.protocol = "https:";
     }
 

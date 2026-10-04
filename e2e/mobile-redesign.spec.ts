@@ -25,8 +25,12 @@ test.describe("mobile navigation and recovery redesign", () => {
       ).toBe(true);
       if (process.env.PETCONNECT_CAPTURE_UI === "1") {
         if (await view.getByLabel("Interactive recovery map").count()) {
-          await expect(view.locator(".leaflet-overlay-pane path").first()).toBeAttached();
-          await expect(view.locator(".leaflet-tile-loaded").first()).toBeAttached();
+          await expect(
+            view.locator(".leaflet-overlay-pane path").first(),
+          ).toBeAttached();
+          await expect(
+            view.locator(".leaflet-tile-loaded").first(),
+          ).toBeAttached();
         }
         await view.screenshot({ path: testInfo.outputPath(name + ".png") });
       }
@@ -206,13 +210,21 @@ test.describe("mobile navigation and recovery redesign", () => {
     await capture("09-report-pet-location");
     const reportMap = page.getByLabel("Interactive recovery map");
     await reportMap.click({ position: { x: 220, y: 110 } });
-    await expect(page.getByText(/^Pin:/)).not.toContainText("7.44790, 125.80790");
+    await expect(page.getByText(/^Pin:/)).not.toContainText(
+      "7.44790, 125.80790",
+    );
     await page.getByRole("button", { name: "Zoom in", exact: true }).click();
-    await expect(page.locator(".leaflet-tile-loaded").first()).toHaveAttribute("src", new RegExp("/16/"));
+    await expect(page.locator(".leaflet-tile-loaded").first()).toHaveAttribute(
+      "src",
+      new RegExp("/16/"),
+    );
     await page
       .getByLabel("Lost pet details", { exact: true })
       .fill("Yellow collar. Last moving toward the market.");
-    await expect(page.locator(".leaflet-tile-loaded").first()).toHaveAttribute("src", new RegExp("/16/"));
+    await expect(page.locator(".leaflet-tile-loaded").first()).toHaveAttribute(
+      "src",
+      new RegExp("/16/"),
+    );
     await page
       .getByRole("button", { name: "Publish lost report", exact: true })
       .scrollIntoViewIfNeeded();

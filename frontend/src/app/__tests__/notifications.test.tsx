@@ -222,7 +222,7 @@ it("shows a loading failure instead of an empty inbox and supports retrying by r
     expect(view.getByText("Notifications unavailable")).toBeTruthy(),
   );
   expect(view.queryByText("You're all caught up")).toBeNull();
-  await fireEvent(view.getByLabelText("Refresh notifications"), "refresh");
+  await fireEvent.press(view.getByLabelText("Retry notifications"));
   await waitFor(() =>
     expect(view.getByText("You're all caught up")).toBeTruthy(),
   );

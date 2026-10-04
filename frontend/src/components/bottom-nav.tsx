@@ -1,6 +1,14 @@
-import { useRouter } from "expo-router";
-import { type ComponentType } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import * as Haptics from "expo-haptics";
+import { useFocusEffect, useRouter } from "expo-router";
+import { type ComponentType, useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import {
   HomeIcon,
@@ -36,6 +44,22 @@ const tabs: { key: TabKey; label: string; Icon: ComponentType<IconProps> }[] = [
 
 export function BottomNav({ active }: { active: TabKey }) {
   const router = useRouter();
+  const [pendingTab, setPendingTab] = useState<TabKey | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      setPendingTab(null);
+    }, []),
+  );
+
+  function goToTab(key: TabKey) {
+    if (key === active || pendingTab) return;
+    setPendingTab(key);
+    if (Platform.OS !== "web") {
+      void Haptics.selectionAsync().catch(() => {});
+    }
+    requestAnimationFrame(() => router.navigate(tabRoutes[key]));
+  }
 
   return (
     <View
@@ -50,20 +74,42 @@ export function BottomNav({ active }: { active: TabKey }) {
             key={key}
             accessibilityRole="tab"
             accessibilityLabel={label}
-            accessibilityState={{ selected: isActive }}
+            accessibilityState={{
+              selected: isActive,
+              busy: pendingTab === key,
+              disabled: pendingTab !== null,
+            }}
             aria-selected={isActive}
-            onPress={() => router.navigate(tabRoutes[key])}
-            style={styles.navItem}
+            disabled={pendingTab !== null}
+            onPress={() => goToTab(key)}
+            style={({ pressed }) => [
+              styles.navItem,
+              pressed && !isActive && styles.navItemPressed,
+            ]}
           >
-            <View style={[styles.navInner, isActive && styles.navInnerActive]}>
-              <Icon
-                size={key === "pets" ? 20 : 21}
-                color={isActive ? Palette.white : Palette.inkMuted}
-              />
+            <View
+              style={[
+                styles.navInner,
+                isActive && styles.navInnerActive,
+                pendingTab === key && styles.navInnerPending,
+              ]}
+            >
+              {pendingTab === key ? (
+                <ActivityIndicator size="small" color={Palette.forestDark} />
+              ) : (
+                <Icon
+                  size={key === "pets" ? 20 : 21}
+                  color={isActive ? Palette.white : Palette.inkMuted}
+                />
+              )}
               <Text
-                style={[styles.navLabel, isActive && styles.navLabelActive]}
+                style={[
+                  styles.navLabel,
+                  isActive && styles.navLabelActive,
+                  pendingTab === key && styles.navLabelPending,
+                ]}
               >
-                {label}
+                {pendingTab === key ? "Opening…" : label}
               </Text>
             </View>
           </Pressable>
@@ -93,6 +139,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  navItemPressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.96 }],
+  },
   navInner: {
     width: "100%",
     minHeight: 44,
@@ -106,6 +156,9 @@ const styles = StyleSheet.create({
   navInnerActive: {
     backgroundColor: Palette.forestDark,
   },
+  navInnerPending: {
+    backgroundColor: Palette.sage,
+  },
   navLabel: {
     fontFamily: Fonts.sans,
     fontSize: 9,
@@ -115,5 +168,9 @@ const styles = StyleSheet.create({
   navLabelActive: {
     fontWeight: "800",
     color: Palette.white,
+  },
+  navLabelPending: {
+    color: Palette.forestDark,
+    fontWeight: "800",
   },
 });

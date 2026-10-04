@@ -81,7 +81,7 @@ test.describe("owner integration", () => {
       await expect(page).toHaveURL(/\/add-pet$/);
       await page.getByLabel("Pet name").fill(name);
       await page.getByRole("button", { name: "Species" }).click();
-      await page.getByText("Dog", { exact: true }).click();
+      await page.getByRole("button", { name: "Dog", exact: true }).click();
 
       const recoveryResponse = page.waitForResponse(
         (response) =>
