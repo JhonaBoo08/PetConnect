@@ -266,7 +266,7 @@ test.describe("owner integration", () => {
         }),
       { times: 1 },
     );
-    await finderPage.getByRole("button", { name: "Send sighting" }).click();
+    await finderPage.getByRole("button", { name: "Submit Sighting" }).click();
     await expect(finderPage.getByRole("alert")).toContainText("temporarily");
     await capture(finderPage, "11-submission-error");
     await finderPage.route(
@@ -282,7 +282,7 @@ test.describe("owner integration", () => {
         }),
       { times: 1 },
     );
-    await finderPage.getByRole("button", { name: "Send sighting" }).click();
+    await finderPage.getByRole("button", { name: "Submit Sighting" }).click();
     await expect(finderPage.getByRole("alert")).toContainText("wait");
     await capture(finderPage, "12-rate-limit");
     await finderPage.route(
@@ -298,7 +298,7 @@ test.describe("owner integration", () => {
         }),
       { times: 1 },
     );
-    await finderPage.getByRole("button", { name: "Send sighting" }).click();
+    await finderPage.getByRole("button", { name: "Submit Sighting" }).click();
     await expect(
       finderPage.getByText("Extra verification needed", { exact: true }),
     ).toBeVisible();
@@ -344,7 +344,7 @@ test.describe("owner integration", () => {
         .click();
     } else {
       await finderPage.getByRole("button", { name: "Back to report" }).click();
-      await finderPage.getByRole("button", { name: "Send sighting" }).click();
+      await finderPage.getByRole("button", { name: "Submit Sighting" }).click();
     }
     await expect(finderPage.getByText("Sighting sent")).toBeVisible();
     await capture(finderPage, "14-sighting-success");

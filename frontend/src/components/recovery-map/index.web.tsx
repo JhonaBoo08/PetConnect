@@ -6,6 +6,8 @@ import { StyleSheet, View } from "react-native";
 import { Palette } from "@/constants/palette";
 import type { RecoveryMapPin, RecoveryMapProps } from "./types";
 
+const emptyTrail: NonNullable<RecoveryMapProps["trail"]> = [];
+
 function colorFor(pin: RecoveryMapPin): string {
   if (pin.kind === "found") return "#C78300";
   if (pin.kind === "sighting" || pin.status === "SIGHTED") return "#E0A11B";
@@ -31,7 +33,7 @@ function popup(title: string, description?: string) {
 
 export function RecoveryMap({
   pins,
-  trail = [],
+  trail = emptyTrail,
   selected,
   onSelect,
   height = 250,

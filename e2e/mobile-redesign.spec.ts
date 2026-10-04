@@ -246,7 +246,7 @@ test.describe("mobile navigation and recovery redesign", () => {
         .click();
       await expect(finderPage.getByText(/Location attached/)).toBeVisible();
       await finderPage
-        .getByRole("button", { name: "Send sighting", exact: true })
+        .getByRole("button", { name: "Submit Sighting", exact: true })
         .click();
       await expect(
         finderPage.getByText("Sighting sent", { exact: true }),

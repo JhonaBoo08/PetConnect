@@ -25,6 +25,7 @@ import {
 } from "@/components/app-icons";
 import { BottomNav } from "@/components/bottom-nav";
 import { RecoveryMap } from "@/components/recovery-map";
+import type { RecoveryMapPin } from "@/components/recovery-map/types";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { authErrorMessage } from "@/services/auth-context";
@@ -47,6 +48,7 @@ import type {
 } from "../../../shared/contracts";
 
 type Mode = "nearby" | "reports";
+const emptyMapPins: RecoveryMapPin[] = [];
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -537,7 +539,7 @@ export default function RecoveryScreen() {
                 </Pressable>
                 <RecoveryMap
                   selected={reportLocation}
-                  pins={[]}
+                  pins={emptyMapPins}
                   onSelect={
                     publishing
                       ? undefined
@@ -1354,6 +1356,7 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   reportCta: {
+    paddingHorizontal: Spacing.four,
     marginTop: Spacing.three,
     minHeight: 48,
     borderRadius: 14,

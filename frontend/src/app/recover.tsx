@@ -74,7 +74,7 @@ function encounterCopy(encounter: FinderEncounterType, petName: string) {
         title: `I saw ${petName}`,
         subtitle:
           "Send a quick location update. A photo is helpful but not required.",
-        submit: "Send sighting",
+        submit: "Submit Sighting",
       };
 }
 

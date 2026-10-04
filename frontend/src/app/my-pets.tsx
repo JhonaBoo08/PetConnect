@@ -234,7 +234,7 @@ export default function MyPetsScreen() {
                         .join(" · ")}
                     </Text>
                     <Text style={styles.protectedText}>
-                      PetConnect ID active
+                      Pet ID active
                     </Text>
                   </View>
                   <ChevronRightIcon />

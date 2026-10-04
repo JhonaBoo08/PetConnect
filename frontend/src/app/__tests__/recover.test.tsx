@@ -102,7 +102,7 @@ it("keeps a recoverable finder report after a temporary service failure", async 
       "Market entrance",
     ),
   );
-  await fireEvent.press(view.getByRole("button", { name: "Send sighting" }));
+  await fireEvent.press(view.getByRole("button", { name: "Submit Sighting" }));
   await waitFor(() =>
     expect(
       view.getByText(
@@ -113,7 +113,7 @@ it("keeps a recoverable finder report after a temporary service failure", async 
   expect(view.getByLabelText("Finder location description").props.value).toBe(
     "Market entrance",
   );
-  expect(view.getByRole("button", { name: "Send sighting" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "Submit Sighting" })).toBeTruthy();
   await view.unmount();
 });
 
@@ -226,7 +226,7 @@ it("keeps the SEEN flow fast and makes photo evidence optional", async () => {
     expect(view.getByLabelText("Finder location description")).toBeTruthy(),
   );
   expect(view.getByText(/PHOTO.*OPTIONAL/i)).toBeTruthy();
-  expect(view.getByRole("button", { name: "Send sighting" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "Submit Sighting" })).toBeTruthy();
   expect(mockUploadFinderPhoto).not.toHaveBeenCalled();
   expect(mockSubmitFinderReport).not.toHaveBeenCalled();
   await view.unmount();
@@ -324,7 +324,7 @@ it("progressively requests phone verification only when the API requires it", as
     ),
   );
 
-  await fireEvent.press(view.getByRole("button", { name: "Send sighting" }));
+  await fireEvent.press(view.getByRole("button", { name: "Submit Sighting" }));
   await waitFor(() =>
     expect(view.getByText("Extra verification needed")).toBeTruthy(),
   );
