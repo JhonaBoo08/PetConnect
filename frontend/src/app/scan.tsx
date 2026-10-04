@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { BackArrow, QrIcon } from "@/components/app-icons";
+import { BackArrow } from "@/components/app-icons";
 import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
@@ -31,13 +31,12 @@ export default function ScanScreen() {
     if (scanned) return;
     const token = recoveryTokenFromQrData(data);
     if (!token) {
-      setScanError("That is not an active PetConnect recovery QR format.");
+      setScanError("This QR is not a valid PetConnect recovery code.");
       return;
     }
+
     setScanned(true);
     setScanError("");
-    // Expo Router's generated typed-route cache can lag a newly added file
-    // until the dev server regenerates it. The runtime route is file-backed.
     router.replace(
       { pathname: "/recover", params: { token } } as unknown as Href,
     );
@@ -47,26 +46,22 @@ export default function ScanScreen() {
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
-          <View style={styles.topBar}>
+          {!owner ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => goBack(owner ? "/dashboard" : "/")}
-              style={styles.iconButton}
+              onPress={() => goBack("/")}
+              style={styles.backButton}
             >
               <BackArrow />
             </Pressable>
-            <View style={styles.modePill}>
-              <QrIcon size={15} color={Palette.forestDark} />
-              <Text style={styles.modeText}>Recovery scanner</Text>
-            </View>
-          </View>
+          ) : null}
 
-          <Text style={styles.category}>PET RECOVERY</Text>
-          <Text style={styles.heading}>Scan a PetConnect QR</Text>
+          <Text style={[styles.heading, owner && styles.ownerHeading]}>
+            Scan Pet QR
+          </Text>
           <Text style={styles.instruction}>
-            Point the camera at the QR on a PetConnect tag or digital Pet ID.
-            No sign-in is required to help reunite a pet.
+            Point your camera at a PetConnect tag or digital Pet ID.
           </Text>
 
           <View style={styles.scanner}>
@@ -74,9 +69,9 @@ export default function ScanScreen() {
               <ActivityIndicator size="large" color={Palette.gold} />
             ) : !permission.granted ? (
               <View style={styles.permissionCard}>
-                <Text style={styles.permissionTitle}>Camera permission needed</Text>
+                <Text style={styles.permissionTitle}>Camera access needed</Text>
                 <Text style={styles.permissionText}>
-                  PetConnect uses the camera only while this scanner is open.
+                  PetConnect uses your camera only while this scanner is open.
                 </Text>
                 <Pressable
                   accessibilityRole="button"
@@ -126,7 +121,8 @@ export default function ScanScreen() {
             </View>
           ) : (
             <Text style={styles.helper}>
-              A valid code opens only the pet&apos;s recovery-safe public profile.
+              Only the pet&apos;s recovery-safe public information opens after a
+              successful scan.
             </Text>
           )}
         </View>
@@ -151,15 +147,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.five,
+    paddingBottom: Spacing.four,
   },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: Spacing.two,
-  },
-  iconButton: {
+  backButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
@@ -168,37 +158,19 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
     alignItems: "center",
     justifyContent: "center",
-  },
-  modePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.one,
-    paddingHorizontal: Spacing.three,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Palette.sage,
-  },
-  modeText: {
-    fontFamily: Fonts.sans,
-    color: Palette.forestDark,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  category: {
-    fontFamily: Fonts.sans,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.6,
-    color: Palette.forestDark,
-    marginTop: Spacing.five,
+    marginTop: Spacing.two,
   },
   heading: {
     fontFamily: Fonts.sans,
-    fontSize: 28,
+    fontSize: 29,
+    lineHeight: 35,
     fontWeight: "800",
     letterSpacing: -0.5,
     color: Palette.forestDark,
-    marginTop: Spacing.one,
+    marginTop: Spacing.four,
+  },
+  ownerHeading: {
+    marginTop: Spacing.five,
   },
   instruction: {
     fontFamily: Fonts.sans,
@@ -209,12 +181,12 @@ const styles = StyleSheet.create({
   },
   scanner: {
     width: "100%",
-    maxWidth: 360,
+    maxWidth: 390,
     aspectRatio: 1,
     alignSelf: "center",
-    marginTop: Spacing.five,
+    marginTop: Spacing.four,
     backgroundColor: Palette.forestDark,
-    borderRadius: 20,
+    borderRadius: 22,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
@@ -223,12 +195,11 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: "72%",
     height: "72%",
-    alignSelf: "center",
     top: "14%",
     left: "14%",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.45)",
-    borderRadius: 12,
+    borderColor: "rgba(255,255,255,0.42)",
+    borderRadius: 14,
   },
   bracket: {
     position: "absolute",
@@ -305,10 +276,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: Palette.inkMuted,
     textAlign: "center",
-    marginTop: Spacing.four,
+    marginTop: Spacing.three,
+    paddingHorizontal: Spacing.two,
   },
   errorCard: {
-    marginTop: Spacing.four,
+    marginTop: Spacing.three,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     borderRadius: 14,
