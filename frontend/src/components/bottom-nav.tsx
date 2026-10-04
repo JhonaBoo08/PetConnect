@@ -38,13 +38,13 @@ export function BottomNav({ active }: { active: TabKey }) {
   const router = useRouter();
 
   return (
-    <View style={styles.bottomNav}>
+    <View accessibilityRole="tablist" accessibilityLabel="Main navigation" style={styles.bottomNav}>
       {tabs.map(({ key, label, Icon }) => {
         const isActive = key === active;
         return (
           <Pressable
             key={key}
-            accessibilityRole="button"
+            accessibilityRole="tab"
             accessibilityLabel={label}
             accessibilityState={{ selected: isActive }}
             onPress={() => router.navigate(tabRoutes[key])}
