@@ -1,0 +1,11 @@
+[Unit]
+Description=PetConnect database and local-media backup
+After=mysql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/petconnect
+EnvironmentFile=/etc/petconnect/db-maintenance.env
+UMask=0077
+PrivateTmp=true
+ExecStart=/bin/bash /opt/petconnect/deploy/run-backup.sh

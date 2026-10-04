@@ -1,0 +1,32 @@
+[Unit]
+Description=PetConnect API
+Wants=network-online.target
+After=network-online.target mysql.service
+
+[Service]
+Type=simple
+User=petconnect
+Group=petconnect
+WorkingDirectory=/opt/petconnect/backend/api
+EnvironmentFile=/etc/petconnect/api.env
+ExecStart=/usr/bin/node /opt/petconnect/backend/api/lib/backend/api/src/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0027
+
+# Systemd hardening that does not interfere with Node networking or uploads.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/petconnect/uploads
+
+[Install]
+WantedBy=multi-user.target

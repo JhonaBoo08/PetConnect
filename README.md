@@ -31,38 +31,37 @@ docs/                  operator-facing legal/privacy templates
 
 ## Requirements
 
-For local development install:
+For the normal local `npm run dev` workflow install:
 
 - Node.js 22 or newer
 - npm
-- MySQL 8, including the `mysql` and `mysqldump` CLI tools
-- Java 21 for the Firebase Auth emulator
-- Playwright Chromium for browser E2E tests
-- Android Studio/Xcode only when building or running the corresponding native platform
+- MySQL 8 server
+- Java 17 or newer for the Firebase Auth emulator
+- At least 2 GB of free disk space for the first dependency install and Expo caches
+
+The MySQL `mysql` / `mysqldump` CLI tools are only required for backup/restore workflows. Playwright Chromium is only required for browser E2E tests. Android Studio/Xcode are only required when building the corresponding native platform.
 
 ## Clean install
+
+With the prerequisites above installed, the intended fresh-clone workflow is:
 
 ```bash
 git clone <YOUR_REPOSITORY_URL> petconnect
 cd petconnect
-npm ci
-npm --prefix backend/api ci
-npm --prefix frontend ci
+npm run dev
 ```
 
-Create local configuration:
+On first run, PetConnect automatically installs the root/backend/frontend lockfile dependencies when they are missing, creates ignored local environment files from the tracked examples, bootstraps or migrates the local MySQL database, starts the Firebase Auth emulator and API, then starts Expo.
 
-```bash
-# copy these files using your shell/file manager
-backend/api/.env.example  -> backend/api/.env
-frontend/.env.example     -> frontend/.env.local
-```
+The generated database defaults are `127.0.0.1:3306`, user `root`, blank password, database `petconnect_db`. If your MySQL installation uses different credentials, the first run will stop with a clear message. Edit `backend/api/.env` once and run `npm run dev` again. PetConnect never overwrites an existing local environment file.
 
-The tracked examples are development-only templates. Never commit the real files.
+The tracked environment examples are development-only templates. Never commit the real files.
 
 ## Local database
 
-Create an empty MySQL database matching `MYSQL_DATABASE` in `backend/api/.env`, then:
+`npm run dev` runs the safe database bootstrap automatically. It creates `petconnect_db` when permitted, loads the current schema for an empty database, and applies pending checksum-tracked migrations for an existing PetConnect database.
+
+You can inspect or run the database tooling manually:
 
 ```bash
 npm run db:bootstrap
@@ -89,7 +88,7 @@ Start the complete local development stack with one command:
 npm run dev
 ```
 
-This starts the Firebase Auth emulator, PetConnect API, and Expo frontend together. Local Auth accounts are imported from `.firebase/emulators` and saved there when the emulator shuts down normally with Ctrl+C. Run `npm run emulators:save` before a forced restart. This ignored local state keeps Firebase user IDs aligned with the MySQL owner profiles between development sessions.
+This starts the Firebase Auth emulator, PetConnect API, and Expo frontend together. A fresh clone starts with an empty Auth emulator; no pre-existing `.firebase/emulators` export is required. After the first session, local Auth accounts are saved there on normal Ctrl+C shutdown and imported on later runs. Run `npm run emulators:save` before a forced restart. This ignored local state keeps Firebase user IDs aligned with the MySQL owner profiles between development sessions.
 
 If you intentionally want to run components separately, use `npm run emulators`, `npm run dev:api`, and `npm run dev:frontend`.
 
@@ -127,7 +126,7 @@ npm run audit:prod
 
 The production audit fails on any critical or unapproved high-severity advisory. Two exact, currently unpatched Expo/Jest build-tool advisories are documented and narrowly allow-listed in [docs/DEPENDENCY_SECURITY.md](docs/DEPENDENCY_SECURITY.md); the policy does not waive new high-severity findings.
 
-Backend integration tests need a disposable `petconnect_test` MySQL database and Java 21:
+Backend integration tests need a disposable `petconnect_test` MySQL database and Java 17+:
 
 ```bash
 npm run test:backend
@@ -156,9 +155,19 @@ npm run release:verify
 
 ## Production deployment
 
-See [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md). Production configuration intentionally fails during startup when required database, Firebase Admin, CORS, public URL, recovery-secret, or durable-upload settings are missing or unsafe.
+See [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md). Local/demo behavior is kept separate from production; no production hardening requires removing emulator or development workflows.
 
-For a public deployment, configure your own Firebase project, MySQL credentials, HTTPS domain, Firebase Admin credentials, stable recovery signing secret, and durable upload path. Keep all secrets outside Git.
+Tracked deployment templates are under `deploy/`. Before launch, run:
+
+```bash
+npm run test:production-readiness
+npm run production:preflight -- --api-env <api.env> --frontend-env <frontend.env>
+npm run production:probe -- --api-env <api.env> --frontend-env <frontend.env>
+```
+
+After the public endpoints are live, run `npm run production:smoke -- --web-url https://... --api-url https://...`.
+
+Production configuration intentionally fails closed when database transport, Firebase Admin credentials, CORS/public origins, recovery/finder secrets, OTP delivery, or durable media settings are unsafe. Same-server MySQL can use a local Unix socket; remote MySQL requires verified TLS. Keep all secrets outside Git.
 
 ## Native builds
 

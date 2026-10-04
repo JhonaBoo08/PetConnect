@@ -4,29 +4,26 @@ The backend is an Express/TypeScript API backed by MySQL 8. Firebase Authenticat
 
 ## Local setup
 
-From the repository root:
+For the normal local workflow, install Node.js 22+, Java 17+, and MySQL 8, then run from the repository root:
 
 ```bash
-npm ci
-npm --prefix backend/api ci
-npm --prefix frontend ci
+npm run dev
 ```
 
-Copy `backend/api/.env.example` to `backend/api/.env`, create the local database named in that file, then:
+The first run self-prepares the repository: missing root/backend/frontend dependencies are installed from their lockfiles, `backend/api/.env` and `frontend/.env.local` are created from the tracked examples when absent, the local MySQL schema is bootstrapped/migrated, and the Firebase Auth emulator plus API are started before Expo.
+
+The default local MySQL settings are `127.0.0.1:3306`, user `root`, blank password, database `petconnect_db`. If your MySQL install differs, edit the generated `backend/api/.env` and rerun `npm run dev`. Existing environment files are never overwritten.
+
+For manual component-by-component work, the underlying commands remain available:
 
 ```bash
 npm run db:bootstrap
 npm run db:status
 npm run emulators
-```
-
-In another terminal:
-
-```bash
 npm --prefix backend/api run dev
 ```
 
-Local development may use MySQL root/blank password and the Firebase `demo-petconnect` emulator project only when that matches the developer's local MySQL configuration. Production explicitly rejects these development defaults.
+Local development uses the Firebase `demo-petconnect` Auth emulator. A fresh clone does not need a saved emulator export; the launcher starts empty and saves state under the ignored `.firebase/emulators` directory on normal shutdown. Production explicitly rejects these development defaults.
 
 ## Configuration
 
