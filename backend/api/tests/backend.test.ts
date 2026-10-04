@@ -690,6 +690,7 @@ test("pet CRUD persists fields and enforces owner-scoped access", async () => {
       sex: "Male",
       ageLabel: "3 years",
       identifyingDetails: "Blue collar",
+      microchipNumber: "985141000123456",
       ownerId: second.uid,
       id: "attacker-chosen",
     });
@@ -697,14 +698,22 @@ test("pet CRUD persists fields and enforces owner-scoped access", async () => {
   assert.match(created.body.id, /^PC-[A-F0-9-]{36}$/);
   assert.equal(created.body.name, "Bantay");
   assert.equal(created.body.identifyingDetails, "Blue collar");
+  assert.equal(created.body.microchipNumber, "985141000123456");
   assert.equal(created.body.photoUrl, null);
 
   const id = created.body.id;
   const [rows] = await pool.query<
-    (RowDataPacket & { owner_id: string; age_label: string })[]
-  >("SELECT owner_id, age_label FROM pets WHERE id = ?", [id]);
+    (RowDataPacket & {
+      owner_id: string;
+      age_label: string;
+      microchip_number: string | null;
+    })[]
+  >("SELECT owner_id, age_label, microchip_number FROM pets WHERE id = ?", [
+    id,
+  ]);
   assert.equal(rows[0].owner_id, first.uid);
   assert.equal(rows[0].age_label, "3 years");
+  assert.equal(rows[0].microchip_number, "985141000123456");
 
   const firstList = await request(app)
     .get("/v1/pets")
@@ -737,12 +746,14 @@ test("pet CRUD persists fields and enforces owner-scoped access", async () => {
       sex: "Female",
       ageLabel: "4 years",
       identifyingDetails: "White paw",
+      microchipNumber: "985141000123457",
       ownerId: second.uid,
     });
   assert.equal(edited.status, 200);
   assert.equal(edited.body.name, "Bantay Jr");
   assert.equal(edited.body.sex, "Female");
   assert.equal(edited.body.breed, "");
+  assert.equal(edited.body.microchipNumber, "985141000123457");
   assert.equal(
     (await request(app).get(`/v1/pets/${id}`).set("Authorization", firstHeader))
       .body.identifyingDetails,
@@ -900,6 +911,7 @@ test("recovery QR tokens are public-safe, owner-scoped, revocable and rotatable"
       sex: "Male",
       ageLabel: "2 years",
       identifyingDetails: "White chest and red collar",
+      microchipNumber: "985141000654321",
     })
     .expect(201);
   const petId = created.body.id as string;
@@ -927,6 +939,8 @@ test("recovery QR tokens are public-safe, owner-scoped, revocable and rotatable"
     publicProfile.body.pet.identifyingDetails,
     "White chest and red collar",
   );
+  assert.equal(publicProfile.body.pet.microchipped, true);
+  assert.equal(publicProfile.body.pet.microchipNumber, undefined);
   assert.equal(publicProfile.body.owner.displayName, "Recovery Owner");
   assert.equal(publicProfile.body.owner.phone, null);
   assert.equal(publicProfile.body.pet.id, undefined);

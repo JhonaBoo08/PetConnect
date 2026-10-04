@@ -113,11 +113,20 @@ test("legacy bootstrap applies new migrations instead of baselining absent table
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`;
     const previousSchema = schema
       .split(/;\s*(?:\r?\n|$)/)
-      .map((statement) =>
-        /CREATE TABLE IF NOT EXISTS sightings\b/.test(statement)
-          ? previousSightings
-          : statement,
-      )
+      .map((statement) => {
+        if (/CREATE TABLE IF NOT EXISTS sightings\b/.test(statement)) {
+          return previousSightings;
+        }
+        if (/CREATE TABLE IF NOT EXISTS pets\b/.test(statement)) {
+          return statement
+            .replace("\n  microchip_number VARCHAR(64) NULL,", "")
+            .replace(
+              "\n  UNIQUE KEY pets_microchip_unique (microchip_number),",
+              "",
+            );
+        }
+        return statement;
+      })
       .filter(
         (statement) =>
           !/CREATE TABLE IF NOT EXISTS (?:expo_push_receipts|finder_sessions|finder_otp_challenges|recovery_contact_events|sighting_evidence|pet_recovery_tags|recovery_tag_scans)\b/.test(
