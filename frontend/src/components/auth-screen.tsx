@@ -454,10 +454,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Palette.cream,
-    borderWidth: 1,
-    borderColor: Palette.border,
-    borderRadius: 32,
-    overflow: "hidden",
     flexDirection: "row",
     justifyContent: "center",
   },
@@ -468,17 +464,22 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
+    width: "100%",
+    maxWidth: 480,
+    alignSelf: "center",
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.six,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
     marginTop: Spacing.two,
-    marginLeft: -Spacing.two,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
   },
   brandRow: {
     flexDirection: "row",
@@ -516,8 +517,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   heading: {
-    marginTop: Spacing.five,
-    gap: Spacing.one,
+    marginTop: Spacing.four,
+    gap: Spacing.two,
   },
   title: {
     fontFamily: Fonts.sans,
@@ -584,7 +585,7 @@ const styles = StyleSheet.create({
     color: Palette.forestDark,
   },
   input: {
-    height: 48,
+    height: 52,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
@@ -595,8 +596,8 @@ const styles = StyleSheet.create({
     color: Palette.forestDark,
   },
   primaryButton: {
-    height: 48,
-    borderRadius: 22,
+    height: 52,
+    borderRadius: 16,
     backgroundColor: Palette.forestDark,
     alignItems: "center",
     justifyContent: "center",

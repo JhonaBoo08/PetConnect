@@ -54,7 +54,7 @@ export function BottomNav({ active }: { active: TabKey }) {
             <View style={[styles.navInner, isActive && styles.navInnerActive]}>
               <Icon
                 size={22}
-                color={isActive ? Palette.forestDark : Palette.inkMuted}
+                color={isActive ? Palette.white : Palette.inkMuted}
               />
               <Text
                 style={[styles.navLabel, isActive && styles.navLabelActive]}
@@ -72,27 +72,36 @@ export function BottomNav({ active }: { active: TabKey }) {
 const styles = StyleSheet.create({
   bottomNav: {
     flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: Palette.borderSoft,
+    marginHorizontal: Spacing.three,
+    marginTop: Spacing.two,
+    marginBottom: Spacing.two,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 24,
     backgroundColor: Palette.surface,
     paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
+    paddingVertical: 7,
     gap: Spacing.one,
+    elevation: 5,
   },
   navItem: {
     flex: 1,
-    alignItems: "center",
-  },
-  navInner: {
+    minHeight: 50,
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
-    paddingHorizontal: Spacing.three,
+  },
+  navInner: {
+    width: "100%",
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
-    borderRadius: 999,
+    borderRadius: 18,
   },
   navInnerActive: {
-    backgroundColor: Palette.sage,
+    backgroundColor: Palette.forestDark,
   },
   navLabel: {
     fontFamily: Fonts.sans,
@@ -102,6 +111,6 @@ const styles = StyleSheet.create({
   },
   navLabelActive: {
     fontWeight: "800",
-    color: Palette.forestDark,
+    color: Palette.white,
   },
 });

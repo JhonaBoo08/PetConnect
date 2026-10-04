@@ -4,19 +4,16 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FinderIcon } from '@/components/pet-logo';
-import { BottomTabInset, Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 
 const palette = {
   cream: '#F8F0DF',
-  border: '#46584B',
   forestDark: '#1B4332',
-  sage: '#DCE7DA',
   sagePressed: '#CBDCCC',
   inkMuted: '#5C6356',
 };
 
-const ButtonMargin = 30;
-const ButtonHeight = 56;
+const ButtonHeight = 54;
 
 export default function WelcomeScreen() {
   const router = useRouter();
@@ -38,6 +35,14 @@ export default function WelcomeScreen() {
           <Text style={styles.description}>
             One caring network for pet identity, health, and safe reunions across Tagum City.
           </Text>
+
+          <View style={styles.valueStrip}>
+            <Text style={styles.valueText}>Digital ID</Text>
+            <View style={styles.valueDot} />
+            <Text style={styles.valueText}>Recovery</Text>
+            <View style={styles.valueDot} />
+            <Text style={styles.valueText}>Care</Text>
+          </View>
         </View>
 
         <View style={styles.actions}>
@@ -65,49 +70,47 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: palette.cream,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: 32,
-    overflow: 'hidden',
     flexDirection: 'row',
     justifyContent: 'center',
   },
   safeArea: {
     flex: 1,
+    width: '100%',
     maxWidth: MaxContentWidth,
     paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
+    paddingBottom: Spacing.four,
   },
   hero: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.four,
+    gap: Spacing.three,
     paddingHorizontal: Spacing.two,
+    paddingTop: Spacing.five,
   },
   logoCircle: {
-    width: 124,
-    height: 124,
-    borderRadius: 62,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#1B4332',
-    shadowOpacity: 0.16,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 5,
     marginBottom: Spacing.two,
   },
   logoImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 62,
+    borderRadius: 56,
   },
   appName: {
     fontFamily: Fonts.sans,
-    fontSize: 40,
-    lineHeight: 48,
+    fontSize: 36,
+    lineHeight: 43,
     fontWeight: '800',
     color: palette.forestDark,
     textAlign: 'center',
@@ -130,20 +133,48 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 320,
   },
+  valueStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    marginTop: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: '#FFFDF7',
+    borderWidth: 1,
+    borderColor: '#C7CDC0',
+  },
+  valueText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    fontWeight: '700',
+    color: palette.inkMuted,
+  },
+  valueDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: palette.forestDark,
+    opacity: 0.45,
+  },
   actions: {
+    width: '100%',
+    maxWidth: 360,
+    alignSelf: 'center',
     gap: Spacing.three,
     paddingBottom: Spacing.two,
   },
   primaryButton: {
     height: ButtonHeight,
-    marginHorizontal: ButtonMargin,
-    borderRadius: 999,
+    borderRadius: 16,
     backgroundColor: palette.forestDark,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#1B4332',
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
+    shadowOpacity: 0.22,
+    shadowRadius: 9,
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
@@ -155,9 +186,10 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     height: ButtonHeight,
-    marginHorizontal: ButtonMargin,
-    borderRadius: 999,
-    backgroundColor: palette.sage,
+    borderRadius: 16,
+    backgroundColor: '#FFFDF7',
+    borderWidth: 1,
+    borderColor: '#C7CDC0',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
