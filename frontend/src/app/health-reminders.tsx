@@ -25,7 +25,6 @@ import {
   PawIcon,
   PlusIcon,
 } from "@/components/app-icons";
-import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
@@ -633,7 +632,6 @@ export default function HealthRemindersScreen() {
           ) : null}
         </ScrollView>
 
-        <BottomNav active="home" />
       </SafeAreaView>
     </View>
   );

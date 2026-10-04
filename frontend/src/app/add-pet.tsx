@@ -23,7 +23,6 @@ import {
   ShieldIcon,
   UploadIcon,
 } from "@/components/app-icons";
-import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
@@ -445,7 +444,6 @@ export default function AddPetScreen() {
           </Pressable>
         </ScrollView>
 
-        <BottomNav active="home" />
       </SafeAreaView>
     </View>
   );
