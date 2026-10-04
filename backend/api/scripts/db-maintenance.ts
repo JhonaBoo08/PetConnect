@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import {
   cpSync,
+  closeSync,
+  mkdtempSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -10,6 +12,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { mysqlConnectionOptions, mysqlTlsOptions } from "../src/db-config.js";
 import { spawnSync } from "node:child_process";
 import mysql, { type Pool, type RowDataPacket } from "mysql2/promise";
 import dotenv from "dotenv";
@@ -58,14 +62,10 @@ function dbName(): string {
 
 function sqlConfig(database?: string) {
   return {
-    host: process.env.MYSQL_HOST || "127.0.0.1",
-    user: process.env.MYSQL_USER || "root",
-    password: process.env.MYSQL_PASSWORD || "",
-    port: Number(process.env.MYSQL_PORT) || 3306,
-    ...(database ? { database } : {}),
+    ...mysqlConnectionOptions(),
+    database,
     multipleStatements: true,
-    timezone: "Z",
-  } as const;
+  };
 }
 
 function sha256File(file: string): string {
@@ -318,14 +318,18 @@ async function inferLegacyBaseline(pool: Pool): Promise<boolean> {
 
 async function bootstrap() {
   const database = dbName();
-  const admin = mysql.createPool(sqlConfig());
-  try {
-    await admin.query(
-      `CREATE DATABASE IF NOT EXISTS \`${database}\`
+  // Aiven may provision a database without granting CREATE DATABASE.
+  // Operators explicitly select --existing-database for that deployment.
+  if (!process.argv.includes("--existing-database")) {
+    const admin = mysql.createPool(sqlConfig());
+    try {
+      await admin.query(
+        `CREATE DATABASE IF NOT EXISTS \`${database}\`
        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
-    );
-  } finally {
-    await admin.end();
+      );
+    } finally {
+      await admin.end();
+    }
   }
 
   const pool = mysql.createPool(sqlConfig(database));
@@ -396,20 +400,32 @@ function runSqlBinary(
   const stdinFd = options.stdinFile
     ? openSync(options.stdinFile, "r")
     : "ignore";
-  const result = spawnSync(binary, args, {
-    env: {
-      ...process.env,
-      MYSQL_PWD: process.env.MYSQL_PASSWORD || "",
-    },
-    stdio: [stdinFd, stdoutFd, "inherit"],
-  });
-  if (typeof stdinFd === "number") {
-    // The process owns the duplicated descriptor on Windows/Linux; no explicit
-    // close is required after spawnSync returns.
-  }
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`${binary} exited with code ${result.status}.`);
+  const tls = mysqlTlsOptions();
+  let temporaryCaDir: string | undefined;
+  try {
+    let caPath = process.env.MYSQL_SSL_CA_PATH?.trim();
+    if (tls && !caPath) {
+      temporaryCaDir = mkdtempSync(
+        path.join(os.tmpdir(), "petconnect-mysql-ca-"),
+      );
+      caPath = path.join(temporaryCaDir, "ca.pem");
+      writeFileSync(caPath, tls.ca, { mode: 0o600 });
+    }
+    const tlsArgs = tls
+      ? ["--ssl-mode=VERIFY_IDENTITY", `--ssl-ca=${caPath}`]
+      : ["--ssl-mode=DISABLED"];
+    const result = spawnSync(binary, [...tlsArgs, ...args], {
+      env: { ...process.env, MYSQL_PWD: process.env.MYSQL_PASSWORD || "" },
+      stdio: [stdinFd, stdoutFd, "inherit"],
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0)
+      throw new Error(`${binary} exited with code ${result.status}.`);
+  } finally {
+    if (typeof stdinFd === "number") closeSync(stdinFd);
+    if (typeof stdoutFd === "number") closeSync(stdoutFd);
+    if (temporaryCaDir)
+      rmSync(temporaryCaDir, { recursive: true, force: true });
   }
 }
 

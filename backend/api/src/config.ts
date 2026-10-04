@@ -1,4 +1,6 @@
 import path from "node:path";
+import { mysqlConnectionOptions } from "./db-config.js";
+import { firebaseServiceAccount } from "./firebase-admin-config.js";
 
 const placeholderPattern =
   /(change[-_ ]?(?:me|this)|placeholder|your[_ -]|example|demo-petconnect|replace[_ -]?with)/i;
@@ -32,7 +34,15 @@ function productionUrl(value: string, key: string): URL {
     /^127\./.test(host) ||
     host === "::1" ||
     host === "0.0.0.0" ||
-    host === "::"
+    host === "::" ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    /^(fc|fd|fe80):/i.test(host) ||
+    host.endsWith(".local") ||
+    host.endsWith(".exp.direct") ||
+    host.endsWith(".exp.host")
   ) {
     throw new Error(`${key} cannot point to localhost in production.`);
   }
@@ -45,6 +55,19 @@ export function assertProductionEnvironment(
   if (env.NODE_ENV !== "production") return;
 
   required(env, "MYSQL_HOST");
+  if (env.MYSQL_SSL?.toLowerCase() !== "true")
+    throw new Error("MYSQL_SSL=true is required in production.");
+  mysqlConnectionOptions(env);
+  serverPort(env);
+  const proxyHops = Number(env.TRUST_PROXY_HOPS || 0);
+  if (
+    ![0, 1].includes(proxyHops) ||
+    (env.RENDER === "true" && proxyHops !== 1)
+  ) {
+    throw new Error(
+      "TRUST_PROXY_HOPS must be 0 or 1, and must be 1 behind the Render ingress.",
+    );
+  }
   const mysqlPort = Number(required(env, "MYSQL_PORT"));
   if (!Number.isInteger(mysqlPort) || mysqlPort < 1 || mysqlPort > 65535) {
     throw new Error("MYSQL_PORT must be a valid TCP port in production.");
@@ -86,6 +109,8 @@ export function assertProductionEnvironment(
       "Firebase Admin credentials are required in production. Configure GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_SERVICE_ACCOUNT_JSON.",
     );
   }
+
+  firebaseServiceAccount(env);
 
   const corsOrigins = required(env, "CORS_ALLOWED_ORIGINS")
     .split(",")
@@ -132,25 +157,58 @@ export function assertProductionEnvironment(
   }
 
   const otpProvider = required(env, "FINDER_OTP_PROVIDER").toLowerCase();
-  if (otpProvider !== "webhook") {
+  if (otpProvider === "webhook") {
+    productionUrl(
+      required(env, "FINDER_OTP_WEBHOOK_URL"),
+      "FINDER_OTP_WEBHOOK_URL",
+    );
+  } else if (otpProvider === "smsgate") {
+    const url = productionUrl(
+      required(env, "SMSGATE_BASE_URL"),
+      "SMSGATE_BASE_URL",
+    );
+    if (url.search || url.hash)
+      throw new Error("SMSGATE_BASE_URL must not contain a query or fragment.");
+    required(env, "SMSGATE_USERNAME");
+    required(env, "SMSGATE_PASSWORD");
+  } else {
     throw new Error(
-      "FINDER_OTP_PROVIDER must be webhook in production so progressive finder verification remains available.",
+      "FINDER_OTP_PROVIDER must be smsgate or webhook in production.",
     );
   }
-  productionUrl(
-    required(env, "FINDER_OTP_WEBHOOK_URL"),
-    "FINDER_OTP_WEBHOOK_URL",
-  );
-  if (env.FINDER_OTP_EXPOSE_CODE === "true") {
+  if (env.FINDER_OTP_EXPOSE_CODE?.trim().toLowerCase() === "true") {
     throw new Error(
       "FINDER_OTP_EXPOSE_CODE must not be enabled in production.",
     );
   }
 
-  const uploadDir = required(env, "UPLOAD_DIR");
-  if (!path.isAbsolute(uploadDir)) {
-    throw new Error(
-      "UPLOAD_DIR must be an absolute durable path in production.",
-    );
+  const provider = required(env, "UPLOAD_STORAGE_PROVIDER").toLowerCase();
+  if (provider === "cloudinary") {
+    if (!/^[a-zA-Z0-9_-]+$/.test(required(env, "CLOUDINARY_CLOUD_NAME")))
+      throw new Error("CLOUDINARY_CLOUD_NAME is invalid.");
+    if (!/^\d+$/.test(required(env, "CLOUDINARY_API_KEY")))
+      throw new Error("CLOUDINARY_API_KEY is invalid.");
+    const secret = required(env, "CLOUDINARY_API_SECRET");
+    if (placeholderPattern.test(secret))
+      throw new Error("CLOUDINARY_API_SECRET must not be a placeholder.");
+  } else if (provider === "local") {
+    if (env.RENDER === "true" || env.UPLOAD_LOCAL_DURABLE !== "true") {
+      throw new Error(
+        "Local production uploads require UPLOAD_LOCAL_DURABLE=true and cannot be used on Render Free.",
+      );
+    }
+    if (!path.isAbsolute(required(env, "UPLOAD_DIR")))
+      throw new Error(
+        "UPLOAD_DIR must be an absolute durable path in production.",
+      );
+  } else {
+    throw new Error("UPLOAD_STORAGE_PROVIDER must be local or cloudinary.");
   }
+}
+
+export function serverPort(env: NodeJS.ProcessEnv = process.env): number {
+  const port = Number(env.PORT || 3000);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("PORT must be a valid TCP port.");
+  return port;
 }
