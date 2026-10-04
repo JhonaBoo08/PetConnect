@@ -89,6 +89,8 @@ Start the emulator:
 npm run emulators
 ```
 
+Local Auth accounts are imported from `.firebase/emulators` and saved there when the emulator shuts down normally with Ctrl+C. Run `npm run emulators:save` before a forced restart. This ignored local state keeps Firebase user IDs aligned with the MySQL owner profiles between development sessions.
+
 Then start the API and frontend in separate terminals:
 
 ```bash
@@ -98,7 +100,11 @@ npm run web
 
 Default local endpoints are API `http://127.0.0.1:3000`, Expo web `http://127.0.0.1:8081`, Auth emulator `127.0.0.1:9099`, and Emulator UI `http://127.0.0.1:4000`.
 
-For an Android emulator use `10.0.2.2` instead of `127.0.0.1` in frontend host settings. A physical phone must use the development computer's reachable LAN address.
+In emulator-mode development, API, photo, and Firebase Auth SDK requests automatically go through the Expo server. Leave `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_EMULATOR_HOST` unset to use this route. It works with web, LAN, Android emulators, and `npm run dev:tunnel` on a physical phone, including mobile data. Start MySQL, the API, and Auth emulator before scanning the Expo QR code.
+
+If an older `frontend/.env.local` sets localhost endpoint overrides, remove those two lines and restart Expo with `npm run dev:tunnel`. Explicit overrides are still supported for separate services; those addresses must be reachable from the device. Production and exported builds use explicitly configured service endpoints and do not include the development proxy.
+
+For a public recovery QR link during a tunnel session, set the API's `PUBLIC_APP_BASE_URL` to the tunnel's HTTPS origin and restart the API. The link follows the current development tunnel and will stop working when that tunnel closes.
 
 ## Core product flows
 
@@ -140,6 +146,8 @@ Browser tests:
 npm run test:e2e:install
 npm run test:e2e
 ```
+
+To test the running development app, start MySQL, the Auth emulator, the API, and `npm --prefix frontend run web -- --port 8083`, then run `npm run test:e2e:dev`. This includes real registration, multi-pet editing, QR rotation/revocation, lost reports, sightings, reunification, and route guards. It creates test accounts and pets; run it against development data.
 
 Run the owner/recovery integration flows against disposable MySQL with `npm run test:e2e:integration`. The test configuration starts the Auth emulator and API; provide your test MySQL connection through `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, and `MYSQL_PASSWORD`.
 
