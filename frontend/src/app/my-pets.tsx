@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   BackArrow,
   CalendarIcon,
+  ChevronRightIcon,
   HealthIcon,
   PawIcon,
   PinIcon,
@@ -39,9 +40,11 @@ export default function MyPetsScreen() {
   const params = useLocalSearchParams<{ action?: string }>();
   const requestedAction = firstParam(params.action) as PetAction | undefined;
   const action: PetAction =
-    requestedAction && ["open", "id", "edit", "health", "lost"].includes(requestedAction)
+    requestedAction &&
+    ["open", "id", "edit", "health", "lost"].includes(requestedAction)
       ? requestedAction
       : "open";
+  const selectionMode = action !== "open";
 
   const [pets, setPets] = useState<Pet[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,22 +95,25 @@ export default function MyPetsScreen() {
       return;
     }
     if (nextAction === "lost") {
-      router.push({ pathname: "/alerts", params: { mode: "report", petId: pet.id } });
+      router.push({
+        pathname: "/alerts",
+        params: { mode: "report", petId: pet.id },
+      });
       return;
     }
     router.push({ pathname: "/pet-id", params: { id: pet.id } });
   }
 
-  const actionText =
+  const selectionText =
     action === "id"
       ? "Choose a pet to open its Pet ID."
       : action === "edit"
         ? "Choose the pet you want to edit."
         : action === "health"
-          ? "Choose a pet to open its health hub."
+          ? "Choose a pet to open its care and health records."
           : action === "lost"
-            ? "Choose the pet you want to report lost."
-            : "Manage every pet linked to your account.";
+            ? "Choose the missing pet to start a recovery report."
+            : "";
 
   return (
     <View style={styles.container}>
@@ -115,31 +121,78 @@ export default function MyPetsScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void refresh()}
+            />
+          }
         >
           <View style={styles.topBar}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={styles.iconButton}>
-              <BackArrow />
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Add another pet" onPress={() => router.push("/add-pet")} style={styles.addButton}>
+            {selectionMode ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                onPress={() => router.back()}
+                style={styles.iconButton}
+              >
+                <BackArrow />
+              </Pressable>
+            ) : (
+              <Text style={styles.screenTitle}>Pets</Text>
+            )}
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add pet"
+              onPress={() => router.push("/add-pet")}
+              style={styles.addButton}
+            >
               <PlusIcon size={16} />
               <Text style={styles.addButtonText}>Add pet</Text>
             </Pressable>
           </View>
 
-          <Text style={styles.eyebrow}>MY PETS</Text>
-          <Text style={styles.heading}>Your PetConnect family</Text>
-          <Text style={styles.supporting}>{actionText}</Text>
+          {selectionMode ? (
+            <View style={styles.selectionHeader}>
+              <Text style={styles.heading}>Choose a pet</Text>
+              <Text style={styles.supporting}>{selectionText}</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.heading}>My pets</Text>
+              <Text style={styles.supporting}>
+                Pet IDs, health, care, editing, and recovery all start here.
+              </Text>
+            </>
+          )}
 
-          {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-          {loading ? <ActivityIndicator color={Palette.forestDark} style={styles.loader} /> : null}
+          {error ? (
+            <Text accessibilityRole="alert" style={styles.error}>
+              {error}
+            </Text>
+          ) : null}
+
+          {loading ? (
+            <ActivityIndicator color={Palette.forestDark} style={styles.loader} />
+          ) : null}
 
           {!loading && pets.length === 0 ? (
             <View style={styles.emptyCard}>
-              <PawIcon size={36} color={Palette.forestDark} />
-              <Text style={styles.emptyTitle}>No pets linked yet</Text>
-              <Text style={styles.emptyText}>Add your first pet to create its digital ID, recovery QR, and care profile.</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="Add your first pet" onPress={() => router.push("/add-pet")} style={styles.primaryButton}>
+              <View style={styles.emptyIcon}>
+                <PawIcon size={30} />
+              </View>
+              <Text style={styles.emptyTitle}>No pets yet</Text>
+              <Text style={styles.emptyText}>
+                Add your first pet to create a digital Pet ID, care profile, and
+                recovery identity.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add your first pet"
+                onPress={() => router.push("/add-pet")}
+                style={styles.primaryButton}
+              >
                 <PlusIcon size={17} color={Palette.white} />
                 <Text style={styles.primaryButtonText}>Add your first pet</Text>
               </Pressable>
@@ -153,88 +206,320 @@ export default function MyPetsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Open ${pet.name}`}
                   onPress={() => selectPet(pet)}
-                  style={({ pressed }) => [styles.petMain, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.petMain,
+                    pressed && styles.pressed,
+                  ]}
                 >
                   <View style={styles.photo}>
                     {pet.photoUrl ? (
-                      <Image source={{ uri: petPhotoUri(pet.photoUrl)! }} style={styles.photoImage} contentFit="cover" />
+                      <Image
+                        source={{ uri: petPhotoUri(pet.photoUrl)! }}
+                        style={styles.photoImage}
+                        contentFit="cover"
+                      />
                     ) : (
-                      <PawIcon size={32} color={Palette.forestDark} />
+                      <PawIcon size={30} />
                     )}
                   </View>
                   <View style={styles.petBody}>
                     <Text style={styles.petName}>{pet.name}</Text>
-                    <Text style={styles.petMeta}>{[pet.breed || pet.species, pet.sex, pet.ageLabel].filter(Boolean).join(" · ")}</Text>
-                    {pet.identifyingDetails ? <Text numberOfLines={2} style={styles.petDetails}>{pet.identifyingDetails}</Text> : null}
+                    <Text style={styles.petMeta}>
+                      {[pet.breed || pet.species, pet.sex, pet.ageLabel]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </Text>
+                    <Text style={styles.protectedText}>PetConnect ID active</Text>
                   </View>
+                  <ChevronRightIcon />
                 </Pressable>
 
-                <View style={styles.actions}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`View ${pet.name} Pet ID`} onPress={() => selectPet(pet, "id")} style={styles.action}>
-                    <QrIcon size={17} />
-                    <Text style={styles.actionText}>ID</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${pet.name}`} onPress={() => selectPet(pet, "edit")} style={styles.action}>
-                    <PawIcon size={17} color={Palette.forestDark} />
-                    <Text style={styles.actionText}>Edit</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`${pet.name} health`} onPress={() => selectPet(pet, "health")} style={styles.action}>
-                    <HealthIcon size={17} />
-                    <Text style={styles.actionText}>Health</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Report ${pet.name} lost`} onPress={() => selectPet(pet, "lost")} style={styles.action}>
-                    <PinIcon size={17} />
-                    <Text style={styles.actionText}>Lost</Text>
-                  </Pressable>
-                </View>
+                {!selectionMode ? (
+                  <View style={styles.actions}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${pet.name} Pet ID`}
+                      onPress={() => selectPet(pet, "id")}
+                      style={styles.action}
+                    >
+                      <QrIcon size={17} />
+                      <Text style={styles.actionText}>Pet ID</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${pet.name} care and health`}
+                      onPress={() => selectPet(pet, "health")}
+                      style={styles.action}
+                    >
+                      <HealthIcon size={17} />
+                      <Text style={styles.actionText}>Care</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${pet.name}`}
+                      onPress={() => selectPet(pet, "edit")}
+                      style={styles.action}
+                    >
+                      <PawIcon size={16} />
+                      <Text style={styles.actionText}>Edit</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Report ${pet.name} lost`}
+                      onPress={() => selectPet(pet, "lost")}
+                      style={styles.action}
+                    >
+                      <PinIcon size={17} />
+                      <Text style={[styles.actionText, styles.lostText]}>
+                        Lost
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
             ))}
           </View>
 
-          {pets.length ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="View care for all pets" onPress={() => router.push("/health-reminders")} style={styles.healthAll}>
+          {!selectionMode && pets.length ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open care calendar"
+              onPress={() => router.push("/care-calendar")}
+              style={styles.careButton}
+            >
               <CalendarIcon size={18} />
-              <Text style={styles.healthAllText}>View care for all pets</Text>
+              <Text style={styles.careButtonText}>Care calendar</Text>
+              <ChevronRightIcon size={18} />
             </Pressable>
           ) : null}
         </ScrollView>
-        <BottomNav active="home" />
+
+        <BottomNav active="pets" />
       </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Palette.cream, flexDirection: "row", justifyContent: "center" },
-  safeArea: { flex: 1, maxWidth: MaxContentWidth, width: "100%" },
-  content: { flexGrow: 1, paddingHorizontal: Spacing.four, paddingBottom: Spacing.five },
-  topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: Spacing.two },
-  iconButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: Palette.borderSoft, backgroundColor: Palette.surface, alignItems: "center", justifyContent: "center" },
-  addButton: { minHeight: 42, paddingHorizontal: Spacing.three, borderRadius: 21, backgroundColor: Palette.sage, flexDirection: "row", alignItems: "center", gap: Spacing.two },
-  addButtonText: { fontFamily: Fonts.sans, fontSize: 13, fontWeight: "800", color: Palette.forestDark },
-  eyebrow: { fontFamily: Fonts.sans, fontSize: 11, fontWeight: "800", letterSpacing: 1.6, color: Palette.forestDark, marginTop: Spacing.five },
-  heading: { fontFamily: Fonts.sans, fontSize: 28, fontWeight: "800", color: Palette.forestDark, marginTop: Spacing.one },
-  supporting: { fontFamily: Fonts.sans, fontSize: 14, lineHeight: 20, color: Palette.inkMuted, marginTop: Spacing.two },
-  loader: { marginTop: Spacing.five },
-  error: { fontFamily: Fonts.sans, color: Palette.danger, marginTop: Spacing.three },
-  list: { gap: Spacing.three, marginTop: Spacing.four },
-  card: { backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.borderSoft, borderRadius: 18, overflow: "hidden" },
-  petMain: { flexDirection: "row", gap: Spacing.three, padding: Spacing.three, alignItems: "center" },
-  photo: { width: 68, height: 68, borderRadius: 16, backgroundColor: Palette.sage, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  photoImage: { width: "100%", height: "100%" },
-  petBody: { flex: 1, gap: 3 },
-  petName: { fontFamily: Fonts.sans, fontSize: 18, fontWeight: "800", color: Palette.forestDark },
-  petMeta: { fontFamily: Fonts.sans, fontSize: 12.5, color: Palette.inkMuted },
-  petDetails: { fontFamily: Fonts.sans, fontSize: 12, lineHeight: 17, color: Palette.inkMuted },
-  actions: { flexDirection: "row", borderTopWidth: 1, borderTopColor: Palette.borderSoft },
-  action: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", gap: 3 },
-  actionText: { fontFamily: Fonts.sans, fontSize: 11, fontWeight: "700", color: Palette.forestDark },
-  emptyCard: { marginTop: Spacing.four, padding: Spacing.five, borderRadius: 18, borderWidth: 1, borderColor: Palette.borderSoft, backgroundColor: Palette.surface, alignItems: "center", gap: Spacing.two },
-  emptyTitle: { fontFamily: Fonts.sans, fontSize: 18, fontWeight: "800", color: Palette.forestDark },
-  emptyText: { fontFamily: Fonts.sans, fontSize: 13.5, lineHeight: 20, color: Palette.inkMuted, textAlign: "center" },
-  primaryButton: { marginTop: Spacing.two, minHeight: 46, paddingHorizontal: Spacing.four, borderRadius: 23, backgroundColor: Palette.forestDark, flexDirection: "row", alignItems: "center", gap: Spacing.two },
-  primaryButtonText: { fontFamily: Fonts.sans, fontSize: 14, fontWeight: "800", color: Palette.white },
-  healthAll: { marginTop: Spacing.four, minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: Palette.borderSoft, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Spacing.two },
-  healthAllText: { fontFamily: Fonts.sans, fontSize: 13.5, fontWeight: "700", color: Palette.forestDark },
-  pressed: { opacity: 0.82 },
+  container: {
+    flex: 1,
+    backgroundColor: Palette.cream,
+    alignItems: "center",
+  },
+  safeArea: {
+    flex: 1,
+    maxWidth: MaxContentWidth,
+    width: "100%",
+  },
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: Spacing.four,
+    paddingBottom: Spacing.five,
+  },
+  topBar: {
+    minHeight: 46,
+    marginTop: Spacing.two,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  screenTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addButton: {
+    minHeight: 42,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 21,
+    backgroundColor: Palette.sage,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
+  addButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  selectionHeader: {
+    marginTop: Spacing.four,
+  },
+  heading: {
+    fontFamily: Fonts.sans,
+    fontSize: 28,
+    fontWeight: "800",
+    color: Palette.forestDark,
+    marginTop: Spacing.four,
+  },
+  supporting: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    lineHeight: 20,
+    color: Palette.inkMuted,
+    marginTop: Spacing.two,
+  },
+  loader: {
+    marginTop: Spacing.five,
+  },
+  error: {
+    fontFamily: Fonts.sans,
+    color: Palette.danger,
+    marginTop: Spacing.three,
+  },
+  list: {
+    gap: Spacing.three,
+    marginTop: Spacing.four,
+  },
+  card: {
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+  petMain: {
+    flexDirection: "row",
+    gap: Spacing.three,
+    padding: Spacing.three,
+    alignItems: "center",
+  },
+  photo: {
+    width: 66,
+    height: 66,
+    borderRadius: 16,
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  photoImage: {
+    width: "100%",
+    height: "100%",
+  },
+  petBody: {
+    flex: 1,
+    gap: 3,
+  },
+  petName: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  petMeta: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    color: Palette.inkMuted,
+  },
+  protectedText: {
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    fontWeight: "700",
+    color: Palette.forestDark,
+    marginTop: 3,
+  },
+  actions: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: Palette.borderSoft,
+  },
+  action: {
+    flex: 1,
+    minHeight: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+  actionText: {
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: Palette.forestDark,
+  },
+  lostText: {
+    color: Palette.danger,
+  },
+  emptyCard: {
+    marginTop: Spacing.four,
+    padding: Spacing.five,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    alignItems: "center",
+  },
+  emptyIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 19,
+    fontWeight: "800",
+    color: Palette.forestDark,
+    marginTop: Spacing.three,
+  },
+  emptyText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: Palette.inkMuted,
+    textAlign: "center",
+    marginTop: Spacing.two,
+  },
+  primaryButton: {
+    marginTop: Spacing.four,
+    minHeight: 46,
+    paddingHorizontal: Spacing.four,
+    borderRadius: 23,
+    backgroundColor: Palette.forestDark,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
+  primaryButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.white,
+  },
+  careButton: {
+    marginTop: Spacing.four,
+    minHeight: 50,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    paddingHorizontal: Spacing.three,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
+  careButtonText: {
+    flex: 1,
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: Palette.forestDark,
+  },
+  pressed: {
+    opacity: 0.82,
+  },
 });

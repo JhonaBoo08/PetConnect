@@ -73,7 +73,7 @@ describe("MyPetsScreen", () => {
     const view = await render(<MyPetsScreen />);
 
     await waitFor(() =>
-      expect(view.getByText("No pets linked yet")).toBeTruthy(),
+      expect(view.getByText("No pets yet")).toBeTruthy(),
     );
     fireEvent.press(view.getByText("Add your first pet"));
     expect(mockPush).toHaveBeenCalledWith("/add-pet");
