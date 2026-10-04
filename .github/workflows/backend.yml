@@ -47,6 +47,9 @@ jobs:
       - name: Production dependency audit
         run: npm run audit:prod
 
+      - name: Production deployment source safety
+        run: npm run test:production-readiness
+
       - name: Compile, lint and format
         run: npm run check:backend
 

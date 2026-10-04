@@ -17,7 +17,7 @@ test("recovery page fails safely without a signed token", async ({ page }) => {
   await page.goto("/recover");
   await expect(page.getByText("Recovery profile unavailable")).toBeVisible();
   await expect(
-    page.getByText("This recovery link is missing its PetConnect token."),
+    page.getByText("This recovery link is incomplete."),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /scan another qr/i }),

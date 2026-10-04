@@ -17,7 +17,9 @@ const staticServer: WebServerConfig = {
   command: "npm run web:export && npx serve -s frontend/dist -l 4173",
   url: "http://127.0.0.1:4173",
   env: integration ? { ...inheritedEnv, EXPO_NO_DOTENV: "1", EXPO_PUBLIC_FIREBASE_ENV: "emulator", EXPO_PUBLIC_API_BASE_URL: "http://127.0.0.1:3011" } : inheritedEnv,
-  reuseExistingServer: !process.env.CI,
+  // Never reuse an arbitrary process on the release-test port. A stale local
+  // server can otherwise make Playwright validate the wrong artifact.
+  reuseExistingServer: false,
   timeout: 180_000,
 };
 
