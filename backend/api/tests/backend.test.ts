@@ -431,6 +431,122 @@ test("owner callable initializes once, refreshes claims and returns session", as
   assert.equal(users[0].display_name, "Owner");
 });
 
+test("owner initialization repairs an orphaned local emulator identity", async () => {
+  const auth = client("owner-local-reconcile");
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    "owner-local-reconcile@example.test",
+    "Example-pass-123!",
+  );
+  const token = await credential.user.getIdToken();
+
+  await pool.query(
+    "INSERT INTO users (id, email, role, display_name, status) VALUES (?, ?, 'OWNER', 'Stale Owner', 'ACTIVE')",
+    ["stale-owner-local", "owner-local-reconcile@example.test"],
+  );
+
+  const initRes = await request(app)
+    .post("/v1/account/initialize")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ displayName: "Recovered Owner" });
+
+  assert.equal(initRes.status, 200);
+  assert.equal(initRes.body.status, "ACTIVE");
+
+  const [users] = await pool.query<
+    (RowDataPacket & { id: string; display_name: string; status: string })[]
+  >("SELECT id, display_name, status FROM users WHERE email = ?", [
+    "owner-local-reconcile@example.test",
+  ]);
+  assert.equal(users.length, 1);
+  assert.equal(users[0].id, credential.user.uid);
+  assert.equal(users[0].display_name, "Recovered Owner");
+  assert.equal(users[0].status, "ACTIVE");
+});
+
+test("owner initialization never replaces a local identity that owns data", async () => {
+  const auth = client("owner-local-conflict");
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    "owner-local-conflict@example.test",
+    "Example-pass-123!",
+  );
+  const token = await credential.user.getIdToken();
+
+  await pool.query(
+    "INSERT INTO users (id, email, role, display_name, status) VALUES (?, ?, 'OWNER', 'Existing Owner', 'ACTIVE')",
+    ["stale-owner-with-data", "owner-local-conflict@example.test"],
+  );
+  await pool.query(
+    "INSERT INTO pets (id, owner_id, name, species) VALUES (?, ?, ?, ?)",
+    ["PC-STALE-OWNER-DATA", "stale-owner-with-data", "Bantay", "Dog"],
+  );
+
+  const initRes = await request(app)
+    .post("/v1/account/initialize")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ displayName: "Replacement Owner" });
+
+  assert.equal(initRes.status, 409);
+  assert.equal(initRes.body.error, "account-conflict");
+  assert.equal(
+    initRes.body.message,
+    "This account is already registered. Sign in with the existing account or contact support.",
+  );
+
+  const [users] = await pool.query<(RowDataPacket & { id: string })[]>(
+    "SELECT id FROM users WHERE email = ?",
+    ["owner-local-conflict@example.test"],
+  );
+  assert.deepEqual(
+    users.map((row) => row.id),
+    ["stale-owner-with-data"],
+  );
+  const [pets] = await pool.query<RowDataPacket[]>(
+    "SELECT id FROM pets WHERE owner_id = ?",
+    ["stale-owner-with-data"],
+  );
+  assert.equal(pets.length, 1);
+});
+
+test("production mode never auto-reconciles a conflicting owner identity", async () => {
+  const auth = client("owner-production-conflict");
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    "owner-production-conflict@example.test",
+    "Example-pass-123!",
+  );
+  const token = await credential.user.getIdToken();
+
+  await pool.query(
+    "INSERT INTO users (id, email, role, display_name, status) VALUES (?, ?, 'OWNER', 'Existing Owner', 'ACTIVE')",
+    ["production-owner-conflict", "owner-production-conflict@example.test"],
+  );
+
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    const initRes = await request(app)
+      .post("/v1/account/initialize")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ displayName: "Replacement Owner" });
+
+    assert.equal(initRes.status, 409);
+    assert.equal(initRes.body.error, "account-conflict");
+  } finally {
+    process.env.NODE_ENV = previousNodeEnv;
+  }
+
+  const [users] = await pool.query<(RowDataPacket & { id: string })[]>(
+    "SELECT id FROM users WHERE email = ?",
+    ["owner-production-conflict@example.test"],
+  );
+  assert.deepEqual(
+    users.map((row) => row.id),
+    ["production-owner-conflict"],
+  );
+});
+
 test("unauthenticated access is denied", async () => {
   const initRes = await request(app)
     .post("/v1/account/initialize")

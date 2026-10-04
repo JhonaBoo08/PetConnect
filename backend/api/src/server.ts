@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 import { initializeApp, getApps, cert, App } from "firebase-admin/app";
 import { getAuth, DecodedIdToken } from "firebase-admin/auth";
 import { createPool } from "./db.js";
-import { Accounts } from "./accounts.js";
+import { AccountIdentityConflictError, Accounts } from "./accounts.js";
 import { Pets, PetValidationError } from "./pets.js";
 import { RecoveryTokens } from "./recovery.js";
 import {
@@ -292,6 +292,13 @@ app.post(
         message === "Account disabled"
       ) {
         return res.status(403).json({ error: "permission-denied", message });
+      }
+      if (err instanceof AccountIdentityConflictError) {
+        return res.status(409).json({
+          error: "account-conflict",
+          message:
+            "This account is already registered. Sign in with the existing account or contact support.",
+        });
       }
       res.status(500).json({
         error: "internal",

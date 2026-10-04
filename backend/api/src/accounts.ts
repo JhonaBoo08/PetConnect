@@ -10,6 +10,13 @@ import {
   UpdateProfileRequest,
 } from "../../../shared/contracts.js";
 
+export class AccountIdentityConflictError extends Error {
+  constructor() {
+    super("Account identity conflict");
+    this.name = "AccountIdentityConflictError";
+  }
+}
+
 export class Accounts {
   constructor(
     private auth: Auth,
@@ -42,6 +49,9 @@ export class Accounts {
       throw new Error("Account is not an owner");
     }
 
+    const email = authUser.email?.trim();
+    if (!email) throw new AccountIdentityConflictError();
+
     if (users.length > 0) {
       const existing = users[0];
       if (existing.role !== "OWNER") {
@@ -54,9 +64,21 @@ export class Accounts {
         return { status: "ACTIVE", refreshToken: false };
       }
     } else {
+      const [emailUsers] = await this.pool.query<RowDataPacket[]>(
+        "SELECT id, role, status FROM users WHERE email = ? AND id <> ? LIMIT 1",
+        [email, uid],
+      );
+      if (emailUsers.length > 0) {
+        const reconciled = await this.reconcileLocalEmulatorIdentity(
+          emailUsers[0],
+          email,
+        );
+        if (!reconciled) throw new AccountIdentityConflictError();
+      }
+
       await this.pool.query(
         "INSERT INTO users (id, email, role, display_name, phone, status) VALUES (?, ?, 'OWNER', ?, ?, 'PENDING')",
-        [uid, authUser.email, displayName, phone],
+        [uid, email, displayName, phone],
       );
     }
 
@@ -73,6 +95,74 @@ export class Accounts {
     );
 
     return { status: "ACTIVE", refreshToken: true };
+  }
+
+  private async reconcileLocalEmulatorIdentity(
+    staleUser: RowDataPacket,
+    email: string,
+  ): Promise<boolean> {
+    if (
+      process.env.NODE_ENV === "production" ||
+      !process.env.FIREBASE_AUTH_EMULATOR_HOST ||
+      staleUser.role !== "OWNER" ||
+      staleUser.status === "DISABLED"
+    ) {
+      return false;
+    }
+
+    const staleUid = String(staleUser.id);
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const [locked] = await connection.query<RowDataPacket[]>(
+        "SELECT id, role, status FROM users WHERE id = ? AND email = ? FOR UPDATE",
+        [staleUid, email],
+      );
+      if (
+        locked.length !== 1 ||
+        locked[0].role !== "OWNER" ||
+        locked[0].status === "DISABLED"
+      ) {
+        await connection.rollback();
+        return false;
+      }
+
+      const [references] = await connection.query<RowDataPacket[]>(
+        `SELECT (
+          EXISTS(SELECT 1 FROM pets WHERE owner_id = ?) OR
+          EXISTS(SELECT 1 FROM lost_reports WHERE owner_id = ?) OR
+          EXISTS(SELECT 1 FROM appointments WHERE owner_id = ?) OR
+          EXISTS(SELECT 1 FROM appointments WHERE vet_id = ?) OR
+          EXISTS(SELECT 1 FROM health_reminders WHERE owner_id = ?) OR
+          EXISTS(SELECT 1 FROM health_records WHERE vet_id = ?) OR
+          EXISTS(SELECT 1 FROM notifications WHERE user_id = ?) OR
+          EXISTS(SELECT 1 FROM push_devices WHERE user_id = ?) OR
+          EXISTS(SELECT 1 FROM recovery_contact_events WHERE owner_id = ?) OR
+          EXISTS(SELECT 1 FROM scheduled_notifications WHERE user_id = ?) OR
+          EXISTS(SELECT 1 FROM sightings WHERE finder_user_id = ?) OR
+          EXISTS(SELECT 1 FROM clinic_members WHERE user_id = ?)
+        ) AS has_references`,
+        Array(12).fill(staleUid),
+      );
+
+      if (references[0]?.has_references) {
+        await connection.rollback();
+        return false;
+      }
+
+      await connection.query("DELETE FROM users WHERE id = ? AND email = ?", [
+        staleUid,
+        email,
+      ]);
+      await connection.commit();
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   async session(uid: string, token: DecodedIdToken): Promise<SessionResponse> {
