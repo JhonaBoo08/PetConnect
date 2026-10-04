@@ -199,9 +199,7 @@ export default function AddPetScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() =>
-                router.push("/notifications")
-              }
+              onPress={() => router.push("/notifications")}
               style={styles.iconButton}
             >
               <BellIcon />
@@ -440,7 +438,6 @@ export default function AddPetScreen() {
             )}
           </Pressable>
         </ScrollView>
-
       </SafeAreaView>
     </View>
   );

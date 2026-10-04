@@ -233,7 +233,10 @@ export default function DashboardScreen() {
           </Text>
 
           {loading ? (
-            <ActivityIndicator color={Palette.forestDark} style={styles.loader} />
+            <ActivityIndicator
+              color={Palette.forestDark}
+              style={styles.loader}
+            />
           ) : null}
 
           {petsError ? (
@@ -290,7 +293,10 @@ export default function DashboardScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Open ${pet.name}`}
                     onPress={() =>
-                      router.push({ pathname: "/pet-id", params: { id: pet.id } })
+                      router.push({
+                        pathname: "/pet-id",
+                        params: { id: pet.id },
+                      })
                     }
                     style={({ pressed }) => [
                       styles.petCard,
@@ -345,17 +351,31 @@ export default function DashboardScreen() {
                       <Pressable
                         key={`${item.kind}-${item.id}`}
                         accessibilityRole="button"
-                        onPress={() => router.push(item.kind === "reminder"
-                          ? { pathname: "/reminder-details", params: { id: item.id } }
-                          : { pathname: "/health-reminders", params: { petId: item.petId } })}
+                        onPress={() =>
+                          router.push(
+                            item.kind === "reminder"
+                              ? {
+                                  pathname: "/reminder-details",
+                                  params: { id: item.id },
+                                }
+                              : {
+                                  pathname: "/health-reminders",
+                                  params: { petId: item.petId },
+                                },
+                          )
+                        }
                         style={[
                           styles.careRow,
                           index > 0 && styles.careRowBorder,
                         ]}
                       >
                         <View style={styles.careDate}>
-                          <Text style={styles.careDateMain}>{formatted.date}</Text>
-                          <Text style={styles.careDateSub}>{formatted.time}</Text>
+                          <Text style={styles.careDateMain}>
+                            {formatted.date}
+                          </Text>
+                          <Text style={styles.careDateSub}>
+                            {formatted.time}
+                          </Text>
                         </View>
                         <View style={styles.careBody}>
                           <Text numberOfLines={1} style={styles.careTitle}>
@@ -369,10 +389,12 @@ export default function DashboardScreen() {
                   })
                 ) : (
                   <View style={styles.emptyCare}>
-                    <Text style={styles.emptyCareTitle}>Nothing scheduled soon</Text>
+                    <Text style={styles.emptyCareTitle}>
+                      Nothing scheduled soon
+                    </Text>
                     <Text style={styles.emptyCareText}>
-                      Add reminders from your pet&apos;s care section when you need
-                      them.
+                      Add reminders from your pet&apos;s care section when you
+                      need them.
                     </Text>
                   </View>
                 )}

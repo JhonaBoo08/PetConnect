@@ -38,7 +38,11 @@ export function BottomNav({ active }: { active: TabKey }) {
   const router = useRouter();
 
   return (
-    <View accessibilityRole="tablist" accessibilityLabel="Main navigation" style={styles.bottomNav}>
+    <View
+      accessibilityRole="tablist"
+      accessibilityLabel="Main navigation"
+      style={styles.bottomNav}
+    >
       {tabs.map(({ key, label, Icon }) => {
         const isActive = key === active;
         return (
@@ -47,6 +51,7 @@ export function BottomNav({ active }: { active: TabKey }) {
             accessibilityRole="tab"
             accessibilityLabel={label}
             accessibilityState={{ selected: isActive }}
+            aria-selected={isActive}
             onPress={() => router.navigate(tabRoutes[key])}
             style={styles.navItem}
           >
@@ -55,7 +60,9 @@ export function BottomNav({ active }: { active: TabKey }) {
                 size={key === "pets" ? 20 : 21}
                 color={isActive ? Palette.white : Palette.inkMuted}
               />
-              <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>
+              <Text
+                style={[styles.navLabel, isActive && styles.navLabelActive]}
+              >
                 {label}
               </Text>
             </View>

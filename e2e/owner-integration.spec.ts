@@ -202,9 +202,7 @@ test.describe("owner integration", () => {
     await page
       .getByRole("button", { name: "Publish lost report", exact: true })
       .click();
-    await expect(
-      page.getByText(/Bantay is now in Recovery/),
-    ).toBeVisible();
+    await expect(page.getByText(/Bantay is now in Recovery/)).toBeVisible();
 
     const finderPage = await finderContext.newPage();
     await finderPage.goto(browserRecoveryUrl(firstRecoveryUrl), {
@@ -314,14 +312,25 @@ test.describe("owner integration", () => {
       let code: string | undefined;
       const mockUrl = process.env.PETCONNECT_E2E_SMSGATE_URL;
       if (mockUrl) {
-        await expect(finderPage.getByText(/Local development code:/)).toHaveCount(0);
-        await expect.poll(async () => {
-          const response = await fetch(mockUrl + "/test-code?phone=" + encodeURIComponent(phone), {
-            headers: { Authorization: "Basic " + Buffer.from("fixture:fixture-password").toString("base64") },
-          });
-          if (response.ok) code = (await response.json()).code;
-          return Boolean(code);
-        }).toBeTruthy();
+        await expect(
+          finderPage.getByText(/Local development code:/),
+        ).toHaveCount(0);
+        await expect
+          .poll(async () => {
+            const response = await fetch(
+              mockUrl + "/test-code?phone=" + encodeURIComponent(phone),
+              {
+                headers: {
+                  Authorization:
+                    "Basic " +
+                    Buffer.from("fixture:fixture-password").toString("base64"),
+                },
+              },
+            );
+            if (response.ok) code = (await response.json()).code;
+            return Boolean(code);
+          })
+          .toBeTruthy();
       } else {
         const hint = finderPage.getByText(/Local development code:/);
         await expect(hint).toBeVisible();

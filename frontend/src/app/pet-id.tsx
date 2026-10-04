@@ -205,9 +205,7 @@ export default function PetIdScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() =>
-                router.push("/notifications")
-              }
+              onPress={() => router.push("/notifications")}
               style={styles.iconButton}
             >
               <BellIcon />
@@ -360,7 +358,6 @@ export default function PetIdScreen() {
             </Text>
           </Pressable>
         </ScrollView>
-
       </SafeAreaView>
 
       {sharing && recoveryUrl ? (

@@ -38,15 +38,19 @@ export default function ScanScreen() {
 
     setScanned(true);
     setScanError("");
-    router.replace(
-      { pathname: "/recover", params: { token } } as unknown as Href,
-    );
+    router.replace({
+      pathname: "/recover",
+      params: { token },
+    } as unknown as Href);
   }
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
           {!owner ? (
             <Pressable
               accessibilityRole="button"

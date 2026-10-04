@@ -202,7 +202,9 @@ it("keeps manual location available when browser GPS is denied", async () => {
     ).toBeTruthy(),
   );
 
-  await fireEvent.press(view.getByRole("button", { name: "Use my current GPS" }));
+  await fireEvent.press(
+    view.getByRole("button", { name: "Use my current GPS" }),
+  );
 
   await waitFor(() =>
     expect(
@@ -250,7 +252,9 @@ it("requires a current photo when the finder says they have the pet", async () =
       "Guardhouse",
     ),
   );
-  await fireEvent.press(view.getByRole("button", { name: "Send found-pet report" }));
+  await fireEvent.press(
+    view.getByRole("button", { name: "Send found-pet report" }),
+  );
 
   await waitFor(() =>
     expect(view.getByText(/Add a current photo of Bantay/i)).toBeTruthy(),
@@ -275,7 +279,9 @@ it("captures current photo evidence for a HAVE_PET report", async () => {
     ).toBeTruthy(),
   );
 
-  await fireEvent.press(view.getByRole("button", { name: "Take a current photo" }));
+  await fireEvent.press(
+    view.getByRole("button", { name: "Take a current photo" }),
+  );
   await waitFor(() => expect(mockLaunchCamera).toHaveBeenCalled());
   await waitFor(() =>
     expect(view.getByRole("button", { name: "Retake" })).toBeTruthy(),
@@ -335,7 +341,9 @@ it("progressively requests phone verification only when the API requires it", as
       "09171234567",
     ),
   );
-  await fireEvent.press(view.getByRole("button", { name: "Send verification code" }));
+  await fireEvent.press(
+    view.getByRole("button", { name: "Send verification code" }),
+  );
   await waitFor(() =>
     expect(mockSendFinderOtp).toHaveBeenCalledWith("09171234567"),
   );

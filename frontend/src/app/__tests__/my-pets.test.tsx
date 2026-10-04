@@ -49,7 +49,10 @@ describe("MyPetsScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockParams = { action: "id" };
-    mockListPets.mockResolvedValue([pet("PET-A", "Bantay"), pet("PET-B", "Luna")]);
+    mockListPets.mockResolvedValue([
+      pet("PET-A", "Bantay"),
+      pet("PET-B", "Luna"),
+    ]);
   });
 
   it("shows every owned pet and routes the selected pet ID instead of pets[0]", async () => {
@@ -72,37 +75,44 @@ describe("MyPetsScreen", () => {
     mockListPets.mockResolvedValue([]);
     const view = await render(<MyPetsScreen />);
 
-    await waitFor(() =>
-      expect(view.getByText("No pets yet")).toBeTruthy(),
-    );
+    await waitFor(() => expect(view.getByText("No pets yet")).toBeTruthy());
     fireEvent.press(view.getByText("Add your first pet"));
     expect(mockPush).toHaveBeenCalledWith("/add-pet");
   });
 
-it("keeps the Pets root free of child navigation and preserves all pet actions", async () => {
-  mockParams = {};
-  const view = await render(<MyPetsScreen />);
-  await waitFor(() => expect(view.getByText("Luna")).toBeTruthy());
-  expect(view.queryByLabelText("Go back")).toBeNull();
-  expect(view.getByRole("tab", { name: "Pets" }).props.accessibilityState.selected).toBe(true);
-  for (const [label, target] of [
-    ["View Luna Pet ID", { pathname: "/pet-id", params: { id: "PET-B" } }],
-    ["Luna care and health", { pathname: "/health-reminders", params: { petId: "PET-B" } }],
-    ["Edit Luna", { pathname: "/add-pet", params: { id: "PET-B" } }],
-    ["Report Luna lost", { pathname: "/alerts", params: { mode: "report", petId: "PET-B" } }],
-  ] as const) {
-    await fireEvent.press(view.getByLabelText(label));
-    expect(mockPush).toHaveBeenLastCalledWith(target);
-  }
-});
+  it("keeps the Pets root free of child navigation and preserves all pet actions", async () => {
+    mockParams = {};
+    const view = await render(<MyPetsScreen />);
+    await waitFor(() => expect(view.getByText("Luna")).toBeTruthy());
+    expect(view.queryByLabelText("Go back")).toBeNull();
+    expect(
+      view.getByRole("tab", { name: "Pets" }).props.accessibilityState.selected,
+    ).toBe(true);
+    for (const [label, target] of [
+      ["View Luna Pet ID", { pathname: "/pet-id", params: { id: "PET-B" } }],
+      [
+        "Luna care and health",
+        { pathname: "/health-reminders", params: { petId: "PET-B" } },
+      ],
+      ["Edit Luna", { pathname: "/add-pet", params: { id: "PET-B" } }],
+      [
+        "Report Luna lost",
+        { pathname: "/alerts", params: { mode: "report", petId: "PET-B" } },
+      ],
+    ] as const) {
+      await fireEvent.press(view.getByLabelText(label));
+      expect(mockPush).toHaveBeenLastCalledWith(target);
+    }
+  });
 
-it("shows one add action when the Pets root is empty", async () => {
-  mockParams = {};
-  mockListPets.mockResolvedValue([]);
-  const view = await render(<MyPetsScreen />);
-  await waitFor(() => expect(view.getByText("No pets yet")).toBeTruthy());
-  expect(view.queryByRole("button", { name: "Add pet" })).toBeNull();
-  expect(view.getAllByRole("button", { name: "Add your first pet" })).toHaveLength(1);
-});
-
+  it("shows one add action when the Pets root is empty", async () => {
+    mockParams = {};
+    mockListPets.mockResolvedValue([]);
+    const view = await render(<MyPetsScreen />);
+    await waitFor(() => expect(view.getByText("No pets yet")).toBeTruthy());
+    expect(view.queryByRole("button", { name: "Add pet" })).toBeNull();
+    expect(
+      view.getAllByRole("button", { name: "Add your first pet" }),
+    ).toHaveLength(1);
+  });
 });

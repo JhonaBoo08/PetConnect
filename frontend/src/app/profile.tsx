@@ -128,7 +128,9 @@ export default function ProfileScreen() {
               <ProfileIcon size={30} color={Palette.white} />
             </View>
             <View style={styles.identityBody}>
-              <Text style={styles.name}>{session?.displayName || "Pet Owner"}</Text>
+              <Text style={styles.name}>
+                {session?.displayName || "Pet Owner"}
+              </Text>
               <Text style={styles.role}>Pet Owner</Text>
               <Text style={styles.email}>{session?.email}</Text>
             </View>

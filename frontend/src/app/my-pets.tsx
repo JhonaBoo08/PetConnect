@@ -142,15 +142,17 @@ export default function MyPetsScreen() {
               <Text style={styles.screenTitle}>Pets</Text>
             )}
 
-            {!loading && pets.length > 0 ? <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Add pet"
-              onPress={() => router.push("/add-pet")}
-              style={styles.addButton}
-            >
-              <PlusIcon size={16} />
-              <Text style={styles.addButtonText}>Add pet</Text>
-            </Pressable> : null}
+            {!loading && pets.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add pet"
+                onPress={() => router.push("/add-pet")}
+                style={styles.addButton}
+              >
+                <PlusIcon size={16} />
+                <Text style={styles.addButtonText}>Add pet</Text>
+              </Pressable>
+            ) : null}
           </View>
 
           {selectionMode ? (
@@ -160,7 +162,9 @@ export default function MyPetsScreen() {
             </View>
           ) : (
             <>
-              <Text style={styles.supporting}>Your pets, Pet IDs, and care.</Text>
+              <Text style={styles.supporting}>
+                Your pets, Pet IDs, and care.
+              </Text>
             </>
           )}
 
@@ -171,7 +175,10 @@ export default function MyPetsScreen() {
           ) : null}
 
           {loading ? (
-            <ActivityIndicator color={Palette.forestDark} style={styles.loader} />
+            <ActivityIndicator
+              color={Palette.forestDark}
+              style={styles.loader}
+            />
           ) : null}
 
           {!loading && pets.length === 0 ? (
@@ -226,7 +233,9 @@ export default function MyPetsScreen() {
                         .filter(Boolean)
                         .join(" · ")}
                     </Text>
-                    <Text style={styles.protectedText}>PetConnect ID active</Text>
+                    <Text style={styles.protectedText}>
+                      PetConnect ID active
+                    </Text>
                   </View>
                   <ChevronRightIcon />
                 </Pressable>
