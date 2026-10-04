@@ -4,6 +4,7 @@ import type {
   LostReportInput,
   NearbyLostReport,
   PushDeviceInput,
+  RecoveryContactEvent,
   RecoveryNotification,
   Sighting,
 } from "../../../shared/contracts";
@@ -43,6 +44,20 @@ export const getLostReport = (id: string) =>
     `/v1/lost-reports/${encodeURIComponent(id)}`,
   );
 
+export const getRecoveryContactEvent = (id: string) =>
+  authenticatedFetch<RecoveryContactEvent>(
+    `/v1/recovery-contacts/${encodeURIComponent(id)}`,
+  );
+
+export const reportFinderSightingAbuse = (
+  reportId: string,
+  sightingId: string,
+) =>
+  authenticatedFetch<void>(
+    `/v1/lost-reports/${encodeURIComponent(reportId)}/sightings/${encodeURIComponent(sightingId)}/report-abuse`,
+    { method: "POST" },
+  );
+
 export const markPetReunited = (id: string) =>
   authenticatedFetch<LostReport>(
     `/v1/lost-reports/${encodeURIComponent(id)}/reunite`,
@@ -60,6 +75,8 @@ export const getNearbyLostReports = async (
     )
   ).reports;
 
+// Backward-compatible legacy sighting helper. The new app-less finder UI uses
+// finder-recovery.ts so it can attach an anonymous session and evidence.
 export const submitFinderSighting = (
   token: string,
   input: FinderSightingInput,
