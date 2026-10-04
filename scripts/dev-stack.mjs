@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import concurrently from "concurrently";
 import net from "node:net";
 
@@ -102,22 +102,29 @@ function stopLocalServices(signal = "SIGINT") {
 }
 
 function forceStopFrontend() {
-  if (!frontend || frontend.exitCode !== null || !frontend.pid) return;
+  if (!frontend || !frontend.pid) return;
 
   if (process.platform === "win32") {
-    const killer = spawn(
-      "taskkill",
-      ["/PID", String(frontend.pid), "/T", "/F"],
-      {
-        stdio: "ignore",
-        windowsHide: true,
-      },
-    );
-    killer.unref();
+    try {
+      spawnSync(
+        "taskkill",
+        ["/PID", String(frontend.pid), "/T", "/F"],
+        {
+          stdio: "ignore",
+          windowsHide: true,
+        },
+      );
+    } catch {
+      // Ignore if already terminated
+    }
     return;
   }
 
-  frontend.kill("SIGKILL");
+  try {
+    frontend.kill("SIGKILL");
+  } catch {
+    // Ignore if already terminated
+  }
 }
 
 function shutdown(exitCode = 0) {
@@ -125,7 +132,13 @@ function shutdown(exitCode = 0) {
   shuttingDown = true;
   requestedExitCode = exitCode;
 
-  if (frontend && frontend.exitCode === null) frontend.kill("SIGINT");
+  if (process.platform === "win32") {
+    // On Windows, child processes spawned by npm (like expo CLI) form a process tree
+    // that survives a plain SIGINT to the root npm process. Force-kill the tree immediately.
+    forceStopFrontend();
+  } else if (frontend && frontend.exitCode === null) {
+    frontend.kill("SIGINT");
+  }
   stopLocalServices("SIGINT");
 
   const timer = setTimeout(() => {
@@ -211,6 +224,9 @@ async function prepareLocalServices() {
 
 process.once("SIGINT", () => shutdown(0));
 process.once("SIGTERM", () => shutdown(0));
+process.on("exit", () => {
+  forceStopFrontend();
+});
 
 try {
   console.log("Starting PetConnect API and authentication...");
