@@ -1,6 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
+import {
+  LocalMediaStorage,
+  type MediaStorage,
+  type BeforeMediaWrite,
+  type StoredMedia,
+} from "./media-storage.js";
 import sharp from "sharp";
 
 const MAX_INPUT_PIXELS = 25_000_000;
@@ -78,36 +82,20 @@ async function normalizePhoto(input: Buffer): Promise<{
   }
 }
 
-async function persistNormalized(
-  normalized: { buffer: Buffer; width: number; height: number },
-  uploadDir: string,
-): Promise<{
-  relativeUrl: string;
-  absolutePath: string;
-  byteSize: number;
-  width: number;
-  height: number;
-  sha256: string;
-}> {
-  await fs.mkdir(uploadDir, { recursive: true, mode: 0o750 });
-  const filename = `${randomUUID()}.webp`;
-  const absolutePath = path.join(uploadDir, filename);
-  const temporaryPath = `${absolutePath}.tmp`;
-
-  try {
-    await fs.writeFile(temporaryPath, normalized.buffer, {
-      flag: "wx",
-      mode: 0o640,
-    });
-    await fs.rename(temporaryPath, absolutePath);
-  } catch {
-    await fs.unlink(temporaryPath).catch(() => {});
-    throw new UploadValidationError("The image could not be stored safely.");
-  }
-
+async function storePhoto(
+  input: Buffer,
+  destination: string | MediaStorage,
+  kind: "pet" | "finder",
+  beforeWrite?: BeforeMediaWrite,
+) {
+  const normalized = await normalizePhoto(input);
+  const storage =
+    typeof destination === "string"
+      ? new LocalMediaStorage(destination)
+      : destination;
+  const stored = await storage.save(normalized.buffer, kind, beforeWrite);
   return {
-    relativeUrl: `/uploads/${path.relative(path.dirname(uploadDir), absolutePath).replaceAll("\\", "/")}`,
-    absolutePath,
+    ...stored,
     byteSize: normalized.buffer.length,
     width: normalized.width,
     height: normalized.height,
@@ -117,35 +105,19 @@ async function persistNormalized(
 
 export async function sanitizePetPhoto(
   input: Buffer,
-  uploadDir: string,
-): Promise<{ relativeUrl: string; absolutePath: string }> {
-  const normalized = await normalizePhoto(input);
-  const stored = await persistNormalized(normalized, uploadDir);
-  // Preserve the historic top-level /uploads/<file> URL for pet photos.
-  return {
-    relativeUrl: `/uploads/${path.basename(stored.absolutePath)}`,
-    absolutePath: stored.absolutePath,
-  };
+  destination: string | MediaStorage,
+  beforeWrite?: BeforeMediaWrite,
+): Promise<StoredMedia> {
+  return storePhoto(input, destination, "pet", beforeWrite);
 }
 
 export async function sanitizeFinderPhoto(
   input: Buffer,
-  uploadDir: string,
-): Promise<{
-  relativeUrl: string;
-  absolutePath: string;
-  mimeType: "image/webp";
-  byteSize: number;
-  width: number;
-  height: number;
-  sha256: string;
-}> {
-  const recoveryDir = path.join(uploadDir, "recovery");
-  const normalized = await normalizePhoto(input);
-  const stored = await persistNormalized(normalized, recoveryDir);
+  destination: string | MediaStorage,
+  beforeWrite?: BeforeMediaWrite,
+) {
   return {
-    ...stored,
-    relativeUrl: `/uploads/recovery/${path.basename(stored.absolutePath)}`,
-    mimeType: "image/webp",
+    ...(await storePhoto(input, destination, "finder", beforeWrite)),
+    mimeType: "image/webp" as const,
   };
 }

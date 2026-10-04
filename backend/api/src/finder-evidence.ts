@@ -1,5 +1,4 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import { LocalMediaStorage, type MediaStorage } from "./media-storage.js";
 import { randomUUID } from "node:crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import type { SightingEvidence } from "../../../shared/contracts.js";
@@ -8,7 +7,7 @@ export class FinderEvidenceError extends Error {}
 
 export type StoredFinderPhoto = {
   relativeUrl: string;
-  absolutePath: string;
+  absolutePath?: string;
   mimeType: "image/webp";
   byteSize: number;
   width: number;
@@ -50,13 +49,19 @@ export class FinderEvidence {
   private retentionHours: number;
   private incidentRetentionDays: number;
   private timer: NodeJS.Timeout | null = null;
+  private storage: MediaStorage;
+  private cleaning: Promise<void> | null = null;
 
   constructor(
     private pool: Pool,
-    private uploadDir: string,
+    destination: string | MediaStorage,
     retentionHours = 24,
     incidentRetentionDays = 30,
   ) {
+    this.storage =
+      typeof destination === "string"
+        ? new LocalMediaStorage(destination)
+        : destination;
     this.retentionHours = Math.max(
       1,
       Math.min(72, Math.floor(retentionHours || 24)),
@@ -72,7 +77,6 @@ export class FinderEvidence {
     finderSessionId: string,
     photo: StoredFinderPhoto,
   ): Promise<{ evidence: SightingEvidence; expiresAt: string }> {
-    await this.cleanupExpired();
     const id = `EV-${randomUUID().toUpperCase()}`;
     const expiresAt = new Date(
       Date.now() + this.retentionHours * 60 * 60 * 1000,
@@ -97,7 +101,7 @@ export class FinderEvidence {
         ],
       );
     } catch (error) {
-      await fs.unlink(photo.absolutePath).catch(() => {});
+      await this.storage.remove(photo.relativeUrl).catch(() => {});
       throw error;
     }
     return {
@@ -181,7 +185,7 @@ export class FinderEvidence {
   async ownerFile(
     evidenceId: string,
     ownerId: string,
-  ): Promise<{ absolutePath: string; mimeType: string } | null> {
+  ): Promise<{ storageUrl: string; mimeType: string } | null> {
     const [rows] = await this.pool.query<EvidenceRow[]>(
       `SELECT se.*
          FROM sighting_evidence se
@@ -193,24 +197,21 @@ export class FinderEvidence {
     const row = rows[0];
     if (!row) return null;
     return {
-      absolutePath: this.absolutePath(row.storage_url),
+      storageUrl: row.storage_url,
       mimeType: row.mime_type,
     };
   }
 
-  private absolutePath(storageUrl: string): string {
-    const relative = storageUrl
-      .replace(/^\/uploads\//, "")
-      .replaceAll("/", path.sep);
-    const resolved = path.resolve(this.uploadDir, relative);
-    const root = path.resolve(this.uploadDir) + path.sep;
-    if (!resolved.startsWith(root)) {
-      throw new FinderEvidenceError("Invalid evidence storage path.");
-    }
-    return resolved;
+  cleanupExpired(): Promise<void> {
+    if (this.cleaning) return this.cleaning;
+    this.cleaning = this.cleanupBatch().finally(() => {
+      this.cleaning = null;
+    });
+    return this.cleaning;
   }
 
-  async cleanupExpired(): Promise<void> {
+  private async cleanupBatch(): Promise<void> {
+    let cleanupError: unknown;
     const [staged] = await this.pool.query<EvidenceRow[]>(
       `SELECT *
          FROM sighting_evidence
@@ -220,7 +221,11 @@ export class FinderEvidence {
         LIMIT 100`,
     );
     for (const row of staged) {
-      await this.deleteStoredEvidence(row);
+      try {
+        await this.deleteStoredEvidence(row);
+      } catch (error) {
+        cleanupError ||= error;
+      }
     }
 
     const retentionDays = this.incidentRetentionDays;
@@ -248,82 +253,57 @@ export class FinderEvidence {
       [retentionDays, retentionDays],
     );
     for (const row of retained) {
-      await this.deleteStoredEvidence(row);
+      try {
+        await this.deleteStoredEvidence(row);
+      } catch (error) {
+        cleanupError ||= error;
+      }
     }
 
-    // Retain the minimal recovery event/audit trail, but remove finder contact
-    // and exact location after the documented recovery retention window.
-    await this.pool.query(
-      `UPDATE sightings s
-       JOIN lost_reports lr ON lr.id = s.report_id
-          SET s.finder_name = NULL,
-              s.finder_contact = NULL,
-              s.notes = NULL,
-              s.location_text = NULL,
-              s.latitude = NULL,
-              s.longitude = NULL,
-              s.accuracy_m = NULL
-        WHERE lr.status = 'REUNITED'
-          AND lr.reunited_at IS NOT NULL
-          AND lr.reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
-    await this.pool.query(
-      `UPDATE lost_reports
-          SET last_known_latitude = last_seen_latitude,
-              last_known_longitude = last_seen_longitude,
-              last_known_accuracy_m = last_seen_accuracy_m
-        WHERE status = 'REUNITED'
-          AND reunited_at IS NOT NULL
-          AND reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
-    await this.pool.query(
-      `UPDATE recovery_contact_events
-          SET finder_name = NULL,
-              finder_contact = NULL,
-              notes = NULL,
-              location_text = NULL,
-              latitude = NULL,
-              longitude = NULL,
-              accuracy_m = NULL
-        WHERE created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
-    await this.pool.query(
-      `UPDATE notifications n
-       JOIN lost_reports lr
-         ON lr.id = JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.reportId'))
-          SET n.body = 'Finder details removed after the retention period.'
-        WHERE n.type IN ('PET_SIGHTED', 'PET_FOUND')
-          AND n.user_id = lr.owner_id
-          AND lr.status = 'REUNITED'
-          AND lr.reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
-    await this.pool.query(
-      `UPDATE notifications n
-       JOIN recovery_contact_events rce
-         ON rce.id = JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.recoveryContactEventId'))
-          SET n.body = 'Finder details removed after the retention period.'
-        WHERE n.type = 'PET_QR_FOUND'
-          AND n.user_id = rce.owner_id
-          AND rce.created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
+    await this.scrubRetainedData(retentionDays);
     await this.pool.query(
       `DELETE FROM finder_otp_challenges
         WHERE expires_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)
         LIMIT 500`,
     );
+    if (cleanupError) throw cleanupError;
+  }
+
+  private async scrubRetainedData(days: number): Promise<void> {
+    // MySQL multi-table UPDATE has no LIMIT. Select bounded IDs and exclude
+    // already-scrubbed rows so old records cannot starve later ones.
+    const scrub = async (select: string, update: string) => {
+      const [rows] = await this.pool.query<(RowDataPacket & { id: string })[]>(
+        select,
+        [days],
+      );
+      if (rows.length)
+        await this.pool.query(update, [rows.map((row) => row.id)]);
+    };
+    await scrub(
+      "SELECT s.id FROM sightings s JOIN lost_reports lr ON lr.id=s.report_id\n WHERE lr.status='REUNITED' AND lr.reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)\n AND (s.finder_name IS NOT NULL OR s.finder_contact IS NOT NULL OR s.notes IS NOT NULL\n OR s.location_text IS NOT NULL OR s.latitude IS NOT NULL OR s.longitude IS NOT NULL OR s.accuracy_m IS NOT NULL) LIMIT 100",
+      "UPDATE sightings SET finder_name=NULL, finder_contact=NULL, notes=NULL, location_text=NULL, latitude=NULL, longitude=NULL, accuracy_m=NULL WHERE id IN (?)",
+    );
+    await scrub(
+      "SELECT id FROM lost_reports WHERE status='REUNITED' AND reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)\n AND (NOT(last_known_latitude <=> last_seen_latitude) OR NOT(last_known_longitude <=> last_seen_longitude) OR NOT(last_known_accuracy_m <=> last_seen_accuracy_m)) LIMIT 100",
+      "UPDATE lost_reports SET last_known_latitude=last_seen_latitude, last_known_longitude=last_seen_longitude,last_known_accuracy_m=last_seen_accuracy_m WHERE id IN (?)",
+    );
+    await scrub(
+      "SELECT id FROM recovery_contact_events WHERE created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)\n AND (finder_name IS NOT NULL OR finder_contact IS NOT NULL OR notes IS NOT NULL OR location_text IS NOT NULL OR latitude IS NOT NULL OR longitude IS NOT NULL OR accuracy_m IS NOT NULL) LIMIT 100",
+      "UPDATE recovery_contact_events SET finder_name=NULL, finder_contact=NULL, notes=NULL, location_text=NULL, latitude=NULL, longitude=NULL, accuracy_m=NULL WHERE id IN (?)",
+    );
+    await scrub(
+      "SELECT n.id FROM notifications n JOIN lost_reports lr ON lr.id=JSON_UNQUOTE(JSON_EXTRACT(n.data,'$.reportId'))\n WHERE n.type IN ('PET_SIGHTED','PET_FOUND') AND n.user_id=lr.owner_id AND lr.status='REUNITED'\n AND lr.reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY) AND n.body <> 'Finder details removed after the retention period.' LIMIT 100",
+      "UPDATE notifications SET body='Finder details removed after the retention period.' WHERE id IN (?)",
+    );
+    await scrub(
+      "SELECT n.id FROM notifications n JOIN recovery_contact_events rce ON rce.id=JSON_UNQUOTE(JSON_EXTRACT(n.data,'$.recoveryContactEventId'))\n WHERE n.type='PET_QR_FOUND' AND n.user_id=rce.owner_id AND rce.created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)\n AND n.body <> 'Finder details removed after the retention period.' LIMIT 100",
+      "UPDATE notifications SET body='Finder details removed after the retention period.' WHERE id IN (?)",
+    );
   }
 
   private async deleteStoredEvidence(row: EvidenceRow): Promise<void> {
-    await fs
-      .unlink(this.absolutePath(row.storage_url))
-      .catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-      });
+    await this.storage.remove(row.storage_url);
     await this.pool.query(
       `UPDATE sighting_evidence
           SET status = 'DELETED', deleted_at = CURRENT_TIMESTAMP
