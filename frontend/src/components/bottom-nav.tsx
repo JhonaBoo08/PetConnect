@@ -69,6 +69,7 @@ export function BottomNav({ active }: { active: TabKey }) {
     >
       {tabs.map(({ key, label, Icon }) => {
         const isActive = key === active;
+        const isScan = key === "scan";
         return (
           <Pressable
             key={key}
@@ -90,7 +91,9 @@ export function BottomNav({ active }: { active: TabKey }) {
             <View
               style={[
                 styles.navInner,
+                isScan && styles.navInnerScan,
                 isActive && styles.navInnerActive,
+                isScan && isActive && styles.navInnerScanActive,
                 pendingTab === key && styles.navInnerPending,
               ]}
             >
@@ -99,13 +102,20 @@ export function BottomNav({ active }: { active: TabKey }) {
               ) : (
                 <Icon
                   size={key === "pets" ? 20 : 21}
-                  color={isActive ? Palette.white : Palette.inkMuted}
+                  color={
+                    isScan
+                      ? Palette.white
+                      : isActive
+                        ? Palette.forestDark
+                        : Palette.inkMuted
+                  }
                 />
               )}
               <Text
                 style={[
                   styles.navLabel,
                   isActive && styles.navLabelActive,
+                  isScan && styles.navLabelScan,
                   pendingTab === key && styles.navLabelPending,
                 ]}
               >
@@ -154,7 +164,13 @@ const styles = StyleSheet.create({
     borderRadius: 17,
   },
   navInnerActive: {
+    backgroundColor: Palette.sage,
+  },
+  navInnerScan: {
     backgroundColor: Palette.forestDark,
+  },
+  navInnerScanActive: {
+    backgroundColor: Palette.primaryPressed,
   },
   navInnerPending: {
     backgroundColor: Palette.sage,
@@ -167,7 +183,11 @@ const styles = StyleSheet.create({
   },
   navLabelActive: {
     fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  navLabelScan: {
     color: Palette.white,
+    fontWeight: "800",
   },
   navLabelPending: {
     color: Palette.forestDark,

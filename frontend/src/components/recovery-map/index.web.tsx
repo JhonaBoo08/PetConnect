@@ -9,11 +9,12 @@ import type { RecoveryMapPin, RecoveryMapProps } from "./types";
 const emptyTrail: NonNullable<RecoveryMapProps["trail"]> = [];
 
 function colorFor(pin: RecoveryMapPin): string {
-  if (pin.kind === "found") return "#C78300";
-  if (pin.kind === "sighting" || pin.status === "SIGHTED") return "#E0A11B";
-  if (pin.kind === "reunited" || pin.status === "REUNITED") return "#3F7D54";
-  if (pin.kind === "nearby") return "#5C7A61";
-  return "#B74B3E";
+  if (pin.kind === "found") return Palette.warning;
+  if (pin.kind === "sighting" || pin.status === "SIGHTED") return Palette.gold;
+  if (pin.kind === "reunited" || pin.status === "REUNITED")
+    return Palette.success;
+  if (pin.kind === "nearby") return Palette.nearby;
+  return Palette.danger;
 }
 
 function popup(title: string, description?: string) {
@@ -40,7 +41,15 @@ export function RecoveryMap({
 }: RecoveryMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onSelectRef = useRef(onSelect);
+  const pinsRef = useRef(pins);
+  const trailRef = useRef(trail);
+  const selectedRef = useRef(selected);
+  const renderDataRef = useRef<(() => void) | null>(null);
+
   onSelectRef.current = onSelect;
+  pinsRef.current = pins;
+  trailRef.current = trail;
+  selectedRef.current = selected;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -63,68 +72,85 @@ export function RecoveryMap({
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(map);
 
-      const points: [number, number][] = [];
+      const dynamicLayers = L.layerGroup().addTo(map);
 
-      const trailPoints = trail
-        .filter(
-          (point) =>
-            Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
-        )
-        .map((point) => [point.latitude, point.longitude] as [number, number]);
+      const renderData = () => {
+        if (!map) return;
+        dynamicLayers.clearLayers();
+        const points: [number, number][] = [];
 
-      if (trailPoints.length >= 2) {
-        L.polyline(trailPoints, {
-          color: "#2F6F4E",
-          weight: 4,
-          opacity: 0.85,
-        }).addTo(map);
-        points.push(...trailPoints);
-      }
+        const trailPoints = trailRef.current
+          .filter(
+            (point) =>
+              Number.isFinite(point.latitude) &&
+              Number.isFinite(point.longitude),
+          )
+          .map(
+            (point) => [point.latitude, point.longitude] as [number, number],
+          );
 
-      for (const pin of pins) {
-        if (!Number.isFinite(pin.latitude) || !Number.isFinite(pin.longitude)) {
-          continue;
+        if (trailPoints.length >= 2) {
+          L.polyline(trailPoints, {
+            color: Palette.forestDark,
+            weight: 4,
+            opacity: 0.85,
+          }).addTo(dynamicLayers);
+          points.push(...trailPoints);
         }
-        const coordinate: [number, number] = [pin.latitude, pin.longitude];
-        points.push(coordinate);
-        L.circleMarker(coordinate, {
-          radius: pin.kind === "found" ? 10 : 8,
-          color: "#FFFFFF",
-          weight: 2,
-          fillColor: colorFor(pin),
-          fillOpacity: 1,
-        })
-          .addTo(map)
-          .bindPopup(popup(pin.title, pin.description));
-      }
 
-      if (selected) {
-        const coordinate: [number, number] = [
-          selected.latitude,
-          selected.longitude,
-        ];
-        points.push(coordinate);
-        L.circleMarker(coordinate, {
-          radius: 10,
-          color: "#FFFFFF",
-          weight: 3,
-          fillColor: "#2F6F4E",
-          fillOpacity: 1,
-        })
-          .addTo(map)
-          .bindPopup(popup("Selected location"));
-      }
+        for (const pin of pinsRef.current) {
+          if (
+            !Number.isFinite(pin.latitude) ||
+            !Number.isFinite(pin.longitude)
+          ) {
+            continue;
+          }
+          const coordinate: [number, number] = [pin.latitude, pin.longitude];
+          points.push(coordinate);
+          L.circleMarker(coordinate, {
+            radius: pin.kind === "found" ? 10 : 8,
+            color: "#FFFFFF",
+            weight: 2,
+            fillColor: colorFor(pin),
+            fillOpacity: 1,
+          })
+            .addTo(dynamicLayers)
+            .bindPopup(popup(pin.title, pin.description));
+        }
 
-      if (points.length === 1) {
-        map.setView(points[0], 15);
-      } else if (points.length > 1) {
-        map.fitBounds(L.latLngBounds(points), {
-          padding: [28, 28],
-          maxZoom: 16,
-        });
-      } else {
-        map.setView([7.4478, 125.8078], 12);
-      }
+        const selectedPoint = selectedRef.current;
+        if (selectedPoint) {
+          const coordinate: [number, number] = [
+            selectedPoint.latitude,
+            selectedPoint.longitude,
+          ];
+          points.push(coordinate);
+          L.circleMarker(coordinate, {
+            radius: 10,
+            color: "#FFFFFF",
+            weight: 3,
+            fillColor: Palette.forestDark,
+            fillOpacity: 1,
+          })
+            .addTo(dynamicLayers)
+            .bindPopup(popup("Selected location"));
+        }
+
+        if (points.length === 1) {
+          map.setView(points[0], 15, { animate: false });
+        } else if (points.length > 1) {
+          map.fitBounds(L.latLngBounds(points), {
+            padding: [28, 28],
+            maxZoom: 16,
+            animate: false,
+          });
+        } else {
+          map.setView([7.4478, 125.8078], 12, { animate: false });
+        }
+      };
+
+      renderDataRef.current = renderData;
+      renderData();
 
       map.on("click", (event: import("leaflet").LeafletMouseEvent) => {
         onSelectRef.current?.({
@@ -133,15 +159,18 @@ export function RecoveryMap({
         });
       });
 
-      // Leaflet measures its container during initialization. Expo web can finish
-      // layout a frame later, so invalidate once more after the element settles.
       requestAnimationFrame(() => map?.invalidateSize());
     });
 
     return () => {
       cancelled = true;
+      renderDataRef.current = null;
       map?.remove();
     };
+  }, []);
+
+  useEffect(() => {
+    renderDataRef.current?.();
   }, [pins, selected, trail]);
 
   return (

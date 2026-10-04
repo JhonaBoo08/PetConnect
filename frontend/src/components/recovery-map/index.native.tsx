@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef } from "react";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { StyleSheet, View } from "react-native";
 
+import { Palette } from "@/constants/palette";
+
 import type { RecoveryMapPin, RecoveryMapProps } from "./types";
+
+const emptyTrail: NonNullable<RecoveryMapProps["trail"]> = [];
 
 const fallback = {
   latitude: 7.4478,
@@ -12,16 +16,17 @@ const fallback = {
 };
 
 function colorFor(pin: RecoveryMapPin): string {
-  if (pin.kind === "found") return "#C78300";
-  if (pin.kind === "sighting" || pin.status === "SIGHTED") return "#E0A11B";
-  if (pin.kind === "reunited" || pin.status === "REUNITED") return "#3F7D54";
-  if (pin.kind === "nearby") return "#5C7A61";
-  return "#B74B3E";
+  if (pin.kind === "found") return Palette.warning;
+  if (pin.kind === "sighting" || pin.status === "SIGHTED") return Palette.gold;
+  if (pin.kind === "reunited" || pin.status === "REUNITED")
+    return Palette.success;
+  if (pin.kind === "nearby") return Palette.nearby;
+  return Palette.danger;
 }
 
 export function RecoveryMap({
   pins,
-  trail = [],
+  trail = emptyTrail,
   selected,
   onSelect,
   height = 250,
@@ -40,6 +45,13 @@ export function RecoveryMap({
     [pins, selected, trail],
   );
 
+  const coordinateSignature = coordinates
+    .map(
+      (coordinate) =>
+        `${coordinate.latitude.toFixed(5)},${coordinate.longitude.toFixed(5)}`,
+    )
+    .join("|");
+
   useEffect(() => {
     if (coordinates.length < 2) return;
     const timer = setTimeout(() => {
@@ -49,7 +61,10 @@ export function RecoveryMap({
       });
     }, 120);
     return () => clearTimeout(timer);
-  }, [coordinates]);
+    // The signature prevents identical parent rerenders from repeatedly
+    // re-animating and re-fitting the native map.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coordinateSignature]);
 
   return (
     <View style={[styles.wrap, { height }]}>
@@ -70,7 +85,11 @@ export function RecoveryMap({
         }
       >
         {trail.length >= 2 ? (
-          <Polyline coordinates={trail} strokeColor="#2F6F4E" strokeWidth={4} />
+          <Polyline
+            coordinates={trail}
+            strokeColor={Palette.forestDark}
+            strokeWidth={4}
+          />
         ) : null}
         {pins.map((pin) => (
           <Marker
@@ -88,7 +107,7 @@ export function RecoveryMap({
           <Marker
             coordinate={selected}
             title="Selected location"
-            pinColor="#2F6F4E"
+            pinColor={Palette.forestDark}
           />
         ) : null}
       </MapView>

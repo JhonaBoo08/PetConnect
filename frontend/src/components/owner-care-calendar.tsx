@@ -33,6 +33,7 @@ import {
   PlusIcon,
 } from "@/components/app-icons";
 import { CareDateTimeFields } from "@/components/care-date-time-fields";
+import { Palette } from "@/constants/palette";
 import { Fonts } from "@/constants/theme";
 import {
   CARE_COLORS,
@@ -148,7 +149,7 @@ function CareItemDetails({
           style={styles.manageButton}
         >
           <Text style={styles.manageText}>Manage reminder</Text>
-          <ChevronRightIcon size={14} color="#214C36" />
+          <ChevronRightIcon size={14} color={Palette.forestDark} />
         </Pressable>
       ) : null}
     </View>
@@ -262,8 +263,7 @@ export const OwnerCareCalendar = forwardRef<
     const next = new Date(Date.now() + 30 * 60 * 1000);
     if (localDateKey(date) === today && localDateKey(next) !== today)
       date = next;
-    const initialPetId =
-      petFilter || (pets.length === 1 ? pets[0].id : "");
+    const initialPetId = petFilter || (pets.length === 1 ? pets[0].id : "");
     setFormPetId(initialPetId);
     setChoosePet(!initialPetId && pets.length > 1);
     setTitle("");
@@ -357,7 +357,10 @@ export const OwnerCareCalendar = forwardRef<
           onPress={() => setPetFilter("")}
           style={[styles.petChip, !petFilter && styles.petChipActive]}
         >
-          <PawIcon size={17} color={!petFilter ? "#FFFFFF" : "#214C36"} />
+          <PawIcon
+            size={17}
+            color={!petFilter ? Palette.white : Palette.forestDark}
+          />
           <Text style={[styles.chipText, !petFilter && styles.chipTextActive]}>
             All pets
           </Text>
@@ -384,7 +387,7 @@ export const OwnerCareCalendar = forwardRef<
                   style={styles.avatarImage}
                 />
               ) : (
-                <PawIcon size={17} color="#214C36" />
+                <PawIcon size={17} color={Palette.forestDark} />
               )}
             </View>
             <Text
@@ -418,7 +421,7 @@ export const OwnerCareCalendar = forwardRef<
               style={styles.monthArrow}
             >
               <View style={{ transform: [{ rotate: "180deg" }] }}>
-                <ChevronRightIcon size={20} color="#191C14" />
+                <ChevronRightIcon size={20} color={Palette.ink} />
               </View>
             </Pressable>
             <Pressable
@@ -427,7 +430,7 @@ export const OwnerCareCalendar = forwardRef<
               onPress={() => setMonth((current) => shiftMonth(current, 1))}
               style={styles.monthArrow}
             >
-              <ChevronRightIcon size={20} color="#191C14" />
+              <ChevronRightIcon size={20} color={Palette.ink} />
             </Pressable>
           </View>
         </View>
@@ -480,7 +483,7 @@ export const OwnerCareCalendar = forwardRef<
                       {selected ? (
                         <View style={styles.selectedDot} />
                       ) : (
-                        <PawIcon size={12} color="#76816D" />
+                        <PawIcon size={12} color={Palette.inkMuted} />
                       )}
                       {petIds.length > 1 ? (
                         <View
@@ -509,13 +512,13 @@ export const OwnerCareCalendar = forwardRef<
               </View>
             ))}
           <View style={styles.legendItem}>
-            <PawIcon size={12} color="#76816D" />
+            <PawIcon size={12} color={Palette.inkMuted} />
             <Text style={styles.legendText}>Reminder scheduled</Text>
           </View>
         </View>
         {busy ? (
           <View style={styles.notice}>
-            <ActivityIndicator size="small" color="#214C36" />
+            <ActivityIndicator size="small" color={Palette.forestDark} />
             <Text style={styles.noticeText}>Loading care schedules…</Text>
           </View>
         ) : null}
@@ -546,7 +549,7 @@ export const OwnerCareCalendar = forwardRef<
         onPress={() => openCreate(selectedDay)}
         style={[styles.addButton, (busy || !pets.length) && styles.disabled]}
       >
-        <PlusIcon size={17} color="#214C36" />
+        <PlusIcon size={17} color={Palette.forestDark} />
         <Text style={styles.addText}>Add a reminder</Text>
       </Pressable>
 
@@ -657,7 +660,7 @@ export const OwnerCareCalendar = forwardRef<
                         onChangeText={setTitle}
                         editable={!saving}
                         placeholder="e.g. Vet appointment"
-                        placeholderTextColor="#969185"
+                        placeholderTextColor={Palette.placeholder}
                         maxLength={120}
                         style={styles.input}
                       />
@@ -682,9 +685,9 @@ export const OwnerCareCalendar = forwardRef<
                       style={[styles.saveButton, saving && styles.disabled]}
                     >
                       {saving ? (
-                        <ActivityIndicator color="#FFFFFF" />
+                        <ActivityIndicator color={Palette.white} />
                       ) : (
-                        <CheckIcon size={17} color="#FFFFFF" />
+                        <CheckIcon size={17} color={Palette.white} />
                       )}
                       <Text style={styles.saveText}>
                         {saving ? "Saving…" : "Save reminder"}
@@ -735,7 +738,7 @@ export const OwnerCareCalendar = forwardRef<
                       onPress={() => openCreate(selectedDay)}
                       style={styles.saveButton}
                     >
-                      <PlusIcon size={17} color="#FFFFFF" />
+                      <PlusIcon size={17} color={Palette.white} />
                       <Text style={styles.saveText}>Add a reminder</Text>
                     </Pressable>
                   ) : null}
@@ -765,15 +768,18 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "#E5DDCF",
+    borderColor: Palette.borderSoft,
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Palette.surface,
   },
-  petChipActive: { backgroundColor: "#0B3B23", borderColor: "#0B3B23" },
+  petChipActive: {
+    backgroundColor: Palette.primaryPressed,
+    borderColor: Palette.primaryPressed,
+  },
   chipText: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    color: "#172014",
+    color: Palette.ink,
     fontWeight: "500",
   },
   chipTextActive: { color: "#FFFFFF", fontWeight: "600" },
@@ -787,9 +793,9 @@ const styles = StyleSheet.create({
   },
   avatarImage: { width: "100%", height: "100%" },
   calendarCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Palette.surface,
     borderWidth: 1,
-    borderColor: "#E5DDCF",
+    borderColor: Palette.borderSoft,
     borderRadius: 20,
     padding: 16,
   },
@@ -801,12 +807,17 @@ const styles = StyleSheet.create({
   monthHeading: { flex: 1, minWidth: 0 },
   eyebrow: {
     fontFamily: Fonts.sans,
-    color: "#70684F",
+    color: Palette.inkMuted,
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 1.1,
   },
-  monthTitle: { color: "#171B13", fontSize: 30, lineHeight: 37, marginTop: 2 },
+  monthTitle: {
+    color: Palette.ink,
+    fontSize: 30,
+    lineHeight: 37,
+    marginTop: 2,
+  },
   monthActions: { flexDirection: "row", gap: 4 },
   monthArrow: {
     width: 36,
@@ -822,7 +833,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "600",
     letterSpacing: 1,
-    color: "#70684F",
+    color: Palette.inkMuted,
   },
   days: { flexDirection: "row", flexWrap: "wrap", rowGap: 4 },
   dayColumn: { width: "14.285714%", alignItems: "center" },
@@ -838,10 +849,10 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: "500",
-    color: "#0D2118",
+    color: Palette.ink,
   },
-  outsideDay: { color: "#CDC6BE" },
-  selectedDay: { backgroundColor: "#0B3B23" },
+  outsideDay: { color: Palette.placeholder },
+  selectedDay: { backgroundColor: Palette.primaryPressed },
   selectedDayText: { color: "#FFFFFF", fontWeight: "700" },
   dayMarker: {
     position: "absolute",
@@ -855,7 +866,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Palette.surface,
   },
   extraPetDot: {
     width: 6,
@@ -866,7 +877,7 @@ const styles = StyleSheet.create({
   },
   legend: {
     borderTopWidth: 1,
-    borderTopColor: "#E5DDCF",
+    borderTopColor: Palette.borderSoft,
     paddingTop: 16,
     marginTop: 20,
     flexDirection: "row",
@@ -875,7 +886,7 @@ const styles = StyleSheet.create({
   },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 7 },
   petDot: { width: 11, height: 11, borderRadius: 6 },
-  legendText: { fontFamily: Fonts.sans, fontSize: 11, color: "#70684F" },
+  legendText: { fontFamily: Fonts.sans, fontSize: 11, color: Palette.inkMuted },
   notice: {
     marginTop: 16,
     flexDirection: "row",
@@ -886,7 +897,7 @@ const styles = StyleSheet.create({
   noticeText: {
     fontFamily: Fonts.sans,
     fontSize: 12,
-    color: "#70684F",
+    color: Palette.inkMuted,
     lineHeight: 18,
   },
   addButton: {
@@ -896,22 +907,22 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 44,
     borderWidth: 1,
-    borderColor: "#E5DDCF",
+    borderColor: Palette.borderSoft,
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Palette.surface,
   },
   addText: {
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: "600",
-    color: "#214C36",
+    color: Palette.forestDark,
   },
   disabled: { opacity: 0.5 },
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
     alignItems: "center",
-    backgroundColor: "rgba(30,26,17,0.35)",
+    backgroundColor: "rgba(16,43,41,0.32)",
     paddingHorizontal: 10,
     paddingTop: 48,
   },
@@ -921,7 +932,7 @@ const styles = StyleSheet.create({
     maxHeight: "90%",
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Palette.surface,
     overflow: "hidden",
   },
   sheetContent: { paddingHorizontal: 24, paddingTop: 24 },
@@ -935,10 +946,15 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 12,
     fontWeight: "600",
-    color: "#D98756",
+    color: Palette.warning,
     letterSpacing: 1.3,
   },
-  sheetTitle: { fontSize: 32, lineHeight: 39, color: "#211F16", marginTop: 2 },
+  sheetTitle: {
+    fontSize: 32,
+    lineHeight: 39,
+    color: Palette.ink,
+    marginTop: 2,
+  },
   closeButton: {
     width: 36,
     height: 44,
@@ -949,7 +965,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 27,
     fontWeight: "300",
-    color: "#211F16",
+    color: Palette.ink,
   },
   formPet: {
     alignSelf: "flex-start",
@@ -959,8 +975,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingVertical: 4,
   },
-  formPetText: { fontFamily: Fonts.sans, fontSize: 12, color: "#70684F" },
-  formPetArrow: { color: "#70684F", fontSize: 14 },
+  formPetText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    color: Palette.inkMuted,
+  },
+  formPetArrow: { color: Palette.inkMuted, fontSize: 14 },
   formPetChoices: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -969,17 +989,17 @@ const styles = StyleSheet.create({
   },
   choice: {
     borderWidth: 1,
-    borderColor: "#E5DDCF",
+    borderColor: Palette.borderSoft,
     borderRadius: 9,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  choiceActive: { backgroundColor: "#EAF4E5" },
+  choiceActive: { backgroundColor: Palette.sage },
   form: { marginTop: 20, gap: 18 },
   fieldLabel: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    color: "#242218",
+    color: Palette.ink,
     marginBottom: 7,
   },
   input: {
@@ -987,18 +1007,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontFamily: Fonts.sans,
     fontSize: 14,
-    color: "#242218",
+    color: Palette.ink,
     borderWidth: 1,
-    borderColor: "#E5DCCB",
+    borderColor: Palette.borderSoft,
     borderRadius: 12,
-    backgroundColor: "#FCF9F1",
+    backgroundColor: Palette.cream,
   },
   saveButton: {
     minHeight: 44,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: "#214C36",
+    backgroundColor: Palette.forestDark,
     flexDirection: "row",
     gap: 8,
     alignItems: "center",
@@ -1014,20 +1034,20 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 12,
     lineHeight: 18,
-    color: "#AD452E",
+    color: Palette.danger,
     flexShrink: 1,
   },
   daySubtitle: {
     fontFamily: Fonts.sans,
     fontSize: 12,
-    color: "#70684F",
+    color: Palette.inkMuted,
     marginTop: 8,
   },
   detailList: { gap: 12, marginTop: 20, marginBottom: 20 },
   detailCard: {
-    backgroundColor: "#FCF9F1",
+    backgroundColor: Palette.cream,
     borderWidth: 1,
-    borderColor: "#E5DCCB",
+    borderColor: Palette.borderSoft,
     borderRadius: 14,
     padding: 16,
     gap: 8,
@@ -1038,14 +1058,14 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 13,
     fontWeight: "600",
-    color: "#214C36",
+    color: Palette.forestDark,
   },
-  itemTime: { fontFamily: Fonts.sans, fontSize: 12, color: "#70684F" },
+  itemTime: { fontFamily: Fonts.sans, fontSize: 12, color: Palette.inkMuted },
   detailTitle: {
     fontFamily: Fonts.sans,
     fontSize: 17,
     fontWeight: "600",
-    color: "#211F16",
+    color: Palette.ink,
     lineHeight: 23,
   },
   statusRow: {
@@ -1058,26 +1078,26 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 10,
     fontWeight: "600",
-    color: "#214C36",
-    backgroundColor: "#EAF4E5",
+    color: Palette.forestDark,
+    backgroundColor: Palette.sage,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
     overflow: "hidden",
   },
-  source: { fontFamily: Fonts.sans, fontSize: 11, color: "#70684F" },
+  source: { fontFamily: Fonts.sans, fontSize: 11, color: Palette.inkMuted },
   detailRow: { gap: 3, marginTop: 2 },
   detailLabel: {
     fontFamily: Fonts.sans,
     fontSize: 10,
     fontWeight: "600",
-    color: "#8B826F",
+    color: Palette.inkMuted,
   },
   detailValue: {
     fontFamily: Fonts.sans,
     fontSize: 12,
     lineHeight: 18,
-    color: "#302D22",
+    color: Palette.ink,
   },
   manageButton: {
     flexDirection: "row",
@@ -1090,12 +1110,12 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 12,
     fontWeight: "600",
-    color: "#214C36",
+    color: Palette.forestDark,
   },
   emptyText: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    color: "#70684F",
+    color: Palette.inkMuted,
     lineHeight: 21,
     paddingVertical: 12,
   },

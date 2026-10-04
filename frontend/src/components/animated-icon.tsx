@@ -3,6 +3,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, { Easing, Keyframe } from "react-native-reanimated";
+
+import { Palette } from "@/constants/palette";
 import { scheduleOnRN } from "react-native-worklets";
 
 const DURATION = 450;
@@ -65,7 +67,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     alignItems: "center",
-    backgroundColor: "#F8F0DF",
+    backgroundColor: Palette.cream,
     justifyContent: "center",
     zIndex: 1000,
   },
