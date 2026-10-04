@@ -7,6 +7,7 @@ import {
   useRouter,
 } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import {
   ActivityIndicator,
@@ -88,6 +89,7 @@ function AppNavigator() {
       allowedRoutes = [
         "/dashboard",
         "/alerts",
+        "/notifications",
         "/recovery-report",
         "/profile",
         "/privacy-settings",
@@ -95,6 +97,7 @@ function AppNavigator() {
         "/add-pet",
         "/my-pets",
         "/health-reminders",
+        "/care-calendar",
         "/reminder-details",
       ];
     }
@@ -130,6 +133,7 @@ function AppNavigator() {
       <Stack.Protected guard={owner}>
         <Stack.Screen name="dashboard" />
         <Stack.Screen name="alerts" />
+        <Stack.Screen name="notifications" />
         <Stack.Screen name="recovery-report" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="privacy-settings" />
@@ -137,6 +141,7 @@ function AppNavigator() {
         <Stack.Screen name="add-pet" />
         <Stack.Screen name="my-pets" />
         <Stack.Screen name="health-reminders" />
+        <Stack.Screen name="care-calendar" />
         <Stack.Screen name="reminder-details" />
       </Stack.Protected>
       <Stack.Protected guard={clinic}>
@@ -156,6 +161,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <AuthProvider>
+        <StatusBar style="dark" />
         <AnimatedSplashOverlay />
         <AppNavigator />
       </AuthProvider>
