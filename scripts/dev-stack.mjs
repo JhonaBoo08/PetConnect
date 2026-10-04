@@ -53,19 +53,31 @@ async function apiReady() {
   }
 }
 
+async function authReady() {
+  try {
+    const response = await fetch(
+      "http://127.0.0.1:9099/emulator/v1/projects/demo-petconnect/config",
+      { signal: AbortSignal.timeout(1200) },
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function waitForLocalServices() {
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     if (servicesExitCode !== null) {
       throw new Error(
         "PetConnect local services stopped before development was ready.",
       );
     }
-    if ((await isListening(9099)) && (await apiReady())) return;
+    if ((await authReady()) && (await apiReady())) return;
     await new Promise((resolve) => setTimeout(resolve, 350));
   }
   throw new Error(
-    "PetConnect local services did not become ready within 60 seconds.",
+    "PetConnect local services did not become ready within 90 seconds.",
   );
 }
 
@@ -190,18 +202,22 @@ function startLocalServices(commands) {
 
 async function prepareLocalServices() {
   const apiIsReady = await apiReady();
-  const authIsReady = await isListening(9099);
+  const authIsReady = await authReady();
   const commands = [];
 
   if (!authIsReady) {
-    for (const port of [9099, 4000, 4400, 4500]) {
+    for (const port of [9099, 4000]) {
       if (await isListening(port)) {
         throw new Error(
           `Port ${port} is already in use, but the PetConnect Auth emulator is not ready. Stop the conflicting process and run npm run dev again.`,
         );
       }
     }
-    commands.push({ command: "npm run emulators", name: "auth" });
+
+    commands.push({
+      command: "npm run emulators",
+      name: "auth",
+    });
   }
 
   if (!apiIsReady) {
