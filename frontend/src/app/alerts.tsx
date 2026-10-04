@@ -140,6 +140,7 @@ export default function RecoveryScreen() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const scrollRef = useRef<ScrollView>(null);
+  const automaticModeChosen = useRef(false);
 
   const loadCore = useCallback(
     async (isActive: () => boolean = () => true, force = false) => {
@@ -151,6 +152,19 @@ export default function RecoveryScreen() {
       if (!isActive()) return;
       setPets(petRows);
       setReports(overview.reports);
+      if (
+        !automaticModeChosen.current &&
+        !routeMode &&
+        !routeReportId &&
+        !routePetId
+      ) {
+        setMode(
+          overview.reports.some((report) => report.status !== "REUNITED")
+            ? "reports"
+            : "nearby",
+        );
+        automaticModeChosen.current = true;
+      }
       setUnreadCount(notificationRows.filter((n) => !n.readAt).length);
       setSightingsByReport(overview.sightingsByReport);
       setFailedDetails([]);
@@ -162,7 +176,7 @@ export default function RecoveryScreen() {
         return petRows.length === 1 ? petRows[0].id : "";
       });
     },
-    [routePetId],
+    [routeMode, routePetId, routeReportId],
   );
 
   useEffect(() => {
@@ -471,7 +485,7 @@ ${report.details ? `<p class="small">${htmlText(report.details)}</p>` : ""}
                           mode === key && styles.segmentLabelActive,
                         ]}
                       >
-                        {key === "nearby" ? "Nearby" : "My Reports"}
+                        {key === "nearby" ? "Nearby" : "My cases"}
                       </Text>
                     </Pressable>
                   ))}
@@ -986,7 +1000,9 @@ ${report.details ? `<p class="small">${htmlText(report.details)}</p>` : ""}
                       style={styles.posterButton}
                     >
                       <Text style={styles.posterButtonText}>
-                        {Platform.OS === "web" ? "Print poster" : "Share poster"}
+                        {Platform.OS === "web"
+                          ? "Print poster"
+                          : "Share poster"}
                       </Text>
                     </Pressable>
                     <Pressable

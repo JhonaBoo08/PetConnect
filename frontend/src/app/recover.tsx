@@ -112,6 +112,7 @@ export default function RecoverScreen() {
   const [finderContact, setFinderContact] = useState("");
   const [shareContact, setShareContact] = useState(false);
   const [notes, setNotes] = useState("");
+  const [showOptionalDetails, setShowOptionalDetails] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(
     newFinderIdempotencyKey(),
   );
@@ -173,6 +174,7 @@ export default function RecoverScreen() {
     setError("");
     setLocationError("");
     setSubmission(null);
+    setShowOptionalDetails(false);
     setIdempotencyKey(newFinderIdempotencyKey());
   }
 
@@ -188,6 +190,7 @@ export default function RecoverScreen() {
     setDevelopmentCode("");
     setError("");
     setSubmission(null);
+    setShowOptionalDetails(false);
     setIdempotencyKey(newFinderIdempotencyKey());
     setFlow("PROFILE");
   }
@@ -456,6 +459,14 @@ export default function RecoverScreen() {
                       </Text>
                     </View>
                   ) : null}
+                  {profile.pet.microchipped ? (
+                    <View style={styles.microchipBadge}>
+                      <ShieldIcon size={15} color={Palette.forestDark} />
+                      <Text style={styles.microchipBadgeText}>
+                        Microchipped
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
 
@@ -694,62 +705,71 @@ export default function RecoverScreen() {
                     style={styles.input}
                   />
 
-                  <Text style={styles.stepLabel}>
-                    {encounterType === "HAVE_PET"
-                      ? "3 · OPTIONAL DETAILS"
-                      : "OPTIONAL DETAILS"}
-                  </Text>
-                  <TextInput
-                    accessibilityLabel="Finder name"
-                    value={finderName}
-                    onChangeText={setFinderName}
-                    placeholder="Your name (optional)"
-                    placeholderTextColor={Palette.placeholder}
-                    style={styles.input}
-                  />
-                  <TextInput
-                    accessibilityLabel="Finder contact"
-                    value={finderContact}
-                    onChangeText={setFinderContact}
-                    placeholder="Phone or messaging contact (optional)"
-                    placeholderTextColor={Palette.placeholder}
-                    style={styles.input}
-                    keyboardType="phone-pad"
-                  />
                   <Pressable
-                    accessibilityRole="checkbox"
-                    accessibilityLabel="Share my contact details with the pet owner"
-                    accessibilityState={{ checked: shareContact }}
-                    onPress={() => setShareContact((value) => !value)}
-                    style={styles.checkRow}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add optional finder details"
+                    onPress={() => setShowOptionalDetails((value) => !value)}
+                    style={styles.optionalToggle}
                   >
-                    <View
-                      style={[
-                        styles.checkbox,
-                        shareContact && styles.checkboxChecked,
-                      ]}
-                    >
-                      {shareContact ? (
-                        <CheckIcon size={13} color={Palette.white} />
-                      ) : null}
-                    </View>
-                    <Text style={styles.checkText}>
-                      Share my contact details with the pet owner
+                    <Text style={styles.optionalToggleText}>
+                      {showOptionalDetails
+                        ? "Hide optional details"
+                        : "Add contact or note"}
                     </Text>
                   </Pressable>
-                  <TextInput
-                    accessibilityLabel="Finder notes"
-                    value={notes}
-                    onChangeText={setNotes}
-                    placeholder={
-                      encounterType === "HAVE_PET"
-                        ? "Condition, safe pickup details, or anything the owner should know"
-                        : "Direction, condition, behavior, or other useful detail"
-                    }
-                    placeholderTextColor={Palette.placeholder}
-                    multiline
-                    style={[styles.input, styles.textArea]}
-                  />
+                  {showOptionalDetails ? (
+                    <View style={styles.optionalFields}>
+                      <TextInput
+                        accessibilityLabel="Finder name"
+                        value={finderName}
+                        onChangeText={setFinderName}
+                        placeholder="Your name (optional)"
+                        placeholderTextColor={Palette.placeholder}
+                        style={styles.input}
+                      />
+                      <TextInput
+                        accessibilityLabel="Finder contact"
+                        value={finderContact}
+                        onChangeText={setFinderContact}
+                        placeholder="Phone or messaging contact (optional)"
+                        placeholderTextColor={Palette.placeholder}
+                        style={styles.input}
+                        keyboardType="phone-pad"
+                      />
+                      <Pressable
+                        accessibilityRole="checkbox"
+                        accessibilityLabel="Share my contact details with the pet owner"
+                        accessibilityState={{ checked: shareContact }}
+                        onPress={() => setShareContact((value) => !value)}
+                        style={styles.checkRow}
+                      >
+                        <View
+                          style={[
+                            styles.checkbox,
+                            shareContact && styles.checkboxChecked,
+                          ]}
+                        >
+                          {shareContact ? (
+                            <CheckIcon size={13} color={Palette.white} />
+                          ) : null}
+                        </View>
+                        <Text style={styles.checkText}>Share my contact</Text>
+                      </Pressable>
+                      <TextInput
+                        accessibilityLabel="Finder notes"
+                        value={notes}
+                        onChangeText={setNotes}
+                        placeholder={
+                          encounterType === "HAVE_PET"
+                            ? "Condition or pickup details"
+                            : "Direction, condition, or behavior"
+                        }
+                        placeholderTextColor={Palette.placeholder}
+                        multiline
+                        style={[styles.input, styles.textArea]}
+                      />
+                    </View>
+                  ) : null}
 
                   {error ? (
                     <Text accessibilityRole="alert" style={styles.inlineError}>
@@ -1059,6 +1079,22 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: Palette.white,
   },
+  microchipBadge: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.one,
+    borderRadius: 999,
+    backgroundColor: Palette.sage,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 6,
+  },
+  microchipBadgeText: {
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
   alertCard: {
     marginTop: Spacing.four,
     padding: Spacing.three,
@@ -1316,6 +1352,25 @@ const styles = StyleSheet.create({
     minHeight: 96,
     paddingTop: Spacing.three,
     textAlignVertical: "top",
+  },
+  optionalToggle: {
+    marginTop: Spacing.three,
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  optionalToggleText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  optionalFields: {
+    gap: Spacing.two,
   },
   checkRow: {
     minHeight: 42,

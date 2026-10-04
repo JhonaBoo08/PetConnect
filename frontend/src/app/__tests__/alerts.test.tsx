@@ -38,6 +38,9 @@ jest.mock("react-native-safe-area-context", () => ({
 jest.mock("@/components/recovery-map", () => ({
   RecoveryMap: (props: unknown) => mockRecoveryMap(props),
 }));
+jest.mock("@/services/auth", () => ({
+  getApiBaseUrl: () => "http://127.0.0.1:3001",
+}));
 jest.mock("@/services/auth-context", () => ({
   authErrorMessage: (error: Error) => error.message,
 }));
@@ -99,11 +102,11 @@ it("preserves the selected recovery tab when data is refreshed", async () => {
   mockNotifications.mockResolvedValue([]);
   const view = await render(<AlertsScreen />);
   await waitFor(() => expect(mockNotifications).toHaveBeenCalled());
-  await fireEvent.press(view.getByRole("tab", { name: "My Reports" }));
+  await fireEvent.press(view.getByRole("tab", { name: "My cases" }));
   await fireEvent(view.getByLabelText("Refresh recovery"), "refresh");
   await waitFor(() => expect(mockListReports).toHaveBeenCalledTimes(2));
   expect(
-    view.getByRole("tab", { name: "My Reports" }).props.accessibilityState
+    view.getByRole("tab", { name: "My cases" }).props.accessibilityState
       .selected,
   ).toBe(true);
 });
@@ -192,7 +195,7 @@ it("shows the owner's original lost location and finder-found location on the re
   });
 
   const view = await render(<AlertsScreen />);
-  await fireEvent.press(view.getByRole("tab", { name: "My Reports" }));
+  await fireEvent.press(view.getByRole("tab", { name: "My cases" }));
   await waitFor(() =>
     expect(mockRecoveryMap).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -271,7 +274,7 @@ it("publishes a pet-specific deep link with its selected location", async () => 
   );
   await waitFor(() =>
     expect(
-      view.getByRole("tab", { name: "My Reports" }).props.accessibilityState
+      view.getByRole("tab", { name: "My cases" }).props.accessibilityState
         .selected,
     ).toBe(true),
   );
@@ -283,18 +286,18 @@ it("offers Add a pet instead of reporting actions for an owner with no pets", as
   const view = await render(<AlertsScreen />);
   await waitFor(() => expect(mockListPets).toHaveBeenCalled());
   expect(view.queryByRole("button", { name: "Report Lost Pet" })).toBeNull();
-  await fireEvent.press(view.getByRole("tab", { name: "My Reports" }));
+  await fireEvent.press(view.getByRole("tab", { name: "My cases" }));
   await fireEvent.press(view.getByRole("button", { name: "Add a pet" }));
   expect(mockPush).toHaveBeenCalledWith("/add-pet");
   expect(view.queryByLabelText("Last seen")).toBeNull();
 });
 
-it("keeps a reportId deep link in My Reports without opening creation", async () => {
+it("keeps a reportId deep link in My cases without opening creation", async () => {
   mockParams = { mode: "report", reportId: "LR-OLD" };
   const view = await render(<AlertsScreen />);
   await waitFor(() =>
     expect(
-      view.getByRole("tab", { name: "My Reports" }).props.accessibilityState
+      view.getByRole("tab", { name: "My cases" }).props.accessibilityState
         .selected,
     ).toBe(true),
   );
@@ -352,7 +355,7 @@ it("refreshes Nearby when returning after publishing a report", async () => {
   );
   await waitFor(() =>
     expect(
-      view.getByRole("tab", { name: "My Reports" }).props.accessibilityState
+      view.getByRole("tab", { name: "My cases" }).props.accessibilityState
         .selected,
     ).toBe(true),
   );
