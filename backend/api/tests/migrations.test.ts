@@ -120,7 +120,7 @@ test("legacy bootstrap applies new migrations instead of baselining absent table
       )
       .filter(
         (statement) =>
-          !/CREATE TABLE IF NOT EXISTS (?:expo_push_receipts|finder_sessions|finder_otp_challenges|recovery_contact_events|sighting_evidence)\b/.test(
+          !/CREATE TABLE IF NOT EXISTS (?:expo_push_receipts|finder_sessions|finder_otp_challenges|recovery_contact_events|sighting_evidence|pet_recovery_tags|recovery_tag_scans)\b/.test(
             statement,
           ),
       )

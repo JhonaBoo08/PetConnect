@@ -58,6 +58,45 @@ export interface RecoveryTokenState {
   recoveryUrl: string | null;
 }
 
+export type RecoveryTagStatus = "ACTIVE" | "LOST" | "REVOKED";
+export type RecoveryTagType =
+  "PRINT" | "COLLAR" | "HARNESS" | "STICKER" | "OTHER";
+
+export interface RecoveryTag {
+  id: string;
+  petId: string;
+  label: string;
+  tagType: RecoveryTagType;
+  status: RecoveryTagStatus;
+  shortCode: string;
+  token: string | null;
+  recoveryUrl: string | null;
+  lastScannedAt: string | null;
+  scanCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecoveryTagScan {
+  id: string;
+  tagId: string;
+  petId: string;
+  label: string;
+  shortCode: string;
+  source: "QR" | "CODE";
+  createdAt: string;
+}
+
+export interface RecoveryTimelineEvent {
+  id: string;
+  kind: "REPORTED_LOST" | "TAG_SCANNED" | "SIGHTING" | "FOUND" | "REUNITED";
+  title: string;
+  detail: string;
+  createdAt: string;
+  sightingId?: string;
+  tagId?: string;
+}
+
 export type RecoveryStatus = "LOST" | "SIGHTED" | "REUNITED";
 
 export interface Coordinates {
