@@ -73,8 +73,9 @@ test.describe("owner integration", () => {
     ).toBeVisible();
 
     async function createPet(name: string) {
+      await page.goto("/my-pets");
       await page
-        .getByRole("button", { name: /Add pet/i })
+        .getByRole("button", { name: /Add (pet|your first pet)/i })
         .first()
         .click();
       await expect(page).toHaveURL(/\/add-pet$/);
@@ -202,7 +203,7 @@ test.describe("owner integration", () => {
       .getByRole("button", { name: "Publish lost report", exact: true })
       .click();
     await expect(
-      page.getByText(/Bantay is now in the recovery network/),
+      page.getByText(/Bantay is now in Recovery/),
     ).toBeVisible();
 
     const finderPage = await finderContext.newPage();
