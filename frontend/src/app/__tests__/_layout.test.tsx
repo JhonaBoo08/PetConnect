@@ -5,6 +5,7 @@ import { render, waitFor } from "@testing-library/react-native";
 const mockReplace = jest.fn();
 const mockRouter = { replace: mockReplace, push: jest.fn() };
 let mockState = { status: "ready", session: { role: "OWNER" } };
+let mockRefreshing = false;
 
 jest.mock("expo-router", () => {
   const React = require("react");
@@ -38,7 +39,7 @@ jest.mock("@/components/animated-icon", () => ({
 }));
 jest.mock("@/services/auth-context", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
-  useAuth: () => ({ state: mockState }),
+  useAuth: () => ({ state: mockState, refreshing: mockRefreshing }),
 }));
 jest.mock("@/services/device-recovery", () => ({
   observeNotificationResponses: async () => () => undefined,
@@ -49,10 +50,18 @@ import RootLayout from "../_layout";
 beforeEach(() => {
   jest.clearAllMocks();
   mockState = { status: "ready", session: { role: "OWNER" } };
+  mockRefreshing = false;
 });
 
 it("keeps an authenticated owner on the finder evidence route", async () => {
   await render(<RootLayout />);
+  expect(mockReplace).not.toHaveBeenCalled();
+});
+
+it("keeps the navigator mounted and shows subtle feedback during session refresh", async () => {
+  mockRefreshing = true;
+  const view = await render(<RootLayout />);
+  expect(view.getByText("Syncing")).toBeTruthy();
   expect(mockReplace).not.toHaveBeenCalled();
 });
 

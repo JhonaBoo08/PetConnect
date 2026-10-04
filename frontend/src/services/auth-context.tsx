@@ -35,6 +35,7 @@ export type AuthState =
 
 type AuthContextValue = {
   state: AuthState;
+  refreshing: boolean;
   signIn: (
     email: string,
     password: string,
@@ -149,21 +150,37 @@ function failedSession(error: unknown, user: User): AuthState {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
+  const [refreshing, setRefreshing] = useState(false);
   const revision = useRef(0);
   const busy = useRef(false);
+  const resolvedOnce = useRef(false);
 
   const loadSession = useCallback(async (user: User | null) => {
     const turn = ++revision.current;
     if (!user) {
+      resolvedOnce.current = true;
+      setRefreshing(false);
       setState({ status: "guest" });
       return;
     }
-    setState({ status: "loading" });
+
+    const blocking = !resolvedOnce.current;
+    if (blocking) setState({ status: "loading" });
+    else setRefreshing(true);
+
     try {
       const session = await currentSession();
-      if (turn === revision.current) setState({ status: "ready", session });
+      if (turn === revision.current) {
+        resolvedOnce.current = true;
+        setState({ status: "ready", session });
+      }
     } catch (error) {
-      if (turn === revision.current) setState(failedSession(error, user));
+      if (turn === revision.current) {
+        resolvedOnce.current = true;
+        setState(failedSession(error, user));
+      }
+    } finally {
+      if (turn === revision.current) setRefreshing(false);
     }
   }, []);
 
@@ -203,6 +220,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const result = await action();
       ++revision.current;
+      resolvedOnce.current = true;
+      setRefreshing(false);
       setState(success(result));
       return result;
     } catch (error) {
@@ -211,6 +230,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const canResume =
         resumeSetup &&
         !(error instanceof ApiError && [401, 403].includes(error.status));
+      resolvedOnce.current = true;
+      setRefreshing(false);
       setState(
         user
           ? canResume
@@ -226,6 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     state,
+    refreshing,
     signIn: (email, password, role) =>
       run(
         () => login(email, password, role),
@@ -257,6 +279,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         await logout();
         ++revision.current;
+        resolvedOnce.current = true;
+        setRefreshing(false);
         setState({ status: "guest" });
       } catch (error) {
         setState(previous);
