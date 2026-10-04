@@ -1,10 +1,12 @@
 import { Image } from "expo-image";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -22,131 +24,228 @@ import {
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
-import { authErrorMessage, useAuth } from "@/services/auth-context";
+import { authErrorMessage } from "@/services/auth-context";
 import { deletePet, getPet, petPhotoUri } from "@/services/pets";
 import {
-  getPetRecovery,
-  revokePetRecovery,
-  rotatePetRecovery,
+  createRecoveryTag,
+  listRecoveryTags,
+  markRecoveryTagLost,
+  replaceRecoveryTag,
+  revokeRecoveryTag,
 } from "@/services/recovery";
-import type { Pet, RecoveryTokenState } from "../../../shared/contracts";
+import type { Pet, RecoveryTag } from "../../../shared/contracts";
 
-function RecoveryQr({ value, size = 92 }: { value: string; size?: number }) {
+type QrHandle = {
+  toDataURL: (callback: (data: string) => void) => void;
+};
+
+function RecoveryQr({
+  value,
+  size = 92,
+  getRef,
+}: {
+  value: string;
+  size?: number;
+  getRef?: (ref: QrHandle | null) => void;
+}) {
   return (
-    <View style={[styles.qrWrap, { width: size + 16, height: size + 16 }]}>
+    <View style={[styles.qrWrap, { width: size + 20, height: size + 20 }]}>
       <QRCode
         value={value}
         size={size}
         color="#000000"
         backgroundColor="#FFFFFF"
-        quietZone={size * 0.2}
-        ecl="M"
+        quietZone={size * 0.22}
+        ecl="H"
+        getRef={getRef}
       />
     </View>
   );
 }
 
+function tagStatus(tag: RecoveryTag) {
+  if (tag.status === "ACTIVE") return "Active";
+  if (tag.status === "LOST") return "Lost";
+  return "Disabled";
+}
+
+function scanLabel(tag: RecoveryTag) {
+  if (!tag.lastScannedAt) return "Never scanned";
+  return `Scanned ${new Date(tag.lastScannedAt).toLocaleDateString()}`;
+}
+
 export default function PetIdScreen() {
   const router = useRouter();
-  const { state } = useAuth();
-  const session = state.status === "ready" ? state.session : null;
   const params = useLocalSearchParams<{ id?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const qrRef = useRef<QrHandle | null>(null);
 
   const [pet, setPet] = useState<Pet | null>(null);
-  const [recovery, setRecovery] = useState<RecoveryTokenState | null>(null);
+  const [tags, setTags] = useState<RecoveryTag[]>([]);
+  const [selectedTag, setSelectedTag] = useState<RecoveryTag | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busyTagId, setBusyTagId] = useState("");
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
-  const [sharing, setSharing] = useState(false);
-  const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const [recoveryError, setRecoveryError] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
+
+  const load = useCallback(async () => {
+    if (!id) throw new Error("Pet ID is missing.");
+    const [record, recoveryTags] = await Promise.all([
+      getPet(id),
+      listRecoveryTags(id),
+    ]);
+    setPet(record);
+    setTags(recoveryTags);
+    setError("");
+  }, [id]);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      if (!id) {
-        setLoading(false);
-        setError("Pet ID is missing.");
-        return () => {
-          active = false;
-        };
-      }
-
       setLoading(true);
-      Promise.all([getPet(id), getPetRecovery(id)])
-        .then(([record, recoveryState]) => {
-          if (active) {
-            setPet(record);
-            setRecovery(recoveryState);
-            setError("");
-            setRecoveryError("");
-          }
-        })
+      load()
         .catch((cause) => {
           if (active) {
             setPet(null);
-            setRecovery(null);
+            setTags([]);
             setError(authErrorMessage(cause));
           }
         })
         .finally(() => {
           if (active) setLoading(false);
         });
-
       return () => {
         active = false;
       };
-    }, [id, retryKey]),
+    }, [load, retryKey]),
   );
 
-  async function handleRotateRecovery() {
-    if (!pet || recoveryBusy) return;
-    setRecoveryBusy(true);
-    setRecoveryError("");
+  async function createTag() {
+    if (!pet || creating) return;
+    setCreating(true);
+    setError("");
     try {
-      const next = await rotatePetRecovery(pet.id);
-      setRecovery(next);
-      setSharing(false);
+      const next = await createRecoveryTag(pet.id, {
+        label: tags.length ? `Spare tag ${tags.length + 1}` : "Main tag",
+        tagType: "PRINT",
+      });
+      setTags((current) => [...current, next]);
+      setSelectedTag(next);
     } catch (cause) {
-      setRecoveryError(authErrorMessage(cause));
+      setError(authErrorMessage(cause));
     } finally {
-      setRecoveryBusy(false);
+      setCreating(false);
     }
   }
 
-  async function handleRevokeRecovery() {
-    if (!pet || recoveryBusy) return;
-    setRecoveryBusy(true);
-    setRecoveryError("");
+  async function updateTag(
+    tag: RecoveryTag,
+    action: "replace" | "lost" | "revoke",
+  ) {
+    if (!pet || busyTagId) return;
+    setBusyTagId(tag.id);
+    setError("");
     try {
-      const next = await revokePetRecovery(pet.id);
-      setRecovery(next);
-      setSharing(false);
+      const next =
+        action === "replace"
+          ? await replaceRecoveryTag(pet.id, tag.id)
+          : action === "lost"
+            ? await markRecoveryTagLost(pet.id, tag.id)
+            : await revokeRecoveryTag(pet.id, tag.id);
+      setTags((current) =>
+        current.map((item) => (item.id === next.id ? next : item)),
+      );
+      if (selectedTag?.id === next.id) {
+        setSelectedTag(next.status === "ACTIVE" ? next : null);
+      }
     } catch (cause) {
-      setRecoveryError(authErrorMessage(cause));
+      setError(authErrorMessage(cause));
     } finally {
-      setRecoveryBusy(false);
+      setBusyTagId("");
     }
   }
 
   async function handleDelete() {
     if (!pet || deleting) return;
     setDeleting(true);
-    setDeleteError("");
+    setError("");
     try {
       await deletePet(pet.id);
       router.replace("/dashboard");
     } catch (cause) {
-      setDeleteError(authErrorMessage(cause));
+      setError(authErrorMessage(cause));
       setDeleting(false);
     }
   }
 
-  if (!pet || loading || error) {
+  async function composedTagDataUrl(qrData: string): Promise<string> {
+    if (Platform.OS !== "web" || !pet || !selectedTag) return "";
+    const canvas = document.createElement("canvas");
+    canvas.width = 900;
+    canvas.height = 1100;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not prepare printable tag.");
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = Palette.forestDark;
+    ctx.textAlign = "center";
+    ctx.font = "700 64px Arial";
+    ctx.fillText(pet.name.toUpperCase(), 450, 100);
+    ctx.font = "800 38px Arial";
+    ctx.fillText("I'M LOST", 450, 160);
+    const image = document.createElement("img");
+    image.src = `data:image/png;base64,${qrData}`;
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Could not prepare QR image."));
+    });
+    ctx.drawImage(image, 140, 220, 620, 620);
+    ctx.fillStyle = Palette.forestDark;
+    ctx.font = "700 29px Arial";
+    ctx.fillText("SCAN TO HELP ME GET HOME", 450, 900);
+    ctx.font = "800 35px monospace";
+    ctx.fillText(selectedTag.shortCode, 450, 960);
+    ctx.font = "600 24px Arial";
+    ctx.fillText("PetConnect", 450, 1025);
+    return canvas.toDataURL("image/png");
+  }
+
+  async function exportTag(mode: "download" | "print" | "share") {
+    if (!pet || !selectedTag?.recoveryUrl) return;
+    if (Platform.OS !== "web") {
+      await Share.share({
+        title: `${pet.name}'s PetConnect tag`,
+        message: `${pet.name} · ${selectedTag.shortCode}\n${selectedTag.recoveryUrl}`,
+      });
+      return;
+    }
+    qrRef.current?.toDataURL((qrData) => {
+      void composedTagDataUrl(qrData)
+        .then((tagImage) => {
+          if (mode === "download") {
+            const anchor = document.createElement("a");
+            anchor.href = tagImage;
+            anchor.download = `petconnect-${pet.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-tag.png`;
+            anchor.click();
+            return;
+          }
+          if (mode === "print") {
+            const popup = window.open("", "_blank", "width=700,height=900");
+            if (!popup) return;
+            popup.document.write(
+              `<!doctype html><html><head><title>${pet.name} PetConnect Tag</title><style>body{margin:0;display:grid;place-items:center;min-height:100vh}img{max-width:95vw;max-height:95vh}</style></head><body><img src="${tagImage}" onload="window.print()"></body></html>`,
+            );
+            popup.document.close();
+          }
+        })
+        .catch((cause) => setError(authErrorMessage(cause)));
+    });
+  }
+
+  if (!pet || loading) {
     return (
       <View style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
@@ -166,14 +265,14 @@ export default function PetIdScreen() {
               />
             ) : (
               <>
-                <Text accessibilityRole="alert" style={styles.supporting}>
+                <Text accessibilityRole="alert" style={styles.errorText}>
                   {error || "Pet not found."}
                 </Text>
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => setRetryKey((key) => key + 1)}
                 >
-                  <Text style={styles.linkLabel}>Retry loading pet</Text>
+                  <Text style={styles.linkLabel}>Retry</Text>
                 </Pressable>
               </>
             )}
@@ -183,8 +282,10 @@ export default function PetIdScreen() {
     );
   }
 
-  const details = [pet.sex, pet.ageLabel].filter(Boolean).join(" · ");
-  const recoveryUrl = recovery?.active ? recovery.recoveryUrl : null;
+  const activeTags = tags.filter((tag) => tag.status === "ACTIVE");
+  const details = [pet.breed || pet.species, pet.sex, pet.ageLabel]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <View style={styles.container}>
@@ -209,16 +310,11 @@ export default function PetIdScreen() {
               style={styles.iconButton}
             >
               <BellIcon />
-              <View style={styles.bellDot} />
             </Pressable>
           </View>
 
-          <Text style={styles.category}>DIGITAL PET ID</Text>
+          <Text style={styles.category}>PET ID</Text>
           <Text style={styles.petName}>{pet.name}</Text>
-          <Text style={styles.supporting}>
-            This is the owner view. The QR opens a separate recovery-safe public
-            profile and can be revoked without changing the pet record.
-          </Text>
 
           <View style={styles.petCard}>
             <View style={styles.photo}>
@@ -227,162 +323,190 @@ export default function PetIdScreen() {
                   source={{ uri: petPhotoUri(pet.photoUrl)! }}
                   style={styles.photo}
                   contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={120}
                 />
               ) : (
-                <>
-                  <PawIcon size={64} color={Palette.forestDark} />
-                  <Text style={styles.photoCaption}>{pet.name}</Text>
-                </>
+                <PawIcon size={62} color={Palette.forestDark} />
               )}
             </View>
-
             <View style={styles.cardBody}>
-              <View style={styles.breedRow}>
-                <Text style={styles.breed}>{pet.breed || pet.species}</Text>
-                <ShieldIcon size={24} />
+              <Text style={styles.breed}>{details || pet.species}</Text>
+              <View style={styles.statusRow}>
+                <ShieldIcon size={19} color={Palette.white} />
+                <Text style={styles.statusText}>
+                  {activeTags.length} active{" "}
+                  {activeTags.length === 1 ? "tag" : "tags"}
+                </Text>
               </View>
-              <Text style={styles.meta}>{details || pet.species}</Text>
+            </View>
+          </View>
 
-              <View style={styles.idPanel}>
-                <View style={styles.idText}>
-                  <Text style={styles.idLabel}>UNIQUE PET ID</Text>
-                  <Text style={styles.idValue}>{pet.id}</Text>
-                  <Text style={styles.qrStatus}>
-                    {recovery?.active
-                      ? "Recovery QR active"
-                      : "Recovery QR disabled"}
-                  </Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recovery tags</Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={creating}
+              onPress={() => void createTag()}
+              style={styles.addButton}
+            >
+              {creating ? (
+                <ActivityIndicator color={Palette.forestDark} />
+              ) : (
+                <Text style={styles.addButtonText}>+ New tag</Text>
+              )}
+            </Pressable>
+          </View>
+
+          {tags.map((tag) => {
+            const active = tag.status === "ACTIVE";
+            const busy = busyTagId === tag.id;
+            return (
+              <View key={tag.id} style={styles.tagCard}>
+                <View style={styles.tagTop}>
+                  <View style={styles.tagCopy}>
+                    <Text style={styles.tagName}>{tag.label}</Text>
+                    <Text style={styles.tagCode}>{tag.shortCode}</Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      !active && styles.statusPillInactive,
+                    ]}
+                  >
+                    <Text style={styles.statusPillText}>{tagStatus(tag)}</Text>
+                  </View>
                 </View>
-                {recoveryUrl ? (
-                  <RecoveryQr value={recoveryUrl} size={72} />
+                <Text style={styles.scanMeta}>
+                  {scanLabel(tag)}
+                  {tag.scanCount
+                    ? ` · ${tag.scanCount} scan${tag.scanCount === 1 ? "" : "s"}`
+                    : ""}
+                </Text>
+
+                {busy ? (
+                  <ActivityIndicator
+                    color={Palette.forestDark}
+                    style={styles.tagBusy}
+                  />
                 ) : (
-                  <View style={styles.disabledQr}>
-                    <Text style={styles.disabledQrText}>OFF</Text>
+                  <View style={styles.tagActions}>
+                    {active ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => setSelectedTag(tag)}
+                        style={styles.primarySmall}
+                      >
+                        <Text style={styles.primarySmallText}>View</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => void updateTag(tag, "replace")}
+                      style={styles.smallButton}
+                    >
+                      <Text style={styles.smallButtonText}>Replace</Text>
+                    </Pressable>
+                    {active ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void updateTag(tag, "lost")}
+                        style={styles.smallButton}
+                      >
+                        <Text style={styles.smallButtonText}>Lost</Text>
+                      </Pressable>
+                    ) : null}
+                    {tag.status !== "REVOKED" ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void updateTag(tag, "revoke")}
+                        style={styles.smallButton}
+                      >
+                        <Text style={styles.dangerText}>Disable</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 )}
               </View>
-            </View>
-          </View>
+            );
+          })}
 
-          <View style={styles.recoveryCard}>
-            <Text style={styles.recoveryLabel}>PUBLIC RECOVERY CONTACT</Text>
-            <Text style={styles.recoveryName}>
-              {session?.displayName || "Pet owner"}
-            </Text>
-            <Text style={styles.recoveryMeta}>
-              {session?.phone || "No recovery phone number added"}
-            </Text>
-            <Text style={styles.recoveryHint}>
-              Public recovery does not expose your email, Firebase UID, health
-              records, appointments, or this internal pet ID.
-            </Text>
-          </View>
-
-          {recoveryError ? (
+          {error ? (
             <Text accessibilityRole="alert" style={styles.errorText}>
-              {recoveryError}
+              {error}
             </Text>
           ) : null}
 
           <View style={styles.actionRow}>
             <Pressable
               accessibilityRole="button"
-              disabled={!recoveryUrl || recoveryBusy}
-              onPress={() => setSharing(true)}
-              style={({ pressed }) => [
-                styles.shareButton,
-                (!recoveryUrl || recoveryBusy) && styles.disabledButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <ShareIcon />
-              <Text style={styles.shareLabel}>View QR</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
               onPress={() =>
                 router.push({ pathname: "/add-pet", params: { id: pet.id } })
               }
-              style={({ pressed }) => [
-                styles.secondaryButton,
-                pressed && styles.pressed,
-              ]}
+              style={styles.secondaryButton}
             >
               <Text style={styles.secondaryLabel}>Edit pet</Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setConfirmingDelete(true)}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.dangerText}>Delete pet</Text>
+            </Pressable>
           </View>
-
-          <View style={styles.tokenControls}>
-            <Text style={styles.controlTitle}>Recovery QR controls</Text>
-            <Text style={styles.controlHelp}>
-              Regenerating invalidates every previously printed or saved QR for
-              this pet. Disable the QR immediately if a tag is lost or copied.
-            </Text>
-            <View style={styles.actionRowCompact}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={recoveryBusy}
-                onPress={() => void handleRotateRecovery()}
-                style={styles.secondaryButton}
-              >
-                {recoveryBusy ? (
-                  <ActivityIndicator color={Palette.forestDark} />
-                ) : (
-                  <Text style={styles.secondaryLabel}>
-                    {recovery?.active ? "Regenerate QR" : "Generate new QR"}
-                  </Text>
-                )}
-              </Pressable>
-              {recovery?.active ? (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={recoveryBusy}
-                  onPress={() => void handleRevokeRecovery()}
-                  style={styles.secondaryButton}
-                >
-                  <Text style={[styles.secondaryLabel, styles.dangerText]}>
-                    Disable QR
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setConfirmingDelete(true)}
-            style={styles.deleteButton}
-          >
-            <Text style={[styles.secondaryLabel, styles.dangerText]}>
-              Delete pet
-            </Text>
-          </Pressable>
         </ScrollView>
       </SafeAreaView>
 
-      {sharing && recoveryUrl ? (
+      {selectedTag?.recoveryUrl ? (
         <View style={styles.overlay}>
-          <View style={styles.shareSheet}>
-            <Text style={styles.shareTitle}>{pet.name}&apos;s Recovery QR</Text>
-            <View style={styles.shareCard}>
-              <Text style={styles.shareName}>{pet.name}</Text>
-              <Text style={styles.shareMeta}>{pet.breed || pet.species}</Text>
-              <RecoveryQr value={recoveryUrl} size={170} />
-              <Text style={styles.shareInstruction}>
-                Scan to open the public recovery profile
-              </Text>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>{selectedTag.label}</Text>
+            <View style={styles.printCard}>
+              <Text style={styles.printPetName}>{pet.name.toUpperCase()}</Text>
+              <Text style={styles.lostLabel}>I&apos;M LOST</Text>
+              <RecoveryQr
+                value={selectedTag.recoveryUrl}
+                size={190}
+                getRef={(ref) => {
+                  qrRef.current = ref;
+                }}
+              />
+              <Text style={styles.scanHelp}>SCAN TO HELP ME GET HOME</Text>
+              <Text style={styles.printCode}>{selectedTag.shortCode}</Text>
+              <Text style={styles.brand}>PetConnect</Text>
             </View>
-            <Text style={styles.privacyNote}>
-              This QR contains a signed, revocable recovery URL—not the pet
-              database ID. Regenerating or disabling the QR invalidates this
-              code.
-            </Text>
+
+            <View style={styles.exportRow}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() =>
+                  void exportTag(Platform.OS === "web" ? "download" : "share")
+                }
+                style={styles.exportButton}
+              >
+                <ShareIcon />
+                <Text style={styles.exportText}>
+                  {Platform.OS === "web" ? "Download" : "Share"}
+                </Text>
+              </Pressable>
+              {Platform.OS === "web" ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => void exportTag("print")}
+                  style={styles.exportButton}
+                >
+                  <Text style={styles.exportText}>Print</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
             <Pressable
               accessibilityRole="button"
-              onPress={() => setSharing(false)}
-              style={styles.shareClose}
+              onPress={() => setSelectedTag(null)}
+              style={styles.doneButton}
             >
-              <Text style={styles.shareCloseLabel}>Done</Text>
+              <Text style={styles.doneText}>Done</Text>
             </Pressable>
           </View>
         </View>
@@ -390,37 +514,30 @@ export default function PetIdScreen() {
 
       {confirmingDelete ? (
         <View style={styles.overlay}>
-          <View style={styles.shareSheet}>
-            <Text style={styles.shareTitle}>Delete {pet.name}?</Text>
-            <Text style={styles.privacyNote}>
-              This permanently removes the pet profile, photo, and recovery QR.
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Delete {pet.name}?</Text>
+            <Text style={styles.deleteNote}>
+              This removes the pet and all tags.
             </Text>
-            {deleteError ? (
-              <Text accessibilityRole="alert" style={styles.errorText}>
-                {deleteError}
-              </Text>
-            ) : null}
             <Pressable
               accessibilityRole="button"
               disabled={deleting}
               onPress={() => void handleDelete()}
-              style={styles.shareClose}
+              style={styles.dangerButton}
             >
               {deleting ? (
-                <ActivityIndicator color={Palette.forestDark} />
+                <ActivityIndicator color={Palette.white} />
               ) : (
-                <Text style={[styles.shareCloseLabel, styles.dangerText]}>
-                  Delete pet
-                </Text>
+                <Text style={styles.dangerButtonText}>Delete pet</Text>
               )}
             </Pressable>
             <Pressable
               accessibilityRole="button"
               disabled={deleting}
               onPress={() => setConfirmingDelete(false)}
-              style={styles.secondaryButton}
+              style={styles.doneButton}
             >
-              <Text style={styles.secondaryLabel}>Cancel</Text>
+              <Text style={styles.doneText}>Cancel</Text>
             </Pressable>
           </View>
         </View>
@@ -435,11 +552,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.cream,
     alignItems: "center",
   },
-  safeArea: {
-    flex: 1,
-    maxWidth: MaxContentWidth,
-    width: "100%",
-  },
+  safeArea: { flex: 1, maxWidth: MaxContentWidth, width: "100%" },
   content: {
     flexGrow: 1,
     paddingHorizontal: Spacing.four,
@@ -461,197 +574,162 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  bellDot: {
-    position: "absolute",
-    top: 10,
-    right: 11,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Palette.gold,
-    borderWidth: 1.5,
-    borderColor: Palette.surface,
-  },
   category: {
     fontFamily: Fonts.sans,
     fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 1.6,
+    letterSpacing: 1.5,
     color: Palette.forestDark,
-    marginTop: Spacing.five,
+    marginTop: Spacing.four,
   },
   petName: {
     fontFamily: Fonts.sans,
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "800",
     color: Palette.forestDark,
     marginTop: Spacing.one,
   },
-  supporting: {
-    fontFamily: Fonts.sans,
-    fontSize: 13.5,
-    lineHeight: 20,
-    color: Palette.inkMuted,
-    marginTop: Spacing.two,
-  },
   petCard: {
-    marginTop: Spacing.four,
-    borderRadius: 18,
+    marginTop: Spacing.three,
+    borderRadius: 20,
     overflow: "hidden",
     backgroundColor: Palette.forestDark,
   },
   photo: {
-    height: 188,
     width: "100%",
+    height: 190,
     backgroundColor: Palette.sage,
     alignItems: "center",
     justifyContent: "center",
-    gap: Spacing.one,
   },
-  photoCaption: {
+  cardBody: { padding: Spacing.three, gap: Spacing.two },
+  breed: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: "700",
+    color: Palette.white,
+  },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: Spacing.one },
+  statusText: {
     fontFamily: Fonts.sans,
     fontSize: 12,
     fontWeight: "700",
-    color: Palette.forestDark,
+    color: Palette.sage,
   },
-  cardBody: {
-    padding: Spacing.four,
-    gap: Spacing.two,
-  },
-  breedRow: {
+  sectionHeader: {
+    marginTop: Spacing.four,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: Spacing.two,
   },
-  breed: {
+  sectionTitle: {
     fontFamily: Fonts.sans,
-    fontSize: 20,
-    fontWeight: "800",
-    color: Palette.white,
-  },
-  meta: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    color: "#C9DBC6",
-  },
-  idPanel: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.three,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderRadius: 12,
-    padding: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  idText: {
-    flex: 1,
-    gap: 4,
-  },
-  idLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 9.5,
-    fontWeight: "700",
-    letterSpacing: 1.4,
-    color: "#C9DBC6",
-  },
-  idValue: {
-    fontFamily: Fonts.sans,
-    fontSize: 11,
-    fontWeight: "800",
-    color: Palette.white,
-  },
-  qrStatus: {
-    fontFamily: Fonts.sans,
-    fontSize: 11,
-    color: "#C9DBC6",
-  },
-  qrWrap: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 8,
-  },
-  disabledQr: {
-    width: 88,
-    height: 88,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  disabledQrText: {
-    fontFamily: Fonts.sans,
-    color: "#C9DBC6",
-    fontWeight: "800",
-    letterSpacing: 1.4,
-  },
-  recoveryCard: {
-    marginTop: Spacing.four,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
-    borderRadius: 16,
-    padding: Spacing.three,
-  },
-  recoveryLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 10.5,
-    fontWeight: "700",
-    letterSpacing: 1.4,
-    color: Palette.inkMuted,
-  },
-  recoveryName: {
-    fontFamily: Fonts.sans,
-    fontSize: 16,
+    fontSize: 19,
     fontWeight: "800",
     color: Palette.forestDark,
-    marginTop: 4,
   },
-  recoveryMeta: {
-    fontFamily: Fonts.sans,
-    fontSize: 12.5,
-    color: Palette.inkMuted,
-    marginTop: 2,
-  },
-  recoveryHint: {
-    fontFamily: Fonts.sans,
-    fontSize: 11.5,
-    lineHeight: 17,
-    color: Palette.inkMuted,
-    marginTop: Spacing.two,
-  },
-  errorText: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    color: Palette.danger,
-    marginTop: Spacing.three,
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: Spacing.three,
-    marginTop: Spacing.four,
-  },
-  actionRowCompact: {
-    flexDirection: "row",
-    gap: Spacing.two,
-    marginTop: Spacing.three,
-  },
-  shareButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.two,
-    minHeight: 44,
+  addButton: {
+    minHeight: 38,
+    minWidth: 92,
+    paddingHorizontal: Spacing.two,
     borderRadius: 12,
     backgroundColor: Palette.gold,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  shareLabel: {
+  addButtonText: {
     fontFamily: Fonts.sans,
-    fontSize: 14,
+    fontSize: 12.5,
     fontWeight: "800",
     color: Palette.forestDark,
+  },
+  tagCard: {
+    marginTop: Spacing.two,
+    padding: Spacing.three,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+  },
+  tagTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
+  tagCopy: { flex: 1 },
+  tagName: {
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  tagCode: {
+    marginTop: 3,
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    color: Palette.inkMuted,
+  },
+  statusPill: {
+    borderRadius: 999,
+    backgroundColor: Palette.sage,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 5,
+  },
+  statusPillInactive: { backgroundColor: Palette.borderSoft },
+  statusPillText: {
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  scanMeta: {
+    marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+  },
+  tagActions: {
+    marginTop: Spacing.three,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.one,
+  },
+  tagBusy: { marginTop: Spacing.three, alignSelf: "flex-start" },
+  primarySmall: {
+    minHeight: 36,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 10,
+    backgroundColor: Palette.forestDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primarySmallText: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: Palette.white,
+  },
+  smallButton: {
+    minHeight: 36,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 10,
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  smallButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  actionRow: {
+    marginTop: Spacing.four,
+    flexDirection: "row",
+    gap: Spacing.two,
   },
   secondaryButton: {
     flex: 1,
@@ -662,49 +740,38 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: Spacing.two,
   },
   secondaryLabel: {
     fontFamily: Fonts.sans,
     fontSize: 13,
     fontWeight: "800",
     color: Palette.forestDark,
-    textAlign: "center",
   },
-  tokenControls: {
-    marginTop: Spacing.four,
-    borderRadius: 16,
-    backgroundColor: Palette.sage,
-    padding: Spacing.three,
-  },
-  controlTitle: {
+  dangerText: {
     fontFamily: Fonts.sans,
-    fontSize: 15,
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: Palette.danger,
+  },
+  errorText: {
+    marginTop: Spacing.three,
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    color: Palette.danger,
+  },
+  linkLabel: {
+    marginTop: Spacing.three,
+    fontFamily: Fonts.sans,
+    fontSize: 13,
     fontWeight: "800",
     color: Palette.forestDark,
   },
-  controlHelp: {
-    fontFamily: Fonts.sans,
-    fontSize: 11.5,
-    lineHeight: 17,
-    color: Palette.inkMuted,
-    marginTop: Spacing.one,
-  },
-  deleteButton: {
-    minHeight: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
+  qrWrap: {
     backgroundColor: Palette.surface,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: Spacing.four,
-  },
-  dangerText: {
-    color: Palette.danger,
-  },
-  disabledButton: {
-    opacity: 0.45,
+    padding: 10,
   },
   overlay: {
     position: "absolute",
@@ -712,84 +779,129 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(20,40,28,0.45)",
+    backgroundColor: "rgba(20,40,28,0.46)",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: Spacing.four,
   },
-  shareSheet: {
+  sheet: {
     width: "100%",
-    maxWidth: 360,
-    backgroundColor: Palette.cream,
-    borderRadius: 18,
+    maxWidth: 390,
+    maxHeight: "92%",
+    borderRadius: 20,
     padding: Spacing.four,
+    backgroundColor: Palette.cream,
     alignItems: "center",
-    gap: Spacing.two,
   },
-  shareTitle: {
+  sheetTitle: {
     fontFamily: Fonts.sans,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "800",
     color: Palette.forestDark,
-    textAlign: "center",
   },
-  shareCard: {
+  printCard: {
+    marginTop: Spacing.three,
     alignSelf: "stretch",
-    alignItems: "center",
-    gap: Spacing.two,
-    backgroundColor: Palette.forestDark,
-    borderRadius: 16,
+    borderRadius: 18,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
     padding: Spacing.four,
-    marginTop: Spacing.two,
+    alignItems: "center",
   },
-  shareName: {
+  printPetName: {
     fontFamily: Fonts.sans,
-    fontSize: 19,
+    fontSize: 24,
+    fontWeight: "900",
+    color: Palette.forestDark,
+  },
+  lostLabel: {
+    marginTop: 2,
+    marginBottom: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 1.5,
+    color: Palette.danger,
+  },
+  scanHelp: {
+    marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
     fontWeight: "800",
-    color: Palette.white,
+    color: Palette.forestDark,
   },
-  shareMeta: {
+  printCode: {
+    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
-    fontSize: 12,
-    color: "#C9DBC6",
+    fontSize: 17,
+    fontWeight: "900",
+    letterSpacing: 1,
+    color: Palette.forestDark,
   },
-  shareInstruction: {
+  brand: {
+    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
-    fontSize: 11.5,
-    color: "#C9DBC6",
-    textAlign: "center",
-  },
-  privacyNote: {
-    fontFamily: Fonts.sans,
-    fontSize: 11.5,
-    lineHeight: 17,
+    fontSize: 11,
+    fontWeight: "700",
     color: Palette.inkMuted,
-    textAlign: "center",
-    marginTop: Spacing.two,
   },
-  shareClose: {
+  exportRow: {
     alignSelf: "stretch",
+    marginTop: Spacing.three,
+    flexDirection: "row",
+    gap: Spacing.two,
+  },
+  exportButton: {
+    flex: 1,
     minHeight: 44,
     borderRadius: 12,
     backgroundColor: Palette.gold,
+    flexDirection: "row",
+    gap: Spacing.one,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: Spacing.two,
   },
-  shareCloseLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: "800",
-    color: Palette.forestDark,
-  },
-  linkLabel: {
+  exportText: {
     fontFamily: Fonts.sans,
     fontSize: 13,
-    color: Palette.forestDark,
     fontWeight: "800",
-    marginTop: Spacing.three,
+    color: Palette.forestDark,
   },
-  pressed: {
-    opacity: 0.85,
+  doneButton: {
+    alignSelf: "stretch",
+    minHeight: 44,
+    marginTop: Spacing.two,
+    borderRadius: 12,
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  doneText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  deleteNote: {
+    marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    color: Palette.inkMuted,
+  },
+  dangerButton: {
+    alignSelf: "stretch",
+    minHeight: 46,
+    marginTop: Spacing.three,
+    borderRadius: 12,
+    backgroundColor: Palette.danger,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dangerButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "800",
+    color: Palette.white,
   },
 });
