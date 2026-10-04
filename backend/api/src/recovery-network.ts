@@ -22,6 +22,7 @@ type ReportRow = RowDataPacket & {
   pet_name: string;
   species: string;
   breed: string | null;
+  identifying_details: string | null;
   photo_url: string | null;
   owner_id: string;
   status: "LOST" | "SIGHTED" | "REUNITED";
@@ -165,6 +166,65 @@ function optionalCoordinates(input: FinderSightingInput): {
 
 function iso(value: Date | null) {
   return value ? value.toISOString() : null;
+}
+
+function matchQuery(value: unknown, max = 120): string {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, max).toLowerCase();
+}
+
+function wordTokens(value: string): Set<string> {
+  return new Set(
+    value
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3),
+  );
+}
+
+export function nearbyMatchReasons(
+  report: {
+    species: string;
+    breed: string | null;
+    identifyingDetails: string | null;
+    details: string | null;
+  },
+  filters: { species?: unknown; breed?: unknown; appearance?: unknown },
+): string[] {
+  const species = matchQuery(filters.species, 50);
+  const breed = matchQuery(filters.breed, 100);
+  const appearance = matchQuery(filters.appearance, 240);
+  const reasons: string[] = [];
+
+  if (species && report.species.toLowerCase() === species) {
+    reasons.push("Species match");
+  }
+
+  const reportBreed = (report.breed || "").toLowerCase();
+  if (
+    breed &&
+    reportBreed &&
+    (reportBreed.includes(breed) || breed.includes(reportBreed))
+  ) {
+    reasons.push("Breed match");
+  }
+
+  if (appearance) {
+    const wanted = wordTokens(appearance);
+    const haystack = wordTokens(
+      [
+        report.breed || "",
+        report.identifyingDetails || "",
+        report.details || "",
+      ].join(" "),
+    );
+    if ([...wanted].some((token) => haystack.has(token))) {
+      reasons.push("Appearance match");
+    }
+  }
+
+  return reasons;
 }
 
 function toReport(row: ReportRow): LostReport {
@@ -473,6 +533,7 @@ export class RecoveryNetwork {
     latitudeInput: unknown,
     longitudeInput: unknown,
     radiusInput: unknown,
+    filters: { species?: unknown; breed?: unknown; appearance?: unknown } = {},
   ): Promise<NearbyLostReport[]> {
     const latitude = coordinate(latitudeInput, -90, 90, "latitude");
     const longitude = coordinate(longitudeInput, -180, 180, "longitude");
@@ -500,7 +561,8 @@ export class RecoveryNetwork {
                  lr.details, lr.last_seen_latitude, lr.last_seen_longitude,
                  lr.last_known_latitude, lr.last_known_longitude,
                  lr.last_known_accuracy_m, lr.reported_at, lr.last_sighted_at,
-                 lr.reunited_at, p.name AS pet_name, p.species, p.breed, p.photo_url,
+                 lr.reunited_at, p.name AS pet_name, p.species, p.breed,
+                 p.identifying_details, p.photo_url,
                  u.share_precise_recovery_location,
                  (SELECT COUNT(*) FROM sightings s WHERE s.report_id = lr.id) AS sighting_count,
                  ${distanceSql} AS distance_km
@@ -515,27 +577,45 @@ export class RecoveryNetwork {
       [latitude, longitude, latitude, radiusKm],
     );
 
-    return rows.map((row) => {
-      const precise = Boolean(row.share_precise_recovery_location);
-      const exactDistance = Number(row.distance_km);
-      return {
-        id: row.id,
-        petName: row.pet_name,
-        petSpecies: row.species,
-        petBreed: row.breed || "",
-        petPhotoUrl: row.photo_url,
-        status: row.status as "LOST" | "SIGHTED",
-        lastSeenText: row.last_seen_text,
-        details: row.details || "",
-        latitude: publicCoordinate(row.last_known_latitude, precise),
-        longitude: publicCoordinate(row.last_known_longitude, precise),
-        accuracyM: publicAccuracy(row.last_known_accuracy_m, precise),
-        reportedAt: row.reported_at.toISOString(),
-        lastSightedAt: iso(row.last_sighted_at),
-        distanceKm: precise ? exactDistance : Math.round(exactDistance * 2) / 2,
-        sightingCount: Number(row.sighting_count),
-      };
-    });
+    return rows
+      .map((row) => {
+        const precise = Boolean(row.share_precise_recovery_location);
+        const exactDistance = Number(row.distance_km);
+        return {
+          id: row.id,
+          petName: row.pet_name,
+          petSpecies: row.species,
+          petBreed: row.breed || "",
+          petPhotoUrl: row.photo_url,
+          status: row.status as "LOST" | "SIGHTED",
+          lastSeenText: row.last_seen_text,
+          details: row.details || "",
+          latitude: publicCoordinate(row.last_known_latitude, precise),
+          longitude: publicCoordinate(row.last_known_longitude, precise),
+          accuracyM: publicAccuracy(row.last_known_accuracy_m, precise),
+          reportedAt: row.reported_at.toISOString(),
+          lastSightedAt: iso(row.last_sighted_at),
+          distanceKm: precise
+            ? exactDistance
+            : Math.round(exactDistance * 2) / 2,
+          sightingCount: Number(row.sighting_count),
+          matchReasons: nearbyMatchReasons(
+            {
+              species: row.species,
+              breed: row.breed,
+              identifyingDetails: row.identifying_details,
+              details: row.details,
+            },
+            filters,
+          ),
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.matchReasons.length - a.matchReasons.length ||
+          a.distanceKm - b.distanceKm ||
+          new Date(b.reportedAt).getTime() - new Date(a.reportedAt).getTime(),
+      );
   }
 
   async submitSighting(

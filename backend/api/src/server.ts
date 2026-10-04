@@ -765,6 +765,11 @@ app.get(
       req.query.latitude,
       req.query.longitude,
       req.query.radiusKm,
+      {
+        species: req.query.species,
+        breed: req.query.breed,
+        appearance: req.query.appearance,
+      },
     );
     res.json({ reports });
   }),

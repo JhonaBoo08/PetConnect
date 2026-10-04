@@ -146,12 +146,24 @@ export const getNearbyLostReports = async (
   latitude: number,
   longitude: number,
   radiusKm = 10,
-) =>
-  (
+  filters: { species?: string; breed?: string; appearance?: string } = {},
+) => {
+  const params = new URLSearchParams({
+    latitude: String(latitude),
+    longitude: String(longitude),
+    radiusKm: String(radiusKm),
+  });
+  if (filters.species?.trim()) params.set("species", filters.species.trim());
+  if (filters.breed?.trim()) params.set("breed", filters.breed.trim());
+  if (filters.appearance?.trim())
+    params.set("appearance", filters.appearance.trim());
+
+  return (
     await publicFetch<{ reports: NearbyLostReport[] }>(
-      `/v1/recovery/nearby?latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}&radiusKm=${encodeURIComponent(radiusKm)}`,
+      `/v1/recovery/nearby?${params.toString()}`,
     )
   ).reports;
+};
 
 // Backward-compatible legacy sighting helper. The new app-less finder UI uses
 // finder-recovery.ts so it can attach an anonymous session and evidence.

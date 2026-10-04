@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { Image } from "expo-image";
 import { type Href, useRouter } from "expo-router";
 import { useState } from "react";
 import {
@@ -17,6 +18,7 @@ import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
+import { getApiBaseUrl } from "@/services/auth";
 import { authErrorMessage, useAuth } from "@/services/auth-context";
 import { requestCurrentCoordinates } from "@/services/device-recovery";
 import { getNearbyLostReports } from "@/services/recovery-network";
@@ -38,6 +40,9 @@ export default function ScanScreen() {
   const [nearbyOpen, setNearbyOpen] = useState(false);
   const [nearbyBusy, setNearbyBusy] = useState(false);
   const [nearby, setNearby] = useState<NearbyLostReport[]>([]);
+  const [matchSpecies, setMatchSpecies] = useState("");
+  const [matchBreed, setMatchBreed] = useState("");
+  const [matchAppearance, setMatchAppearance] = useState("");
 
   function openToken(token: string, source: "QR" | "CODE") {
     router.replace({
@@ -81,7 +86,11 @@ export default function ScanScreen() {
     try {
       const location = await requestCurrentCoordinates({ preferFast: true });
       setNearby(
-        await getNearbyLostReports(location.latitude, location.longitude, 10),
+        await getNearbyLostReports(location.latitude, location.longitude, 10, {
+          species: matchSpecies,
+          breed: matchBreed,
+          appearance: matchAppearance,
+        }),
       );
     } catch (cause) {
       setNearby([]);
@@ -186,11 +195,13 @@ export default function ScanScreen() {
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => void findNearby()}
+            onPress={() => setNearbyOpen((value) => !value)}
             style={styles.noTagButton}
           >
             <PinIcon size={18} />
-            <Text style={styles.noTagText}>Can't scan a tag?</Text>
+            <Text style={styles.noTagText}>
+              {nearbyOpen ? "Close no-tag search" : "Can't scan a tag?"}
+            </Text>
           </Pressable>
 
           {error ? (
@@ -201,42 +212,123 @@ export default function ScanScreen() {
 
           {nearbyOpen ? (
             <View style={styles.nearbySection}>
-              <Text style={styles.sectionTitle}>Missing pets nearby</Text>
-              {nearbyBusy ? (
-                <ActivityIndicator color={Palette.forestDark} />
-              ) : nearby.length ? (
-                nearby.map((report) => (
+              <Text style={styles.sectionTitle}>Find a match nearby</Text>
+              <View style={styles.speciesRow}>
+                {["Dog", "Cat", "Bird", "Other"].map((option) => (
                   <Pressable
-                    key={report.id}
+                    key={option}
                     accessibilityRole="button"
+                    accessibilityState={{ selected: matchSpecies === option }}
                     onPress={() =>
-                      router.push({
-                        pathname: "/recover",
-                        params: { reportId: report.id },
-                      } as unknown as Href)
+                      setMatchSpecies((current) =>
+                        current === option ? "" : option,
+                      )
                     }
-                    style={({ pressed }) => [
-                      styles.petRow,
-                      pressed && styles.pressed,
+                    style={[
+                      styles.speciesChip,
+                      matchSpecies === option && styles.speciesChipActive,
                     ]}
                   >
-                    <View style={styles.petRowCopy}>
-                      <Text style={styles.petName}>{report.petName}</Text>
-                      <Text style={styles.petMeta}>
-                        {[
-                          report.petBreed || report.petSpecies,
-                          `${report.distanceKm.toFixed(1)} km away`,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </Text>
-                    </View>
-                    <Text style={styles.reportText}>Report sighting</Text>
+                    <Text
+                      style={[
+                        styles.speciesChipText,
+                        matchSpecies === option && styles.speciesChipTextActive,
+                      ]}
+                    >
+                      {option}
+                    </Text>
                   </Pressable>
-                ))
-              ) : (
-                <Text style={styles.emptyText}>No active reports nearby.</Text>
-              )}
+                ))}
+              </View>
+              <TextInput
+                accessibilityLabel="Possible breed"
+                value={matchBreed}
+                onChangeText={setMatchBreed}
+                placeholder="Breed (optional)"
+                placeholderTextColor={Palette.placeholder}
+                style={styles.matchInput}
+              />
+              <TextInput
+                accessibilityLabel="Pet appearance"
+                value={matchAppearance}
+                onChangeText={setMatchAppearance}
+                placeholder="Color, markings, collar..."
+                placeholderTextColor={Palette.placeholder}
+                style={styles.matchInput}
+              />
+              <Pressable
+                accessibilityRole="button"
+                disabled={nearbyBusy}
+                onPress={() => void findNearby()}
+                style={styles.matchButton}
+              >
+                {nearbyBusy ? (
+                  <ActivityIndicator color={Palette.white} />
+                ) : (
+                  <Text style={styles.matchButtonText}>Find nearby pets</Text>
+                )}
+              </Pressable>
+
+              {!nearbyBusy && nearby.length
+                ? nearby.map((report) => (
+                    <Pressable
+                      key={report.id}
+                      accessibilityRole="button"
+                      onPress={() =>
+                        router.push({
+                          pathname: "/recover",
+                          params: { reportId: report.id },
+                        } as unknown as Href)
+                      }
+                      style={({ pressed }) => [
+                        styles.petRow,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <View style={styles.petThumb}>
+                        {report.petPhotoUrl ? (
+                          <Image
+                            source={{
+                              uri: `${getApiBaseUrl()}${report.petPhotoUrl}`,
+                            }}
+                            style={styles.petThumbImage}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <PinIcon size={19} />
+                        )}
+                      </View>
+                      <View style={styles.petRowCopy}>
+                        <Text style={styles.petName}>{report.petName}</Text>
+                        <Text style={styles.petMeta}>
+                          {[
+                            report.petBreed || report.petSpecies,
+                            `${report.distanceKm.toFixed(1)} km away`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </Text>
+                        {report.matchReasons.length ? (
+                          <View style={styles.matchReasonRow}>
+                            {report.matchReasons.map((reason) => (
+                              <View key={reason} style={styles.matchReasonChip}>
+                                <Text style={styles.matchReasonText}>
+                                  {reason}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={styles.reportText}>Report sighting</Text>
+                    </Pressable>
+                  ))
+                : null}
+              {!nearbyBusy && nearbyOpen && nearby.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  Search to compare nearby active reports.
+                </Text>
+              ) : null}
             </View>
           ) : null}
         </ScrollView>
@@ -443,6 +535,56 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: Palette.forestDark,
   },
+  speciesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.one,
+  },
+  speciesChip: {
+    minHeight: 34,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Palette.surface,
+  },
+  speciesChipActive: {
+    backgroundColor: Palette.forestDark,
+    borderColor: Palette.forestDark,
+  },
+  speciesChipText: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: Palette.forestDark,
+  },
+  speciesChipTextActive: { color: Palette.white },
+  matchInput: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    paddingHorizontal: Spacing.three,
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    color: Palette.forestDark,
+  },
+  matchButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: Palette.forestDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  matchButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "800",
+    color: Palette.white,
+  },
   petRow: {
     minHeight: 70,
     borderRadius: 16,
@@ -453,6 +595,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.two,
+  },
+  petThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  petThumbImage: {
+    width: "100%",
+    height: "100%",
   },
   petRowCopy: { flex: 1 },
   petName: {
@@ -466,6 +621,24 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 11.5,
     color: Palette.inkMuted,
+  },
+  matchReasonRow: {
+    marginTop: Spacing.one,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  matchReasonChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Palette.sage,
+  },
+  matchReasonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 9.5,
+    fontWeight: "700",
+    color: Palette.forestDark,
   },
   reportText: {
     fontFamily: Fonts.sans,

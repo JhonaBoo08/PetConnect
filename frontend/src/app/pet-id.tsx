@@ -9,6 +9,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,7 +34,11 @@ import {
   replaceRecoveryTag,
   revokeRecoveryTag,
 } from "@/services/recovery";
-import type { Pet, RecoveryTag } from "../../../shared/contracts";
+import type {
+  Pet,
+  RecoveryTag,
+  RecoveryTagType,
+} from "../../../shared/contracts";
 
 type QrHandle = {
   toDataURL: (callback: (data: string) => void) => void;
@@ -86,6 +91,10 @@ export default function PetIdScreen() {
   const [loading, setLoading] = useState(true);
   const [busyTagId, setBusyTagId] = useState("");
   const [creating, setCreating] = useState(false);
+  const [showCreateTag, setShowCreateTag] = useState(false);
+  const [newTagLabel, setNewTagLabel] = useState("");
+  const [newTagType, setNewTagType] = useState<RecoveryTagType>("COLLAR");
+  const [expandedTagId, setExpandedTagId] = useState("");
   const [error, setError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -129,11 +138,22 @@ export default function PetIdScreen() {
     setError("");
     try {
       const next = await createRecoveryTag(pet.id, {
-        label: tags.length ? `Spare tag ${tags.length + 1}` : "Main tag",
-        tagType: "PRINT",
+        label:
+          newTagLabel.trim() ||
+          (newTagType === "COLLAR"
+            ? "Collar"
+            : newTagType === "HARNESS"
+              ? "Harness"
+              : newTagType === "STICKER"
+                ? "Sticker"
+                : "Printed tag"),
+        tagType: newTagType,
       });
       setTags((current) => [...current, next]);
       setSelectedTag(next);
+      setShowCreateTag(false);
+      setNewTagLabel("");
+      setNewTagType("COLLAR");
     } catch (cause) {
       setError(authErrorMessage(cause));
     } finally {
@@ -332,6 +352,11 @@ export default function PetIdScreen() {
             </View>
             <View style={styles.cardBody}>
               <Text style={styles.breed}>{details || pet.species}</Text>
+              {pet.microchipNumber ? (
+                <Text style={styles.microchipText}>
+                  Microchip · {pet.microchipNumber}
+                </Text>
+              ) : null}
               <View style={styles.statusRow}>
                 <ShieldIcon size={19} color={Palette.white} />
                 <Text style={styles.statusText}>
@@ -347,16 +372,67 @@ export default function PetIdScreen() {
             <Pressable
               accessibilityRole="button"
               disabled={creating}
-              onPress={() => void createTag()}
+              onPress={() => setShowCreateTag((value) => !value)}
               style={styles.addButton}
             >
-              {creating ? (
-                <ActivityIndicator color={Palette.forestDark} />
-              ) : (
-                <Text style={styles.addButtonText}>+ New tag</Text>
-              )}
+              <Text style={styles.addButtonText}>
+                {showCreateTag ? "Cancel" : "+ New tag"}
+              </Text>
             </Pressable>
           </View>
+
+          {showCreateTag ? (
+            <View style={styles.createTagCard}>
+              <TextInput
+                accessibilityLabel="Recovery tag name"
+                value={newTagLabel}
+                onChangeText={setNewTagLabel}
+                placeholder="e.g. Main collar"
+                placeholderTextColor={Palette.placeholder}
+                style={styles.tagInput}
+              />
+              <View style={styles.tagTypeRow}>
+                {([
+                  ["COLLAR", "Collar"],
+                  ["HARNESS", "Harness"],
+                  ["PRINT", "Print"],
+                  ["STICKER", "Sticker"],
+                ] as Array<[RecoveryTagType, string]>).map(([type, label]) => (
+                  <Pressable
+                    key={type}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: newTagType === type }}
+                    onPress={() => setNewTagType(type)}
+                    style={[
+                      styles.tagTypeChip,
+                      newTagType === type && styles.tagTypeChipActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.tagTypeText,
+                        newTagType === type && styles.tagTypeTextActive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                disabled={creating}
+                onPress={() => void createTag()}
+                style={styles.createTagButton}
+              >
+                {creating ? (
+                  <ActivityIndicator color={Palette.white} />
+                ) : (
+                  <Text style={styles.createTagButtonText}>Create tag</Text>
+                )}
+              </Pressable>
+            </View>
+          ) : null}
 
           {tags.map((tag) => {
             const active = tag.status === "ACTIVE";
@@ -390,42 +466,61 @@ export default function PetIdScreen() {
                     style={styles.tagBusy}
                   />
                 ) : (
-                  <View style={styles.tagActions}>
-                    {active ? (
+                  <>
+                    <View style={styles.tagActions}>
+                      {active ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => setSelectedTag(tag)}
+                          style={styles.primarySmall}
+                        >
+                          <Text style={styles.primarySmallText}>Open</Text>
+                        </Pressable>
+                      ) : null}
                       <Pressable
                         accessibilityRole="button"
-                        onPress={() => setSelectedTag(tag)}
-                        style={styles.primarySmall}
-                      >
-                        <Text style={styles.primarySmallText}>View</Text>
-                      </Pressable>
-                    ) : null}
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => void updateTag(tag, "replace")}
-                      style={styles.smallButton}
-                    >
-                      <Text style={styles.smallButtonText}>Replace</Text>
-                    </Pressable>
-                    {active ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => void updateTag(tag, "lost")}
+                        onPress={() =>
+                          setExpandedTagId((current) =>
+                            current === tag.id ? "" : tag.id,
+                          )
+                        }
                         style={styles.smallButton}
                       >
-                        <Text style={styles.smallButtonText}>Lost</Text>
+                        <Text style={styles.smallButtonText}>
+                          {expandedTagId === tag.id ? "Done" : "Manage"}
+                        </Text>
                       </Pressable>
+                    </View>
+                    {expandedTagId === tag.id ? (
+                      <View style={styles.manageActions}>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => void updateTag(tag, "replace")}
+                          style={styles.smallButton}
+                        >
+                          <Text style={styles.smallButtonText}>Replace</Text>
+                        </Pressable>
+                        {active ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => void updateTag(tag, "lost")}
+                            style={styles.smallButton}
+                          >
+                            <Text style={styles.smallButtonText}>Mark lost</Text>
+                          </Pressable>
+                        ) : null}
+                        {tag.status !== "REVOKED" ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => void updateTag(tag, "revoke")}
+                            style={styles.smallButton}
+                          >
+                            <Text style={styles.dangerText}>Disable</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
                     ) : null}
-                    {tag.status !== "REVOKED" ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => void updateTag(tag, "revoke")}
-                        style={styles.smallButton}
-                      >
-                        <Text style={styles.dangerText}>Disable</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
+                  </>
                 )}
               </View>
             );
@@ -609,6 +704,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Palette.white,
   },
+  microchipText: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.sage,
+  },
   statusRow: { flexDirection: "row", alignItems: "center", gap: Spacing.one },
   statusText: {
     fontFamily: Fonts.sans,
@@ -643,6 +743,64 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: "800",
     color: Palette.forestDark,
+  },
+  createTagCard: {
+    marginTop: Spacing.two,
+    padding: Spacing.three,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    gap: Spacing.two,
+  },
+  tagInput: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.cream,
+    paddingHorizontal: Spacing.three,
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    color: Palette.forestDark,
+  },
+  tagTypeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.one,
+  },
+  tagTypeChip: {
+    minHeight: 34,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tagTypeChipActive: {
+    backgroundColor: Palette.forestDark,
+    borderColor: Palette.forestDark,
+  },
+  tagTypeText: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: Palette.forestDark,
+  },
+  tagTypeTextActive: { color: Palette.white },
+  createTagButton: {
+    minHeight: 40,
+    borderRadius: 12,
+    backgroundColor: Palette.forestDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  createTagButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: Palette.white,
   },
   tagCard: {
     marginTop: Spacing.two,
@@ -693,6 +851,15 @@ const styles = StyleSheet.create({
   },
   tagActions: {
     marginTop: Spacing.three,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.one,
+  },
+  manageActions: {
+    marginTop: Spacing.two,
+    paddingTop: Spacing.two,
+    borderTopWidth: 1,
+    borderTopColor: Palette.borderSoft,
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Spacing.one,
