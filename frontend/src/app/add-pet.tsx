@@ -1,10 +1,11 @@
-import { Image } from "expo-image";
+import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image as NativeImage,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -58,9 +59,72 @@ export default function AddPetScreen() {
   const [loading, setLoading] = useState(!!routeId);
   const [saving, setSaving] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoFeedback, setPhotoFeedback] = useState("");
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
+
+  const preparePhoto = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
+    // Show the chosen image before doing any expensive native processing.
+    setPhoto(asset.uri);
+    setRemoveExisting(false);
+    setPhotoFeedback("Photo selected.");
+
+    try {
+      const context = ImageManipulator.ImageManipulator.manipulate(asset.uri);
+      const width = Number(asset.width) || 0;
+      const height = Number(asset.height) || 0;
+      const longest = Math.max(width, height);
+      if (longest > 1200) {
+        context.resize({
+          width: Math.round((width * 1200) / longest),
+          height: Math.round((height * 1200) / longest),
+        });
+      }
+      const rendered = await context.renderAsync();
+      const jpeg = await rendered.saveAsync({
+        format: ImageManipulator.SaveFormat.JPEG,
+        compress: 0.78,
+      });
+      setPhoto(jpeg.uri);
+      setPhotoFeedback("Photo ready.");
+    } catch {
+      // Keep the original picker URI instead of making a successful selection
+      // disappear when native optimization is unavailable.
+      setPhotoFeedback(
+        "Photo selected. PetConnect could not optimize it, so the original will be used.",
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void ImagePicker.getPendingResultAsync()
+      .then(async (pending) => {
+        if (!active || !pending) return;
+        if ("canceled" in pending) {
+          if (pending.canceled || !pending.assets?.[0]) return;
+          setPhotoBusy(true);
+          try {
+            await preparePhoto(pending.assets[0]);
+          } finally {
+            if (active) setPhotoBusy(false);
+          }
+          return;
+        }
+        if (active) {
+          setPhotoFeedback(
+            pending.message || "The selected photo could not be restored. Please choose it again.",
+          );
+        }
+      })
+      .catch((error) => {
+        if (active) setPhotoFeedback(authErrorMessage(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [preparePhoto]);
 
   useEffect(() => {
     if (!routeId) return;
@@ -92,31 +156,27 @@ export default function AddPetScreen() {
 
   async function pickPhoto() {
     setSaveError("");
+    setPhotoFeedback("");
     setPhotoBusy(true);
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        allowsEditing: true,
-        quality: 0.85,
+        // Android's SDK 57 crop activity can fail after the picker cache is
+        // reclaimed. PetConnect only needs a clear identification photo, so
+        // keep selection simple and do our own resize/compression below.
+        allowsEditing: false,
+        quality: 0.9,
       });
       if (result.canceled) return;
-      const asset = result.assets[0];
-      const context = ImageManipulator.ImageManipulator.manipulate(asset.uri);
-      const longest = Math.max(asset.width, asset.height);
-      if (longest > 1200)
-        context.resize({
-          width: Math.round((asset.width * 1200) / longest),
-          height: Math.round((asset.height * 1200) / longest),
-        });
-      const rendered = await context.renderAsync();
-      const jpeg = await rendered.saveAsync({
-        format: ImageManipulator.SaveFormat.JPEG,
-        compress: 0.78,
-      });
-      setPhoto(jpeg.uri);
-      setRemoveExisting(false);
+      const asset = result.assets?.[0];
+      if (!asset?.uri) {
+        setPhotoFeedback("That photo could not be read. Please choose another one.");
+        return;
+      }
+
+      await preparePhoto(asset);
     } catch (error) {
-      setSaveError(authErrorMessage(error));
+      setPhotoFeedback(authErrorMessage(error));
     } finally {
       setPhotoBusy(false);
     }
@@ -181,7 +241,7 @@ export default function AddPetScreen() {
 
               <View style={styles.brandRow}>
                 <View style={styles.brandMark}>
-                  <Image
+                  <ExpoImage
                     source={require("@/assets/images/logo.png")}
                     style={styles.brandMarkImage}
                     contentFit="contain"
@@ -239,10 +299,10 @@ export default function AddPetScreen() {
           <View style={styles.photoPreview}>
             <View style={styles.photoThumb}>
               {photo || (existingPhoto && !removeExisting) ? (
-                <Image
+                <NativeImage
                   source={{ uri: photo || petPhotoUri(existingPhoto)! }}
                   style={styles.photoThumb}
-                  contentFit="cover"
+                  resizeMode="cover"
                 />
               ) : (
                 <PawIcon size={34} color={Palette.forestDark} />
@@ -291,6 +351,14 @@ export default function AddPetScreen() {
                   : "Add pet photo"}
             </Text>
           </Pressable>
+          {photoFeedback ? (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={styles.photoFeedback}
+            >
+              {photoFeedback}
+            </Text>
+          ) : null}
 
           <Text style={styles.label}>Pet name</Text>
           <TextInput
@@ -610,6 +678,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: Palette.forestDark,
+  },
+  photoFeedback: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    color: Palette.inkMuted,
+    marginTop: Spacing.one,
   },
   label: {
     fontFamily: Fonts.sans,
