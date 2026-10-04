@@ -15,6 +15,8 @@ import { BackArrow, BellIcon, ChevronRightIcon } from "@/components/app-icons";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
+import { notificationTarget } from "@/lib/notification-target";
+import { enableRecoveryPush, requestCurrentCoordinates } from "@/services/device-recovery";
 import { authErrorMessage } from "@/services/auth-context";
 import {
   listRecoveryNotifications,
@@ -32,6 +34,8 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [pushMessage, setPushMessage] = useState("");
+  const [enablingPush, setEnablingPush] = useState(false);
 
   const load = useCallback(async () => {
     const rows = await listRecoveryNotifications();
@@ -83,54 +87,24 @@ export default function NotificationsScreen() {
       }
     }
 
-    const data = item.data || {};
-    if (typeof data.reminderId === "string" && data.reminderId) {
-      router.push({ pathname: "/reminder-details", params: { id: data.reminderId } });
-      return;
+    const target = notificationTarget({ ...item.data, type: item.type }, "OWNER");
+    // Items without a detail destination stay in the inbox after being read.
+    if (target !== "/notifications") router.push(target);
+  }
+
+  async function enablePush() {
+    setEnablingPush(true);
+    setPushMessage("");
+    try {
+      // A denied location does not prevent registering this device for push.
+      const coordinates = await requestCurrentCoordinates().catch(() => undefined);
+      const result = await enableRecoveryPush(coordinates);
+      setPushMessage(result.enabled ? "Notifications enabled on this device." : result.reason);
+    } catch (cause) {
+      setPushMessage(authErrorMessage(cause));
+    } finally {
+      setEnablingPush(false);
     }
-    if (
-      typeof data.appointmentId === "string" ||
-      typeof data.healthRecordId === "string"
-    ) {
-      router.push({
-        pathname: "/health-reminders",
-        params: typeof data.petId === "string" ? { petId: data.petId } : {},
-      });
-      return;
-    }
-    if (
-      (item.type === "PET_SIGHTED" || item.type === "PET_FOUND") &&
-      typeof data.reportId === "string" &&
-      typeof data.sightingId === "string"
-    ) {
-      router.push({
-        pathname: "/recovery-report",
-        params: { reportId: data.reportId, sightingId: data.sightingId },
-      });
-      return;
-    }
-    if (
-      item.type === "PET_QR_FOUND" &&
-      typeof data.recoveryContactEventId === "string"
-    ) {
-      router.push({
-        pathname: "/recovery-report",
-        params: { eventId: data.recoveryContactEventId },
-      });
-      return;
-    }
-    if (item.type === "LOST_PET_NEARBY") {
-      router.push({ pathname: "/alerts", params: { mode: "feed" } });
-      return;
-    }
-    if (typeof data.reportId === "string" && data.reportId) {
-      router.push({
-        pathname: "/alerts",
-        params: { mode: "report", reportId: data.reportId },
-      });
-      return;
-    }
-    router.push("/alerts");
   }
 
   const unreadCount = items.filter((item) => !item.readAt).length;
@@ -142,7 +116,7 @@ export default function NotificationsScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />
+            <RefreshControl accessibilityLabel="Refresh notifications" refreshing={refreshing} onRefresh={() => void refresh()} />
           }
         >
           <View style={styles.topBar}>
@@ -160,26 +134,28 @@ export default function NotificationsScreen() {
             </View>
           </View>
 
-          <Text style={styles.heading}>Updates that need your attention</Text>
-          <Text style={styles.supporting}>
-            Care reminders, clinic updates, nearby recovery cases, and finder
-            activity are collected here.
-          </Text>
+          <Text style={styles.supporting}>Care, clinic, and recovery activity.</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Enable notifications"
+            accessibilityState={{ disabled: enablingPush, busy: enablingPush }} disabled={enablingPush}
+            onPress={() => void enablePush()} style={styles.pushButton}>
+            {enablingPush ? <ActivityIndicator color={Palette.forestDark} /> : <><BellIcon size={17} /><Text style={styles.pushButtonText}>Enable notifications</Text></>}
+          </Pressable>
+          {pushMessage ? <Text accessibilityLiveRegion="polite" style={styles.supporting}>{pushMessage}</Text> : null}
 
           {unreadCount ? (
             <Text style={styles.unreadLabel}>
-              {unreadCount} unread {unreadCount === 1 ? "update" : "updates"}
+              {unreadCount} unread {unreadCount === 1 ? "notification" : "notifications"}
             </Text>
           ) : null}
 
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           {loading ? <ActivityIndicator color={Palette.forestDark} style={styles.loader} /> : null}
 
-          {!loading && items.length === 0 ? (
+          {!loading && !error && items.length === 0 ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}><BellIcon size={24} /></View>
               <Text style={styles.emptyTitle}>You&apos;re all caught up</Text>
-              <Text style={styles.emptyText}>New recovery and care updates will appear here.</Text>
+              <Text style={styles.emptyText}>New notifications will appear here.</Text>
             </View>
           ) : null}
 
@@ -189,6 +165,7 @@ export default function NotificationsScreen() {
                 key={item.id}
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${item.title}`}
+                accessibilityHint={item.readAt ? "Read notification" : "Unread notification"}
                 onPress={() => void openNotification(item)}
                 style={({ pressed }) => [
                   styles.card,
@@ -220,7 +197,6 @@ const styles = StyleSheet.create({
   iconButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: Palette.borderSoft, backgroundColor: Palette.surface, alignItems: "center", justifyContent: "center" },
   titleRow: { flexDirection: "row", alignItems: "center", gap: Spacing.two },
   screenTitle: { fontFamily: Fonts.sans, fontSize: 18, fontWeight: "800", color: Palette.forestDark },
-  heading: { fontFamily: Fonts.sans, fontSize: 27, lineHeight: 34, fontWeight: "800", color: Palette.forestDark, marginTop: Spacing.four },
   supporting: { fontFamily: Fonts.sans, fontSize: 14, lineHeight: 21, color: Palette.inkMuted, marginTop: Spacing.two },
   unreadLabel: { alignSelf: "flex-start", marginTop: Spacing.three, paddingHorizontal: Spacing.three, paddingVertical: 7, borderRadius: 999, overflow: "hidden", backgroundColor: Palette.sage, fontFamily: Fonts.sans, fontSize: 11.5, fontWeight: "800", color: Palette.forestDark },
   loader: { marginTop: Spacing.five },
@@ -238,5 +214,7 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 50, height: 50, borderRadius: 25, backgroundColor: Palette.sage, alignItems: "center", justifyContent: "center" },
   emptyTitle: { fontFamily: Fonts.sans, fontSize: 18, fontWeight: "800", color: Palette.forestDark, marginTop: Spacing.three },
   emptyText: { fontFamily: Fonts.sans, fontSize: 13, color: Palette.inkMuted, marginTop: Spacing.two, textAlign: "center" },
+  pushButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: Spacing.two, alignSelf: "flex-start", marginTop: Spacing.three, paddingHorizontal: Spacing.three, borderRadius: 14, backgroundColor: Palette.sage },
+  pushButtonText: { fontFamily: Fonts.sans, fontSize: 13, fontWeight: "700", color: Palette.forestDark },
   pressed: { opacity: 0.82 },
 });

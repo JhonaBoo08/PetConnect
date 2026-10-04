@@ -43,3 +43,14 @@ it("ignores arbitrary URLs and malformed IDs", () => {
     "/clinic-dashboard",
   );
 });
+
+it.each([
+  [{ type: "PET_SIGHTED", reportId: "LR-MILO", sightingId: "SG-MILO" },
+   { pathname: "/recovery-report", params: { reportId: "LR-MILO", sightingId: "SG-MILO" } }],
+  [{ type: "PET_FOUND", reportId: "LR-MILO", sightingId: "SG-FOUND" },
+   { pathname: "/recovery-report", params: { reportId: "LR-MILO", sightingId: "SG-FOUND" } }],
+  [{ type: "PET_QR_FOUND", recoveryContactEventId: "RC-MILO" },
+   { pathname: "/recovery-report", params: { eventId: "RC-MILO" } }],
+])("opens evidence from owner push data %j", (data, target) => {
+  expect(notificationTarget(data, "OWNER")).toEqual(target);
+});
