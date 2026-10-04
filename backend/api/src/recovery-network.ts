@@ -1,13 +1,19 @@
 import { randomUUID } from "node:crypto";
-import type { Pool, RowDataPacket } from "mysql2/promise";
+import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type {
+  FinderEncounterType,
+  FinderLocationSource,
+  FinderRiskState,
   FinderSightingInput,
+  FinderSubmissionResult,
   LostReport,
   LostReportInput,
   NearbyLostReport,
   PublicActiveReport,
+  RecoveryContactEvent,
   Sighting,
 } from "../../../shared/contracts.js";
+import { FinderEvidence } from "./finder-evidence.js";
 import { Notifications } from "./notifications.js";
 
 type ReportRow = RowDataPacket & {
@@ -53,11 +59,45 @@ type SightingRow = RowDataPacket & {
   report_id: string;
   finder_name: string | null;
   finder_contact: string | null;
+  encounter_type: FinderEncounterType;
   notes: string | null;
-  latitude: string | number;
-  longitude: string | number;
+  location_text: string | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
   accuracy_m: string | number | null;
+  location_source: FinderLocationSource;
+  contact_share_consent: number;
+  phone_verified_snapshot: number;
+  risk_state: FinderRiskState;
   created_at: Date;
+};
+
+type RecoveryContactRow = RowDataPacket & {
+  id: string;
+  pet_id: string;
+  pet_name: string;
+  owner_id: string;
+  finder_name: string | null;
+  finder_contact: string | null;
+  encounter_type: FinderEncounterType;
+  contact_share_consent: number;
+  phone_verified_snapshot: number;
+  notes: string | null;
+  location_text: string | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
+  accuracy_m: string | number | null;
+  location_source: Exclude<FinderLocationSource, "LEGACY">;
+  risk_state: FinderRiskState;
+  created_at: Date;
+};
+
+export type FinderSubmissionContext = {
+  finderSessionId: string | null;
+  phoneVerified: boolean;
+  riskState: FinderRiskState;
+  evidenceId?: string | null;
+  legacy?: boolean;
 };
 
 export class RecoveryNetworkValidationError extends Error {}
@@ -93,6 +133,34 @@ function accuracy(value: unknown) {
     throw new RecoveryNetworkValidationError("Invalid location accuracy.");
   }
   return number;
+}
+
+function optionalCoordinates(input: FinderSightingInput): {
+  latitude: number | null;
+  longitude: number | null;
+  accuracyM: number | null;
+} {
+  const hasLatitude =
+    input.latitude !== undefined &&
+    input.latitude !== null &&
+    (input.latitude as unknown) !== "";
+  const hasLongitude =
+    input.longitude !== undefined &&
+    input.longitude !== null &&
+    (input.longitude as unknown) !== "";
+  if (hasLatitude !== hasLongitude) {
+    throw new RecoveryNetworkValidationError(
+      "Latitude and longitude must be provided together.",
+    );
+  }
+  if (!hasLatitude) {
+    return { latitude: null, longitude: null, accuracyM: null };
+  }
+  return {
+    latitude: coordinate(input.latitude, -90, 90, "latitude"),
+    longitude: coordinate(input.longitude, -180, 180, "longitude"),
+    accuracyM: accuracy(input.accuracyM),
+  };
 }
 
 function iso(value: Date | null) {
@@ -142,6 +210,7 @@ export class RecoveryNetwork {
   constructor(
     private pool: Pool,
     private notifications: Notifications,
+    private finderEvidence?: FinderEvidence,
   ) {}
 
   async create(ownerId: string, input: LostReportInput): Promise<LostReport> {
@@ -251,24 +320,75 @@ export class RecoveryNetwork {
   ): Promise<Sighting[] | null> {
     if (!(await this.getOwnerReport(ownerId, reportId))) return null;
     const [rows] = await this.pool.query<SightingRow[]>(
-      `SELECT id, report_id, finder_name, finder_contact, notes,
-              latitude, longitude, accuracy_m, created_at
+      `SELECT id, report_id, finder_name, finder_contact, encounter_type,
+              notes, location_text, latitude, longitude, accuracy_m,
+              location_source, contact_share_consent, phone_verified_snapshot,
+              risk_state, created_at
          FROM sightings
         WHERE report_id = ?
         ORDER BY created_at DESC`,
       [reportId],
     );
-    return rows.map((row) => ({
+    return Promise.all(rows.map((row) => this.toSighting(row)));
+  }
+
+  private async toSighting(row: SightingRow): Promise<Sighting> {
+    return {
       id: row.id,
       reportId: row.report_id,
+      encounterType: row.encounter_type || "SEEN",
       finderName: row.finder_name,
-      finderContact: row.finder_contact,
+      finderContact: row.contact_share_consent ? row.finder_contact : null,
+      contactShared: Boolean(row.contact_share_consent),
+      phoneVerified: Boolean(row.phone_verified_snapshot),
       notes: row.notes || "",
-      latitude: Number(row.latitude),
-      longitude: Number(row.longitude),
+      locationText: row.location_text || "",
+      latitude: row.latitude === null ? null : Number(row.latitude),
+      longitude: row.longitude === null ? null : Number(row.longitude),
       accuracyM: row.accuracy_m === null ? null : Number(row.accuracy_m),
+      locationSource: row.location_source || "LEGACY",
+      riskState: row.risk_state || "ACCEPTED",
+      evidence: this.finderEvidence
+        ? await this.finderEvidence.listForSighting(row.id)
+        : [],
       createdAt: row.created_at.toISOString(),
-    }));
+    };
+  }
+
+  async getRecoveryContactEvent(
+    ownerId: string,
+    eventId: string,
+  ): Promise<RecoveryContactEvent | null> {
+    const [rows] = await this.pool.query<RecoveryContactRow[]>(
+      `SELECT rce.*, p.name AS pet_name
+         FROM recovery_contact_events rce
+         JOIN pets p ON p.id = rce.pet_id
+        WHERE rce.id = ? AND rce.owner_id = ?
+        LIMIT 1`,
+      [eventId, ownerId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      petName: row.pet_name,
+      encounterType: row.encounter_type,
+      finderName: row.finder_name,
+      finderContact: row.contact_share_consent ? row.finder_contact : null,
+      contactShared: Boolean(row.contact_share_consent),
+      phoneVerified: Boolean(row.phone_verified_snapshot),
+      notes: row.notes || "",
+      locationText: row.location_text || "",
+      latitude: row.latitude === null ? null : Number(row.latitude),
+      longitude: row.longitude === null ? null : Number(row.longitude),
+      accuracyM: row.accuracy_m === null ? null : Number(row.accuracy_m),
+      locationSource: row.location_source,
+      riskState: row.risk_state,
+      evidence: this.finderEvidence
+        ? await this.finderEvidence.listForContact(row.id)
+        : [],
+      createdAt: row.created_at.toISOString(),
+    };
   }
 
   async markReunited(
@@ -383,18 +503,139 @@ export class RecoveryNetwork {
     petId: string,
     input: FinderSightingInput,
   ): Promise<Sighting | null> {
+    const result = await this.submitFinderReport(
+      petId,
+      { ...input, encounterType: input.encounterType || "SEEN" },
+      {
+        finderSessionId: null,
+        phoneVerified: false,
+        riskState: "ACCEPTED",
+        legacy: true,
+      },
+    );
+    return result?.kind === "SIGHTING" ? result.sighting : null;
+  }
+
+  async submitFinderReport(
+    petId: string,
+    input: FinderSightingInput,
+    context: FinderSubmissionContext,
+  ): Promise<FinderSubmissionResult | null> {
+    const encounterType: FinderEncounterType =
+      input.encounterType === "HAVE_PET" ? "HAVE_PET" : "SEEN";
     const finderName = text(input.finderName, 80);
     const finderContact = text(input.finderContact, 120);
     const notes = text(input.notes, 2000);
-    const latitude = coordinate(input.latitude, -90, 90, "latitude");
-    const longitude = coordinate(input.longitude, -180, 180, "longitude");
-    const accuracyM = accuracy(input.accuracyM);
+    const locationText = text(input.locationText, 255);
+    const coordinates = optionalCoordinates(input);
+    const hasCoordinates =
+      coordinates.latitude !== null && coordinates.longitude !== null;
+    if (!hasCoordinates && !locationText) {
+      throw new RecoveryNetworkValidationError(
+        "Share your location or describe where you encountered the pet.",
+      );
+    }
+    const locationSource: Exclude<FinderLocationSource, "LEGACY"> =
+      hasCoordinates
+        ? input.locationSource === "MAP"
+          ? "MAP"
+          : "GPS"
+        : locationText
+          ? "TEXT"
+          : "NONE";
+    const contactShared = Boolean(input.shareContact && finderContact);
+    const idempotencyKey = text(input.idempotencyKey, 64);
+    if (idempotencyKey && !/^[A-Za-z0-9_-]{8,64}$/.test(idempotencyKey)) {
+      throw new RecoveryNetworkValidationError(
+        "Invalid submission idempotency key.",
+      );
+    }
+    if (encounterType === "HAVE_PET" && !context.evidenceId) {
+      throw new RecoveryNetworkValidationError(
+        "A current pet photo is required when you have the pet with you.",
+      );
+    }
+    if (context.riskState === "BLOCKED") {
+      throw new RecoveryNetworkConflictError(
+        "This finder session cannot submit reports right now.",
+      );
+    }
+
+    if (context.finderSessionId && idempotencyKey) {
+      const [existingSightings] = await this.pool.query<
+        (SightingRow & { pet_id: string })[]
+      >(
+        `SELECT s.id, s.report_id, s.finder_name, s.finder_contact,
+                s.encounter_type, s.notes, s.location_text, s.latitude,
+                s.longitude, s.accuracy_m, s.location_source,
+                s.contact_share_consent, s.phone_verified_snapshot,
+                s.risk_state, s.created_at, lr.pet_id
+           FROM sightings s
+           JOIN lost_reports lr ON lr.id = s.report_id
+          WHERE s.finder_session_id = ? AND s.idempotency_key = ?
+          LIMIT 1`,
+        [context.finderSessionId, idempotencyKey],
+      );
+      if (existingSightings[0]) {
+        if (existingSightings[0].pet_id !== petId) {
+          throw new RecoveryNetworkConflictError(
+            "This submission key was already used for another pet.",
+          );
+        }
+        return {
+          kind: "SIGHTING",
+          sighting: await this.toSighting(existingSightings[0]),
+        };
+      }
+      const [existingContacts] = await this.pool.query<RecoveryContactRow[]>(
+        `SELECT rce.*, p.name AS pet_name
+           FROM recovery_contact_events rce
+           JOIN pets p ON p.id = rce.pet_id
+          WHERE rce.finder_session_id = ? AND rce.idempotency_key = ?
+          LIMIT 1`,
+        [context.finderSessionId, idempotencyKey],
+      );
+      if (existingContacts[0]) {
+        if (existingContacts[0].pet_id !== petId) {
+          throw new RecoveryNetworkConflictError(
+            "This submission key was already used for another pet.",
+          );
+        }
+        const row = existingContacts[0];
+        return {
+          kind: "RECOVERY_CONTACT",
+          event: {
+            id: row.id,
+            petName: row.pet_name,
+            encounterType: row.encounter_type,
+            finderName: row.finder_name,
+            finderContact: row.contact_share_consent
+              ? row.finder_contact
+              : null,
+            contactShared: Boolean(row.contact_share_consent),
+            phoneVerified: Boolean(row.phone_verified_snapshot),
+            notes: row.notes || "",
+            locationText: row.location_text || "",
+            latitude: row.latitude === null ? null : Number(row.latitude),
+            longitude: row.longitude === null ? null : Number(row.longitude),
+            accuracyM: row.accuracy_m === null ? null : Number(row.accuracy_m),
+            locationSource: row.location_source,
+            riskState: row.risk_state,
+            evidence: this.finderEvidence
+              ? await this.finderEvidence.listForContact(row.id)
+              : [],
+            createdAt: row.created_at.toISOString(),
+          },
+        };
+      }
+    }
 
     const connection = await this.pool.getConnection();
     let ownerId = "";
     let reportId = "";
     let petName = "";
     let sightingId = "";
+    let contactEventId = "";
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<ReportRow[]>(
@@ -404,66 +645,214 @@ export class RecoveryNetwork {
         [petId],
       );
       const report = rows[0];
+
       if (!report) {
-        await connection.rollback();
-        return null;
+        if (context.legacy) {
+          await connection.rollback();
+          return null;
+        }
+        const [pets] = await connection.query<
+          (RowDataPacket & {
+            owner_id: string;
+            pet_name: string;
+          })[]
+        >(
+          `SELECT p.owner_id, p.name AS pet_name
+             FROM pets p
+             JOIN users u ON u.id = p.owner_id
+            WHERE p.id = ? AND u.status = 'ACTIVE'
+            LIMIT 1 FOR UPDATE`,
+          [petId],
+        );
+        const pet = pets[0];
+        if (!pet) {
+          await connection.rollback();
+          return null;
+        }
+        ownerId = pet.owner_id;
+        petName = pet.pet_name;
+        contactEventId = `RC-${randomUUID().toUpperCase()}`;
+        await connection.query(
+          `INSERT INTO recovery_contact_events (
+             id, pet_id, owner_id, finder_session_id, encounter_type,
+             finder_name, finder_contact, contact_share_consent,
+             phone_verified_snapshot, notes, location_text, latitude, longitude,
+             accuracy_m, location_source, risk_state, idempotency_key
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            contactEventId,
+            petId,
+            ownerId,
+            context.finderSessionId,
+            encounterType,
+            finderName || null,
+            contactShared ? finderContact : null,
+            contactShared ? 1 : 0,
+            context.phoneVerified ? 1 : 0,
+            notes || null,
+            locationText || null,
+            coordinates.latitude,
+            coordinates.longitude,
+            coordinates.accuracyM,
+            locationSource,
+            context.riskState,
+            idempotencyKey || null,
+          ],
+        );
+        if (context.evidenceId) {
+          const [attach] = await connection.query<ResultSetHeader>(
+            `UPDATE sighting_evidence
+                SET recovery_contact_event_id = ?, status = 'ATTACHED',
+                    expires_at = NULL
+              WHERE id = ? AND pet_id = ? AND finder_session_id = ?
+                AND status = 'STAGED'
+                AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())`,
+            [
+              contactEventId,
+              context.evidenceId,
+              petId,
+              context.finderSessionId,
+            ],
+          );
+          if (attach.affectedRows !== 1) {
+            throw new RecoveryNetworkConflictError(
+              "The finder photo is unavailable or belongs to another session.",
+            );
+          }
+        }
+        await connection.commit();
+      } else {
+        ownerId = report.owner_id;
+        reportId = report.id;
+        petName = report.pet_name;
+        sightingId = `SG-${randomUUID().toUpperCase()}`;
+        await connection.query(
+          `INSERT INTO sightings (
+             id, report_id, finder_session_id, encounter_type, finder_name,
+             finder_contact, notes, location_text, latitude, longitude,
+             accuracy_m, location_source, contact_share_consent,
+             phone_verified_snapshot, risk_state, idempotency_key
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            sightingId,
+            reportId,
+            context.finderSessionId,
+            encounterType,
+            finderName || null,
+            contactShared ? finderContact : null,
+            notes || null,
+            locationText || null,
+            coordinates.latitude,
+            coordinates.longitude,
+            coordinates.accuracyM,
+            context.legacy ? "LEGACY" : locationSource,
+            contactShared ? 1 : 0,
+            context.phoneVerified ? 1 : 0,
+            context.riskState,
+            idempotencyKey || null,
+          ],
+        );
+        if (context.evidenceId) {
+          const [attach] = await connection.query<ResultSetHeader>(
+            `UPDATE sighting_evidence
+                SET sighting_id = ?, status = 'ATTACHED', expires_at = NULL
+              WHERE id = ? AND pet_id = ? AND finder_session_id = ?
+                AND status = 'STAGED'
+                AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())`,
+            [sightingId, context.evidenceId, petId, context.finderSessionId],
+          );
+          if (attach.affectedRows !== 1) {
+            throw new RecoveryNetworkConflictError(
+              "The finder photo is unavailable or belongs to another session.",
+            );
+          }
+        }
+
+        if (hasCoordinates) {
+          await connection.query(
+            `UPDATE lost_reports
+                SET status = 'SIGHTED',
+                    last_known_latitude = ?,
+                    last_known_longitude = ?,
+                    last_known_accuracy_m = ?,
+                    last_sighted_at = CURRENT_TIMESTAMP
+              WHERE id = ? AND status IN ('LOST', 'SIGHTED')`,
+            [
+              coordinates.latitude,
+              coordinates.longitude,
+              coordinates.accuracyM,
+              reportId,
+            ],
+          );
+        } else {
+          await connection.query(
+            `UPDATE lost_reports
+                SET status = 'SIGHTED',
+                    last_sighted_at = CURRENT_TIMESTAMP
+              WHERE id = ? AND status IN ('LOST', 'SIGHTED')`,
+            [reportId],
+          );
+        }
+        await connection.commit();
       }
-      ownerId = report.owner_id;
-      reportId = report.id;
-      petName = report.pet_name;
-      sightingId = `SG-${randomUUID().toUpperCase()}`;
-      await connection.query(
-        `INSERT INTO sightings (
-          id, report_id, finder_name, finder_contact, notes,
-          latitude, longitude, accuracy_m
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          sightingId,
-          reportId,
-          finderName || null,
-          finderContact || null,
-          notes || null,
-          latitude,
-          longitude,
-          accuracyM,
-        ],
-      );
-      await connection.query(
-        `UPDATE lost_reports
-            SET status = 'SIGHTED',
-                last_known_latitude = ?,
-                last_known_longitude = ?,
-                last_known_accuracy_m = ?,
-                last_sighted_at = CURRENT_TIMESTAMP
-          WHERE id = ? AND status IN ('LOST', 'SIGHTED')`,
-        [latitude, longitude, accuracyM, reportId],
-      );
-      await connection.commit();
     } catch (error) {
-      await connection.rollback();
+      await connection.rollback().catch(() => {});
       throw error;
     } finally {
       connection.release();
     }
 
+    if (reportId) {
+      await this.notifications.notifyUser(
+        ownerId,
+        encounterType === "HAVE_PET" ? "PET_FOUND" : "PET_SIGHTED",
+        encounterType === "HAVE_PET"
+          ? `A finder says they have ${petName}`
+          : `${petName} was sighted`,
+        notes ||
+          (encounterType === "HAVE_PET"
+            ? "A finder submitted a found-pet report with PetConnect."
+            : "A finder submitted a new PetConnect sighting."),
+        {
+          reportId,
+          sightingId,
+          petName,
+          encounterType,
+          evidenceAttached: Boolean(context.evidenceId),
+        },
+      );
+      const [rows] = await this.pool.query<SightingRow[]>(
+        `SELECT id, report_id, finder_name, finder_contact, encounter_type,
+                notes, location_text, latitude, longitude, accuracy_m,
+                location_source, contact_share_consent,
+                phone_verified_snapshot, risk_state, created_at
+           FROM sightings
+          WHERE id = ?
+          LIMIT 1`,
+        [sightingId],
+      );
+      return {
+        kind: "SIGHTING",
+        sighting: await this.toSighting(rows[0]),
+      };
+    }
+
     await this.notifications.notifyUser(
       ownerId,
-      "PET_SIGHTED",
-      `${petName} was sighted`,
-      notes || "A finder submitted a new GPS sighting.",
-      { reportId, petName, latitude, longitude },
+      "PET_QR_FOUND",
+      `Someone says they found ${petName}`,
+      notes || "A finder used the PetConnect recovery QR to contact you.",
+      {
+        recoveryContactEventId: contactEventId,
+        petName,
+        encounterType,
+        evidenceAttached: Boolean(context.evidenceId),
+      },
     );
-
-    return {
-      id: sightingId,
-      reportId,
-      finderName: finderName || null,
-      finderContact: finderContact || null,
-      notes,
-      latitude,
-      longitude,
-      accuracyM,
-      createdAt: new Date().toISOString(),
-    };
+    const event = await this.getRecoveryContactEvent(ownerId, contactEventId);
+    if (!event) {
+      throw new Error("Created recovery contact could not be loaded.");
+    }
+    return { kind: "RECOVERY_CONTACT", event };
   }
 }

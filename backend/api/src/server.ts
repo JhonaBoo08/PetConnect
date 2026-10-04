@@ -32,7 +32,19 @@ import {
   HealthClinicValidationError,
 } from "./health-clinic.js";
 import type { SessionResponse } from "../../../shared/contracts.js";
-import { UploadValidationError, sanitizePetPhoto } from "./uploads.js";
+import {
+  UploadValidationError,
+  sanitizeFinderPhoto,
+  sanitizePetPhoto,
+} from "./uploads.js";
+import { FinderEvidence, FinderEvidenceError } from "./finder-evidence.js";
+import { FinderSessions, type FinderSession } from "./finder-sessions.js";
+import { RecoveryAbuse } from "./recovery-abuse.js";
+import {
+  FinderVerification,
+  FinderVerificationError,
+  FinderVerificationRateLimitError,
+} from "./finder-verification.js";
 import {
   logError,
   requestObservability,
@@ -100,7 +112,7 @@ app.use(
         callback(new Error("Not allowed by CORS"));
       }
     },
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Finder-Session"],
   }),
 );
 
@@ -122,6 +134,11 @@ const uploadDir = path.resolve(
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true, mode: 0o750 });
 }
+// Recovery evidence is private. It is delivered only through authenticated
+// evidence routes, even though it lives inside the durable upload tree.
+app.use("/uploads/recovery", (_req: Request, res: Response) => {
+  res.status(404).json({ error: "not-found", message: "File not found." });
+});
 app.use(
   "/uploads",
   express.static(uploadDir, {
@@ -156,10 +173,60 @@ const uploadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+const finderSessionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Math.max(
+    5,
+    Number(process.env.FINDER_SESSION_RATE_LIMIT_HOURLY) || 20,
+  ),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const finderEvidenceLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Math.max(
+    3,
+    Number(process.env.FINDER_EVIDENCE_RATE_LIMIT_HOURLY) || 12,
+  ),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const finderSubmissionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Math.max(
+    3,
+    Number(process.env.FINDER_SUBMISSION_RATE_LIMIT_15M) || 12,
+  ),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const finderOtpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Math.max(3, Number(process.env.FINDER_OTP_RATE_LIMIT_HOURLY) || 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const finderEvidenceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: Math.max(
+      1024 * 1024,
+      Math.min(
+        12 * 1024 * 1024,
+        Number(process.env.FINDER_EVIDENCE_MAX_BYTES) || 8 * 1024 * 1024,
+      ),
+    ),
+    files: 1,
+    fields: 0,
+    parts: 2,
+  },
+});
 
 export interface AuthenticatedRequest extends RequestWithId {
   user?: { uid: string; token: DecodedIdToken };
   session?: SessionResponse;
+  finder?: FinderSession;
 }
 
 async function requireAuth(
@@ -319,7 +386,31 @@ export const scheduledNotifications = new ScheduledNotifications(
   pool,
   notifications,
 );
-export const recoveryNetwork = new RecoveryNetwork(pool, notifications);
+
+const finderSessionSecret =
+  process.env.FINDER_SESSION_SECRET ||
+  "petconnect-local-finder-session-secret-change-me";
+const finderIpHashSecret =
+  process.env.FINDER_IP_HASH_SECRET ||
+  "petconnect-local-finder-ip-hash-secret-change-me";
+export const finderSessions = new FinderSessions(
+  pool,
+  finderSessionSecret,
+  finderIpHashSecret,
+  Number(process.env.FINDER_SESSION_TTL_DAYS) || 30,
+);
+export const finderEvidence = new FinderEvidence(
+  pool,
+  uploadDir,
+  Number(process.env.FINDER_EVIDENCE_RETENTION_HOURS) || 24,
+);
+export const recoveryAbuse = new RecoveryAbuse(pool);
+export const finderVerification = new FinderVerification(pool, finderSessions);
+export const recoveryNetwork = new RecoveryNetwork(
+  pool,
+  notifications,
+  finderEvidence,
+);
 export const healthClinic = new HealthClinic(
   pool,
   notifications,
@@ -389,6 +480,23 @@ async function requireClinic(
   }
 }
 
+async function requireFinderSession(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) {
+  const credential = req.get("X-Finder-Session");
+  const finder = await finderSessions.resolve(credential);
+  if (!finder) {
+    return res.status(401).json({
+      error: "finder-session-required",
+      message: "Start a new PetConnect finder session and try again.",
+    });
+  }
+  req.finder = finder;
+  return next();
+}
+
 function petRoute(
   handler: (req: AuthenticatedRequest, res: Response) => Promise<void>,
 ) {
@@ -402,8 +510,55 @@ function petNotFound(res: Response) {
 }
 
 app.post(
-  "/v1/recovery/:token/sightings",
-  publicWriteLimiter,
+  "/v1/recovery/finder-session",
+  finderSessionLimiter,
+  petRoute(async (req, res) => {
+    const existing = await finderSessions.resolve(req.get("X-Finder-Session"));
+    const finder = existing || (await finderSessions.create(req.ip));
+    res.status(existing ? 200 : 201).json({
+      credential: finder.credential,
+      expiresAt: finder.expiresAt,
+      phoneVerified: finder.phoneVerified,
+      verificationRequired: false,
+    });
+  }),
+);
+
+app.post(
+  "/v1/recovery/finder-session/otp/send",
+  finderOtpLimiter,
+  requireFinderSession,
+  petRoute(async (req, res) => {
+    const result = await finderVerification.send(
+      req.finder!.id,
+      req.body?.phone,
+    );
+    res.status(201).json(result);
+  }),
+);
+
+app.post(
+  "/v1/recovery/finder-session/otp/verify",
+  finderOtpLimiter,
+  requireFinderSession,
+  petRoute(async (req, res) => {
+    await finderVerification.verify(
+      req.finder!.id,
+      req.body?.challengeId,
+      req.body?.code,
+    );
+    const refreshed = await finderSessions.resolve(req.get("X-Finder-Session"));
+    res.json({
+      verified: true,
+      expiresAt: refreshed?.expiresAt || req.finder!.expiresAt,
+    });
+  }),
+);
+
+app.post(
+  "/v1/recovery/:token/evidence/photo",
+  finderEvidenceLimiter,
+  requireFinderSession,
   petRoute(async (req, res) => {
     const petId = await recovery.resolvePetId(req.params.token);
     if (!petId) {
@@ -413,15 +568,122 @@ app.post(
       });
       return;
     }
-    const sighting = await recoveryNetwork.submitSighting(petId, req.body);
-    if (!sighting) {
-      res.status(409).json({
-        error: "no-active-report",
-        message: "This pet does not currently have an active lost report.",
+    await new Promise<void>((resolve, reject) => {
+      finderEvidenceUpload.single("file")(req, res, (error) =>
+        error ? reject(error) : resolve(),
+      );
+    });
+    if (!req.file) {
+      res.status(400).json({
+        error: "invalid-argument",
+        message: "Choose a valid JPEG, PNG, or WebP pet photo.",
       });
       return;
     }
-    res.status(201).json(sighting);
+    const processed = await sanitizeFinderPhoto(req.file.buffer, uploadDir);
+    const staged = await finderEvidence.stage(petId, req.finder!.id, processed);
+    res.status(201).json({
+      id: staged.evidence.id,
+      expiresAt: staged.expiresAt,
+      byteSize: staged.evidence.byteSize,
+      width: staged.evidence.width,
+      height: staged.evidence.height,
+      mimeType: staged.evidence.mimeType,
+    });
+  }),
+);
+
+app.post(
+  "/v1/recovery/:token/sightings",
+  publicWriteLimiter,
+  finderSubmissionLimiter,
+  petRoute(async (req, res) => {
+    const petId = await recovery.resolvePetId(req.params.token);
+    if (!petId) {
+      res.status(404).json({
+        error: "not-found",
+        message: "This recovery code is invalid, expired, or disabled.",
+      });
+      return;
+    }
+
+    const credential = req.get("X-Finder-Session");
+    const legacy = !credential && !req.body?.encounterType;
+    if (legacy) {
+      const sighting = await recoveryNetwork.submitSighting(petId, req.body);
+      if (!sighting) {
+        res.status(409).json({
+          error: "no-active-report",
+          message: "This pet does not currently have an active lost report.",
+        });
+        return;
+      }
+      res.status(201).json(sighting);
+      return;
+    }
+
+    const finder = await finderSessions.resolve(credential);
+    if (!finder) {
+      res.status(401).json({
+        error: "finder-session-required",
+        message: "Start a new PetConnect finder session and try again.",
+      });
+      return;
+    }
+
+    const evidence = req.body?.evidenceId
+      ? await finderEvidence.ownedStaged(
+          String(req.body.evidenceId),
+          petId,
+          finder.id,
+        )
+      : null;
+    if (req.body?.evidenceId && !evidence) {
+      res.status(409).json({
+        error: "evidence-unavailable",
+        message:
+          "That finder photo is expired, already used, or belongs to another session.",
+      });
+      return;
+    }
+
+    const assessment = await recoveryAbuse.assess(
+      finder.id,
+      finder.phoneVerified,
+      evidence?.sha256,
+    );
+    if (assessment.blocked) {
+      res.status(429).json({
+        error: "finder-temporarily-blocked",
+        message:
+          "This finder session has submitted too many reports. Please try again later.",
+      });
+      return;
+    }
+    if (assessment.verificationRequired && !finder.phoneVerified) {
+      res.status(428).json({
+        error: "phone-verification-required",
+        message:
+          "Verify a phone number before sending more finder reports from this session.",
+      });
+      return;
+    }
+
+    const result = await recoveryNetwork.submitFinderReport(petId, req.body, {
+      finderSessionId: finder.id,
+      phoneVerified: finder.phoneVerified,
+      riskState: assessment.riskState,
+      evidenceId: evidence?.id || null,
+    });
+    if (!result) {
+      res.status(404).json({
+        error: "not-found",
+        message: "The pet is no longer available for public recovery.",
+      });
+      return;
+    }
+    await finderSessions.incrementSubmission(finder.id);
+    res.status(201).json(result);
   }),
 );
 
@@ -567,6 +829,79 @@ app.get(
       req.params.id,
     );
     res.json({ report, sightings: sightings || [] });
+  }),
+);
+
+app.get(
+  "/v1/recovery-contacts/:id",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const event = await recoveryNetwork.getRecoveryContactEvent(
+      req.user!.uid,
+      req.params.id,
+    );
+    if (!event) {
+      res.status(404).json({
+        error: "not-found",
+        message: "Recovery contact not found.",
+      });
+      return;
+    }
+    res.json(event);
+  }),
+);
+
+app.get(
+  "/v1/finder-evidence/:id/file",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const file = await finderEvidence.ownerFile(req.params.id, req.user!.uid);
+    if (!file || !fs.existsSync(file.absolutePath)) {
+      res.status(404).json({
+        error: "not-found",
+        message: "Finder evidence not found.",
+      });
+      return;
+    }
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.type(file.mimeType);
+    res.sendFile(file.absolutePath);
+  }),
+);
+
+app.post(
+  "/v1/lost-reports/:reportId/sightings/:sightingId/report-abuse",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const [result] = await pool.query<import("mysql2/promise").ResultSetHeader>(
+      `UPDATE sightings s
+       JOIN lost_reports lr ON lr.id = s.report_id
+          SET s.risk_state = 'REVIEW'
+        WHERE s.id = ? AND lr.id = ? AND lr.owner_id = ?`,
+      [req.params.sightingId, req.params.reportId, req.user!.uid],
+    );
+    if (result.affectedRows === 0) {
+      res.status(404).json({
+        error: "not-found",
+        message: "Finder report not found.",
+      });
+      return;
+    }
+    await pool.query(
+      `INSERT INTO audit_logs
+        (entity_type, entity_id, action, performed_by, details)
+       VALUES ('sighting', ?, 'report_abuse', ?, ?)`,
+      [
+        req.params.sightingId,
+        req.user!.uid,
+        JSON.stringify({ reportId: req.params.reportId }),
+      ],
+    );
+    res.status(204).end();
   }),
 );
 
@@ -1062,11 +1397,19 @@ app.use(
       err instanceof RecoveryNetworkValidationError ||
       err instanceof PushValidationError ||
       err instanceof HealthClinicValidationError ||
-      err instanceof UploadValidationError
+      err instanceof UploadValidationError ||
+      err instanceof FinderEvidenceError ||
+      err instanceof FinderVerificationError
     ) {
       return res
         .status(400)
         .json({ error: "invalid-argument", message: err.message });
+    }
+    if (err instanceof FinderVerificationRateLimitError) {
+      return res.status(429).json({
+        error: "rate-limited",
+        message: err.message,
+      });
     }
     if (
       err instanceof RecoveryNetworkConflictError ||
@@ -1082,7 +1425,9 @@ app.use(
         error: "invalid-argument",
         message:
           err.code === "LIMIT_FILE_SIZE"
-            ? "Photo must be under 5 MB."
+            ? req.path.includes("/evidence/")
+              ? "Finder photo must be under 8 MB."
+              : "Photo must be under 5 MB."
             : "Invalid photo upload.",
       });
     }
