@@ -3,8 +3,9 @@ import { type ComponentType } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
-  BellIcon,
   HomeIcon,
+  PawIcon,
+  PinIcon,
   type IconProps,
   ProfileIcon,
   QrIcon,
@@ -12,21 +13,24 @@ import {
 import { Palette } from "@/constants/palette";
 import { Fonts, Spacing } from "@/constants/theme";
 
-export type TabKey = "home" | "scan" | "alerts" | "profile";
+export type TabKey = "home" | "pets" | "scan" | "recovery" | "profile";
 
-const tabRoutes: Partial<
-  Record<TabKey, "/dashboard" | "/scan" | "/alerts" | "/profile">
+const tabRoutes: Record<
+  TabKey,
+  "/dashboard" | "/my-pets" | "/scan" | "/alerts" | "/profile"
 > = {
   home: "/dashboard",
+  pets: "/my-pets",
   scan: "/scan",
-  alerts: "/alerts",
+  recovery: "/alerts",
   profile: "/profile",
 };
 
 const tabs: { key: TabKey; label: string; Icon: ComponentType<IconProps> }[] = [
   { key: "home", label: "Home", Icon: HomeIcon },
+  { key: "pets", label: "Pets", Icon: PawIcon },
   { key: "scan", label: "Scan", Icon: QrIcon },
-  { key: "alerts", label: "Alerts", Icon: BellIcon },
+  { key: "recovery", label: "Recovery", Icon: PinIcon },
   { key: "profile", label: "Profile", Icon: ProfileIcon },
 ];
 
@@ -37,28 +41,21 @@ export function BottomNav({ active }: { active: TabKey }) {
     <View style={styles.bottomNav}>
       {tabs.map(({ key, label, Icon }) => {
         const isActive = key === active;
-        const route = tabRoutes[key];
         return (
           <Pressable
             key={key}
             accessibilityRole="button"
             accessibilityLabel={label}
             accessibilityState={{ selected: isActive }}
-            onPress={() => {
-              if (route) {
-                router.navigate(route);
-              }
-            }}
+            onPress={() => router.navigate(tabRoutes[key])}
             style={styles.navItem}
           >
             <View style={[styles.navInner, isActive && styles.navInnerActive]}>
               <Icon
-                size={22}
+                size={key === "pets" ? 20 : 21}
                 color={isActive ? Palette.white : Palette.inkMuted}
               />
-              <Text
-                style={[styles.navLabel, isActive && styles.navLabelActive]}
-              >
+              <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>
                 {label}
               </Text>
             </View>
@@ -72,16 +69,15 @@ export function BottomNav({ active }: { active: TabKey }) {
 const styles = StyleSheet.create({
   bottomNav: {
     flexDirection: "row",
-    marginHorizontal: Spacing.three,
+    marginHorizontal: Spacing.two,
     marginTop: Spacing.two,
     marginBottom: Spacing.two,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     borderRadius: 24,
     backgroundColor: Palette.surface,
-    paddingHorizontal: Spacing.two,
+    paddingHorizontal: 6,
     paddingVertical: 7,
-    gap: Spacing.one,
     elevation: 5,
   },
   navItem: {
@@ -96,16 +92,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 2,
-    paddingHorizontal: Spacing.two,
+    paddingHorizontal: 3,
     paddingVertical: Spacing.one,
-    borderRadius: 18,
+    borderRadius: 17,
   },
   navInnerActive: {
     backgroundColor: Palette.forestDark,
   },
   navLabel: {
     fontFamily: Fonts.sans,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "600",
     color: Palette.inkMuted,
   },
