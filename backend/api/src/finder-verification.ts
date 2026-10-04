@@ -5,6 +5,10 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import type { Pool, RowDataPacket } from "mysql2/promise";
+import {
+  deliverFinderOtp,
+  FinderOtpDeliveryError,
+} from "./finder-otp-delivery.js";
 import { FinderSessions } from "./finder-sessions.js";
 
 export class FinderVerificationError extends Error {}
@@ -38,7 +42,7 @@ export function normalizeFinderPhone(value: unknown): string {
 }
 
 export class FinderVerification {
-  private provider: "disabled" | "console" | "webhook";
+  private provider: "disabled" | "console" | "webhook" | "smsgate";
   private ttlSeconds: number;
   private otpSecret: string;
 
@@ -49,12 +53,10 @@ export class FinderVerification {
     const configured = (
       process.env.FINDER_OTP_PROVIDER || "console"
     ).toLowerCase();
-    this.provider =
-      configured === "webhook"
-        ? "webhook"
-        : configured === "disabled"
-          ? "disabled"
-          : "console";
+    if (!["disabled", "console", "webhook", "smsgate"].includes(configured)) {
+      throw new Error("Unknown FINDER_OTP_PROVIDER.");
+    }
+    this.provider = configured as typeof this.provider;
     this.ttlSeconds = Math.max(
       120,
       Math.min(900, Number(process.env.FINDER_OTP_TTL_SECONDS) || 600),
@@ -161,7 +163,18 @@ export class FinderVerification {
       ],
     );
 
-    await this.deliver(phone, code);
+    try {
+      await deliverFinderOtp(phone, code, this.ttlSeconds);
+    } catch (error) {
+      // Preserve this attempted send in the rate-limit budget, but invalidate it.
+      await this.pool.query(
+        "UPDATE finder_otp_challenges SET consumed_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [challengeId],
+      );
+      if (error instanceof FinderOtpDeliveryError)
+        throw new FinderVerificationError(error.message);
+      throw error;
+    }
     return {
       challengeId,
       expiresAt: expiresAt.toISOString(),
@@ -171,47 +184,6 @@ export class FinderVerification {
         ? { developmentCode: code }
         : {}),
     };
-  }
-
-  private async deliver(phone: string, code: string): Promise<void> {
-    const message = `Your PetConnect finder verification code is ${code}. It expires in ${Math.ceil(this.ttlSeconds / 60)} minutes.`;
-    if (this.provider === "console") {
-      process.stdout.write(
-        JSON.stringify({
-          ts: new Date().toISOString(),
-          level: "info",
-          event: "finder_otp_dev",
-          phoneSuffix: phone.slice(-4),
-          code,
-        }) + "\n",
-      );
-      return;
-    }
-    const url = process.env.FINDER_OTP_WEBHOOK_URL?.trim();
-    if (!url) {
-      throw new FinderVerificationError(
-        "Phone verification provider is not configured.",
-      );
-    }
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(process.env.FINDER_OTP_WEBHOOK_TOKEN
-          ? { Authorization: `Bearer ${process.env.FINDER_OTP_WEBHOOK_TOKEN}` }
-          : {}),
-      },
-      body: JSON.stringify({
-        to: phone,
-        message,
-        purpose: "petconnect_finder_verification",
-      }),
-    });
-    if (!response.ok) {
-      throw new FinderVerificationError(
-        "Could not send the verification code right now.",
-      );
-    }
   }
 
   async verify(
