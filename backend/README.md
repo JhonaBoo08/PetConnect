@@ -78,19 +78,21 @@ Owner routes:
 - `POST /v1/pets/:id/recovery/rotate`
 - `DELETE /v1/pets/:id/recovery`
 
-Public recovery uses a signed high-entropy token. The QR URL has the form:
+Public recovery uses independently revocable tags. Each pet can have multiple active tags, and every tag has its own signed high-entropy token plus a short `PC-XXXXXXXX` code. Losing, replacing, or disabling one physical tag does not disable the pet's other tags. Existing single-token PetConnect QR codes are migrated lazily so already printed codes keep working until the owner replaces or revokes them.
+
+A QR URL has the form:
 
 ```text
 https://your-app.example/recover?token=<token-id>.<signature>
 ```
 
-Rotation invalidates the previous token and revocation disables the current token. Public output intentionally excludes Firebase UID, private database identifiers, health records, clinic records, appointments, authentication claims, hidden contact details, and hidden recovery-location precision.
+The short code is a fallback when a QR is damaged or difficult to scan. Public output intentionally excludes Firebase UID, private database identifiers, health records, clinic records, appointments, authentication claims, hidden contact details, and hidden recovery-location precision.
 
 ## Recovery network and notifications
 
 Owner recovery routes create/read/reunite lost reports. Public finder routes accept sightings and the nearby feed returns recovery-safe information. Location is foreground-only; PetConnect does not implement continuous background tracking.
 
-The public `/recover?token=...` page is also the app-less finder workflow. A finder does not need a PetConnect account or Expo Go. PetConnect issues a random opaque finder-session credential; it is not derived from IMEI, MAC address, Android ID, advertising identifiers, canvas/font fingerprinting, or other hardware/browser fingerprinting. The server stores keyed hashes for session/IP/phone abuse controls instead of persisting raw IP addresses.
+The public `/recover?token=...` page is the app-less finder workflow. A finder can scan a tag, enter its short code, or use the nearby lost-pet flow when no tag can be scanned. A finder does not need a PetConnect account or Expo Go. PetConnect issues a random opaque finder-session credential; it is not derived from IMEI, MAC address, Android ID, advertising identifiers, canvas/font fingerprinting, or other hardware/browser fingerprinting. The server stores keyed hashes for session/IP/phone abuse controls instead of persisting raw IP addresses.
 
 Finder reports distinguish `SEEN` from `HAVE_PET`. `HAVE_PET` requires a finder photo; `SEEN` keeps the photo optional for speed. Photos are decoded, rotated, bounded, re-encoded as WebP and stripped of original metadata/EXIF/GPS. Raw finder evidence is not served from `/uploads`; owners obtain it only through the authenticated evidence endpoint.
 

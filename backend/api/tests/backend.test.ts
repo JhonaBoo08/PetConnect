@@ -63,10 +63,12 @@ async function resetTestDb() {
   await pool.query("TRUNCATE TABLE push_devices");
   await pool.query("TRUNCATE TABLE sighting_evidence");
   await pool.query("TRUNCATE TABLE recovery_contact_events");
+  await pool.query("TRUNCATE TABLE recovery_tag_scans");
   await pool.query("TRUNCATE TABLE finder_otp_challenges");
   await pool.query("TRUNCATE TABLE sightings");
   await pool.query("TRUNCATE TABLE lost_reports");
   await pool.query("TRUNCATE TABLE finder_sessions");
+  await pool.query("TRUNCATE TABLE pet_recovery_tags");
   await pool.query("TRUNCATE TABLE pet_recovery_tokens");
   await pool.query("TRUNCATE TABLE pets");
   await pool.query("TRUNCATE TABLE clinic_members");
@@ -948,6 +950,75 @@ test("recovery QR tokens are public-safe, owner-scoped, revocable and rotatable"
     .expect(404);
 });
 
+test("recovery tags are independent, short-code addressable, and record scans", async () => {
+  const owner = await ownerToken("Tag Owner", "tag-owner@example.test");
+  const ownerHeader = `Bearer ${owner.token}`;
+
+  const created = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", ownerHeader)
+    .send({ name: "Milo", species: "Dog", breed: "Aspin" })
+    .expect(201);
+  const petId = created.body.id as string;
+
+  const initial = await request(app)
+    .get(`/v1/pets/${petId}/recovery/tags`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  assert.equal(initial.body.tags.length, 1);
+  assert.equal(initial.body.tags[0].status, "ACTIVE");
+  assert.match(initial.body.tags[0].shortCode, /^PC-[A-F0-9]{8}$/);
+
+  const spare = await request(app)
+    .post(`/v1/pets/${petId}/recovery/tags`)
+    .set("Authorization", ownerHeader)
+    .send({ label: "Harness", tagType: "HARNESS" })
+    .expect(201);
+  assert.equal(spare.body.label, "Harness");
+  assert.notEqual(spare.body.token, initial.body.tags[0].token);
+
+  const resolved = await request(app)
+    .get(`/v1/recovery/code/${encodeURIComponent(spare.body.shortCode)}`)
+    .expect(200);
+  assert.equal(resolved.body.token, spare.body.token);
+
+  const finder = await request(app)
+    .post("/v1/recovery/finder-session")
+    .expect(201);
+  await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(spare.body.token)}/scan`)
+    .set("X-Finder-Session", finder.body.credential)
+    .send({ source: "CODE" })
+    .expect(201);
+  await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(spare.body.token)}/scan`)
+    .set("X-Finder-Session", finder.body.credential)
+    .send({ source: "CODE" })
+    .expect(200);
+
+  await request(app)
+    .post(`/v1/pets/${petId}/recovery/tags/${spare.body.id}/lost`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+
+  await request(app)
+    .get(`/v1/recovery/${encodeURIComponent(spare.body.token)}`)
+    .expect(404);
+  await request(app)
+    .get(`/v1/recovery/${encodeURIComponent(initial.body.tags[0].token)}`)
+    .expect(200);
+
+  const replaced = await request(app)
+    .post(`/v1/pets/${petId}/recovery/tags/${spare.body.id}/replace`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  assert.equal(replaced.body.status, "ACTIVE");
+  assert.notEqual(replaced.body.shortCode, spare.body.shortCode);
+  await request(app)
+    .get(`/v1/recovery/code/${encodeURIComponent(spare.body.shortCode)}`)
+    .expect(404);
+});
+
 test("recovery network transitions LOST to SIGHTED to REUNITED with privacy boundaries", async () => {
   const owner = await ownerToken("Network Owner", "network-owner@example.test");
   const nearbyMember = await ownerToken(
@@ -1102,6 +1173,18 @@ test("recovery network transitions LOST to SIGHTED to REUNITED with privacy boun
   assert.equal(Number(mine.body.reports[0].lastKnownAccuracyM), 6);
   assert.ok(mine.body.reports[0].lastSightedAt);
 
+  const overview = await request(app)
+    .get("/v1/owner/recovery-overview")
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  assert.equal(overview.body.reports[0].id, reportId);
+  assert.equal(overview.body.reports[0].status, "SIGHTED");
+  assert.equal(overview.body.sightingsByReport[reportId].length, 1);
+  assert.equal(
+    overview.body.sightingsByReport[reportId][0].finderContact,
+    "finder@example.test",
+  );
+
   const ownerDetail = await request(app)
     .get(`/v1/lost-reports/${reportId}`)
     .set("Authorization", ownerHeader)
@@ -1171,6 +1254,97 @@ test("recovery network transitions LOST to SIGHTED to REUNITED with privacy boun
     .set("Authorization", ownerHeader)
     .expect(200);
   assert.equal(historical.body.reports[0].status, "REUNITED");
+});
+
+test("no-tag finder sightings can attach staged photo evidence by report ID", async () => {
+  const owner = await ownerToken(
+    "No Tag Evidence Owner",
+    "no-tag-evidence@example.test",
+  );
+  const ownerHeader = `Bearer ${owner.token}`;
+
+  const pet = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", ownerHeader)
+    .send({ name: "Luna", species: "Dog", breed: "Aspin" })
+    .expect(201);
+
+  const report = await request(app)
+    .post("/v1/lost-reports")
+    .set("Authorization", ownerHeader)
+    .send({
+      petId: pet.body.id,
+      lastSeenText: "Public market",
+      latitude: 7.4479,
+      longitude: 125.8079,
+      accuracyM: 12,
+    })
+    .expect(201);
+  const reportId = report.body.id as string;
+
+  const finder = await request(app)
+    .post("/v1/recovery/finder-session")
+    .expect(201);
+  const finderHeader = finder.body.credential as string;
+
+  const png = await sharp({
+    create: {
+      width: 64,
+      height: 48,
+      channels: 3,
+      background: { r: 60, g: 85, b: 70 },
+    },
+  })
+    .png()
+    .toBuffer();
+
+  const staged = await request(app)
+    .post(`/v1/recovery/report/${encodeURIComponent(reportId)}/evidence/photo`)
+    .set("X-Finder-Session", finderHeader)
+    .attach("file", png, {
+      filename: "luna-sighting.png",
+      contentType: "image/png",
+    })
+    .expect(201);
+  assert.match(staged.body.id, /^EV-/);
+  assert.equal(staged.body.mimeType, "image/webp");
+
+  const payload = {
+    evidenceId: staged.body.id,
+    locationText: "Beside the public market entrance",
+    notes: "Heading toward the terminal",
+    idempotencyKey: "no-tag-photo-001",
+  };
+  const sighting = await request(app)
+    .post(`/v1/recovery/report/${encodeURIComponent(reportId)}/sightings`)
+    .set("X-Finder-Session", finderHeader)
+    .send(payload)
+    .expect(201);
+
+  assert.equal(sighting.body.kind, "SIGHTING");
+  assert.equal(sighting.body.sighting.encounterType, "SEEN");
+  assert.equal(sighting.body.sighting.evidence.length, 1);
+  assert.equal(sighting.body.sighting.evidence[0].id, staged.body.id);
+
+  const retry = await request(app)
+    .post(`/v1/recovery/report/${encodeURIComponent(reportId)}/sightings`)
+    .set("X-Finder-Session", finderHeader)
+    .send(payload)
+    .expect(201);
+  assert.equal(retry.body.sighting.id, sighting.body.sighting.id);
+
+  const [evidenceRows] = await pool.query<
+    (RowDataPacket & { status: string; sighting_id: string | null })[]
+  >("SELECT status, sighting_id FROM sighting_evidence WHERE id = ?", [
+    staged.body.id,
+  ]);
+  assert.equal(evidenceRows[0].status, "ATTACHED");
+  assert.equal(evidenceRows[0].sighting_id, sighting.body.sighting.id);
+
+  const [sightingCount] = await pool.query<
+    (RowDataPacket & { count: number | string })[]
+  >("SELECT COUNT(*) AS count FROM sightings WHERE report_id = ?", [reportId]);
+  assert.equal(Number(sightingCount[0].count), 1);
 });
 
 test("anonymous finder recovery supports evidence, privacy, idempotency and non-lost contact", async () => {

@@ -568,6 +568,48 @@ app.post(
 );
 
 app.post(
+  "/v1/recovery/report/:id/evidence/photo",
+  finderEvidenceLimiter,
+  requireFinderSession,
+  petRoute(async (req, res) => {
+    const petId = await recovery.resolveActiveReportPetId(req.params.id);
+    if (!petId) {
+      res.status(404).json({
+        error: "not-found",
+        message: "This lost-pet report is no longer active.",
+      });
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      finderEvidenceUpload.single("file")(req, res, (error) =>
+        error ? reject(error) : resolve(),
+      );
+    });
+    if (!req.file) {
+      res.status(400).json({
+        error: "invalid-argument",
+        message: "Choose a valid JPEG, PNG, or WebP pet photo.",
+      });
+      return;
+    }
+    const processed = await sanitizeFinderPhoto(
+      req.file.buffer,
+      mediaStorage,
+      reserveMedia,
+    );
+    const staged = await finderEvidence.stage(petId, req.finder!.id, processed);
+    res.status(201).json({
+      id: staged.evidence.id,
+      expiresAt: staged.expiresAt,
+      byteSize: staged.evidence.byteSize,
+      width: staged.evidence.width,
+      height: staged.evidence.height,
+      mimeType: staged.evidence.mimeType,
+    });
+  }),
+);
+
+app.post(
   "/v1/recovery/:token/evidence/photo",
   finderEvidenceLimiter,
   requireFinderSession,
@@ -729,6 +771,156 @@ app.get(
 );
 
 app.get(
+  "/v1/recovery/code/:code",
+  publicReadLimiter,
+  petRoute(async (req, res) => {
+    const tag = await recovery.resolveCode(req.params.code);
+    if (!tag?.token || !tag.recoveryUrl) {
+      res.status(404).json({
+        error: "not-found",
+        message: "That PetConnect code is invalid or disabled.",
+      });
+      return;
+    }
+    res.json({
+      token: tag.token,
+      recoveryUrl: tag.recoveryUrl,
+      shortCode: tag.shortCode,
+    });
+  }),
+);
+
+app.get(
+  "/v1/recovery/report/:id",
+  publicReadLimiter,
+  petRoute(async (req, res) => {
+    const profile = await recovery.publicProfileByReport(req.params.id);
+    if (!profile) {
+      res.status(404).json({
+        error: "not-found",
+        message: "This lost-pet report is no longer active.",
+      });
+      return;
+    }
+    res.json(profile);
+  }),
+);
+
+app.post(
+  "/v1/recovery/report/:id/sightings",
+  publicWriteLimiter,
+  finderSubmissionLimiter,
+  requireFinderSession,
+  petRoute(async (req, res) => {
+    const petId = await recovery.resolveActiveReportPetId(req.params.id);
+    if (!petId) {
+      res.status(404).json({
+        error: "not-found",
+        message: "This lost-pet report is no longer active.",
+      });
+      return;
+    }
+    const input = { ...req.body, encounterType: "SEEN" };
+
+    // Retries remain idempotent even after staged evidence has been attached.
+    const previous = await recoveryNetwork.findFinderSubmission(
+      petId,
+      req.finder!.id,
+      input.idempotencyKey,
+    );
+    if (previous) {
+      res.status(201).json(previous);
+      return;
+    }
+
+    const evidence = input.evidenceId
+      ? await finderEvidence.ownedStaged(
+          String(input.evidenceId),
+          petId,
+          req.finder!.id,
+        )
+      : null;
+    if (input.evidenceId && !evidence) {
+      res.status(409).json({
+        error: "evidence-unavailable",
+        message:
+          "That finder photo is expired, already used, or belongs to another session.",
+      });
+      return;
+    }
+
+    const assessment = await recoveryAbuse.assess(
+      req.finder!.id,
+      req.finder!.phoneVerified,
+      evidence?.sha256,
+    );
+    if (assessment.blocked) {
+      res.status(429).json({
+        error: "finder-temporarily-blocked",
+        message: "Too many reports were sent from this finder session.",
+      });
+      return;
+    }
+    if (assessment.verificationRequired && !req.finder!.phoneVerified) {
+      res.status(428).json({
+        error: "phone-verification-required",
+        message: "Verify a phone number before sending more finder reports.",
+      });
+      return;
+    }
+    const result = await recoveryNetwork.submitFinderReport(petId, input, {
+      finderSessionId: req.finder!.id,
+      phoneVerified: req.finder!.phoneVerified,
+      riskState: assessment.riskState,
+      evidenceId: evidence?.id || null,
+    });
+    if (!result || result.kind !== "SIGHTING") {
+      res.status(409).json({
+        error: "no-active-report",
+        message: "This lost-pet report is no longer active.",
+      });
+      return;
+    }
+    await finderSessions.incrementSubmission(req.finder!.id);
+    res.status(201).json(result);
+  }),
+);
+
+app.post(
+  "/v1/recovery/:token/scan",
+  publicWriteLimiter,
+  requireFinderSession,
+  petRoute(async (req, res) => {
+    const scan = await recovery.recordScan(
+      req.params.token,
+      req.finder!.id,
+      req.body?.source === "CODE" ? "CODE" : "QR",
+    );
+    if (!scan) {
+      res.status(404).json({
+        error: "not-found",
+        message: "This recovery tag is invalid or disabled.",
+      });
+      return;
+    }
+    if (scan.created) {
+      await notifications.notifyUser(
+        scan.ownerId,
+        "PET_TAG_SCANNED",
+        `${scan.petName}'s tag was scanned`,
+        "Someone opened the PetConnect recovery tag.",
+        {
+          petId: scan.petId,
+          tagId: scan.tagId,
+          scanId: scan.scanId,
+        },
+      );
+    }
+    res.status(scan.created ? 201 : 200).json({ recorded: scan.created });
+  }),
+);
+
+app.get(
   "/v1/recovery/:token",
   publicReadLimiter,
   petRoute(async (req, res) => {
@@ -818,6 +1010,79 @@ app.delete(
   }),
 );
 
+app.get(
+  "/v1/pets/:id/recovery/tags",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const tags = await recovery.listTags(req.user!.uid, req.params.id);
+    if (!tags) return petNotFound(res);
+    res.json({ tags });
+  }),
+);
+
+app.post(
+  "/v1/pets/:id/recovery/tags",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const tag = await recovery.createTag(
+      req.user!.uid,
+      req.params.id,
+      req.body || {},
+    );
+    if (!tag) return petNotFound(res);
+    res.status(201).json(tag);
+  }),
+);
+
+app.post(
+  "/v1/pets/:id/recovery/tags/:tagId/replace",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const tag = await recovery.replaceTag(
+      req.user!.uid,
+      req.params.id,
+      req.params.tagId,
+    );
+    if (!tag) return petNotFound(res);
+    res.json(tag);
+  }),
+);
+
+app.post(
+  "/v1/pets/:id/recovery/tags/:tagId/lost",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const tag = await recovery.setTagStatus(
+      req.user!.uid,
+      req.params.id,
+      req.params.tagId,
+      "LOST",
+    );
+    if (!tag) return petNotFound(res);
+    res.json(tag);
+  }),
+);
+
+app.delete(
+  "/v1/pets/:id/recovery/tags/:tagId",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const tag = await recovery.setTagStatus(
+      req.user!.uid,
+      req.params.id,
+      req.params.tagId,
+      "REVOKED",
+    );
+    if (!tag) return petNotFound(res);
+    res.json(tag);
+  }),
+);
+
 app.post(
   "/v1/lost-reports",
   requireAuth,
@@ -834,6 +1099,15 @@ app.get(
   requireOwner,
   petRoute(async (req, res) => {
     res.json({ reports: await recoveryNetwork.listMine(req.user!.uid) });
+  }),
+);
+
+app.get(
+  "/v1/owner/recovery-overview",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    res.json(await recoveryNetwork.ownerOverview(req.user!.uid));
   }),
 );
 
@@ -857,6 +1131,76 @@ app.get(
       req.params.id,
     );
     res.json({ report, sightings: sightings || [] });
+  }),
+);
+
+app.get(
+  "/v1/lost-reports/:id/timeline",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const report = await recoveryNetwork.getOwnerReport(
+      req.user!.uid,
+      req.params.id,
+    );
+    if (!report) {
+      res
+        .status(404)
+        .json({ error: "not-found", message: "Lost report not found." });
+      return;
+    }
+    const sightings =
+      (await recoveryNetwork.listSightings(req.user!.uid, req.params.id)) || [];
+    const scans =
+      (await recovery.listScans(
+        req.user!.uid,
+        report.petId,
+        report.reportedAt,
+        report.reunitedAt,
+      )) || [];
+    const events = [
+      {
+        id: `reported-${report.id}`,
+        kind: "REPORTED_LOST",
+        title: `${report.petName} reported missing`,
+        detail: report.lastSeenText,
+        createdAt: report.reportedAt,
+      },
+      ...scans.map((scan) => ({
+        id: scan.id,
+        kind: "TAG_SCANNED",
+        title: "Recovery tag scanned",
+        detail: scan.label,
+        createdAt: scan.createdAt,
+        tagId: scan.tagId,
+      })),
+      ...sightings.map((sighting) => ({
+        id: sighting.id,
+        kind: sighting.encounterType === "HAVE_PET" ? "FOUND" : "SIGHTING",
+        title:
+          sighting.encounterType === "HAVE_PET"
+            ? "Finder has the pet"
+            : "Pet sighted",
+        detail: sighting.locationText || sighting.notes || "Finder update",
+        createdAt: sighting.createdAt,
+        sightingId: sighting.id,
+      })),
+      ...(report.reunitedAt
+        ? [
+            {
+              id: `reunited-${report.id}`,
+              kind: "REUNITED",
+              title: `${report.petName} reunited`,
+              detail: "Recovery closed",
+              createdAt: report.reunitedAt,
+            },
+          ]
+        : []),
+    ].sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    res.json({ events });
   }),
 );
 

@@ -303,6 +303,45 @@ export class RecoveryNetwork {
     return rows.map(toReport);
   }
 
+  async ownerOverview(ownerId: string): Promise<{
+    reports: LostReport[];
+    sightingsByReport: Record<string, Sighting[]>;
+  }> {
+    const reports = await this.listMine(ownerId);
+    const activeReportIds = reports
+      .filter((report) => report.status !== "REUNITED")
+      .map((report) => report.id);
+
+    const sightingsByReport = Object.fromEntries(
+      activeReportIds.map((id) => [id, [] as Sighting[]]),
+    ) as Record<string, Sighting[]>;
+
+    if (activeReportIds.length === 0) {
+      return { reports, sightingsByReport };
+    }
+
+    const placeholders = activeReportIds.map(() => "?").join(", ");
+    const [rows] = await this.pool.query<SightingRow[]>(
+      `SELECT id, report_id, finder_name, finder_contact, encounter_type,
+              notes, location_text, latitude, longitude, accuracy_m,
+              location_source, contact_share_consent, phone_verified_snapshot,
+              risk_state, created_at
+         FROM sightings
+        WHERE report_id IN (${placeholders})
+        ORDER BY created_at DESC`,
+      activeReportIds,
+    );
+
+    const sightings = await Promise.all(
+      rows.map((row) => this.toSighting(row)),
+    );
+    for (const sighting of sightings) {
+      sightingsByReport[sighting.reportId]?.push(sighting);
+    }
+
+    return { reports, sightingsByReport };
+  }
+
   async getOwnerReport(
     ownerId: string,
     id: string,
