@@ -37,6 +37,7 @@ import type {
 type CarePreviewItem = {
   id: string;
   petName: string;
+  petId: string;
   title: string;
   at: string;
   kind: "reminder" | "appointment";
@@ -89,6 +90,7 @@ function toCarePreview(
       .map((item) => ({
         id: item.id,
         petName: item.petName,
+        petId: item.petId,
         title: item.title,
         at: item.dueAt,
         kind: "reminder" as const,
@@ -102,6 +104,7 @@ function toCarePreview(
       .map((item) => ({
         id: item.id,
         petName: item.petName,
+        petId: item.petId,
         title: item.reason || `Appointment at ${item.clinic.name}`,
         at: item.appointmentDate,
         kind: "appointment" as const,
@@ -145,7 +148,7 @@ export default function DashboardScreen() {
 
       const now = new Date();
       const end = new Date(now);
-      end.setDate(end.getDate() + 90);
+      end.setTime(now.getTime() + 60 * 86400000);
       const range = { from: now.toISOString(), to: end.toISOString() };
 
       Promise.allSettled([
@@ -342,7 +345,9 @@ export default function DashboardScreen() {
                       <Pressable
                         key={`${item.kind}-${item.id}`}
                         accessibilityRole="button"
-                        onPress={() => router.push("/health-reminders")}
+                        onPress={() => router.push(item.kind === "reminder"
+                          ? { pathname: "/reminder-details", params: { id: item.id } }
+                          : { pathname: "/health-reminders", params: { petId: item.petId } })}
                         style={[
                           styles.careRow,
                           index > 0 && styles.careRowBorder,
@@ -386,7 +391,7 @@ export default function DashboardScreen() {
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Report a lost pet"
+                  accessibilityLabel="Report Lost Pet"
                   onPress={reportLost}
                   style={({ pressed }) => [
                     styles.recoveryButton,
@@ -394,7 +399,7 @@ export default function DashboardScreen() {
                   ]}
                 >
                   <PinIcon size={18} />
-                  <Text style={styles.recoveryButtonText}>Report lost pet</Text>
+                  <Text style={styles.recoveryButtonText}>Report Lost Pet</Text>
                 </Pressable>
               </View>
             </>
