@@ -33,6 +33,7 @@ import {
 import { listPets } from "@/services/pets";
 import {
   createLostReport,
+  getLostReport,
   getNearbyLostReports,
   listMyLostReports,
   listRecoveryNotifications,
@@ -45,6 +46,7 @@ import type {
   NearbyLostReport,
   Pet,
   RecoveryNotification,
+  Sighting,
 } from "../../../shared/contracts";
 
 type Mode = "report" | "feed" | "updates";
@@ -59,6 +61,21 @@ function statusLabel(
 
 function when(value: string) {
   return new Date(value).toLocaleString();
+}
+
+function orderedMapSightings(sightings: Sighting[]) {
+  return [...sightings]
+    .filter(
+      (sighting) =>
+        sighting.riskState !== "BLOCKED" &&
+        sighting.latitude !== null &&
+        sighting.longitude !== null,
+    )
+    .sort(
+      (left, right) =>
+        new Date(left.createdAt).getTime() -
+        new Date(right.createdAt).getTime(),
+    );
 }
 
 export default function AlertsScreen() {
@@ -77,6 +94,9 @@ export default function AlertsScreen() {
   );
   const [pets, setPets] = useState<Pet[]>([]);
   const [reports, setReports] = useState<LostReport[]>([]);
+  const [sightingsByReport, setSightingsByReport] = useState<
+    Record<string, Sighting[]>
+  >({});
   const [nearby, setNearby] = useState<NearbyLostReport[]>([]);
   const [notifications, setNotifications] = useState<RecoveryNotification[]>(
     [],
@@ -92,6 +112,7 @@ export default function AlertsScreen() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [pushMessage, setPushMessage] = useState("");
+  const [showReportForm, setShowReportForm] = useState(Boolean(routePetId));
 
   const loadCore = useCallback(async () => {
     const [petRows, reportRows, notificationRows] = await Promise.all([
@@ -102,6 +123,22 @@ export default function AlertsScreen() {
     setPets(petRows);
     setReports(reportRows);
     setNotifications(notificationRows);
+
+    const activeDetails = await Promise.all(
+      reportRows
+        .filter((report) => report.status !== "REUNITED")
+        .map(async (report) => {
+          try {
+            const detail = await getLostReport(report.id);
+            return [report.id, detail.sightings] as const;
+          } catch {
+            // Keep the recovery screen usable if one case detail request fails.
+            return [report.id, []] as const;
+          }
+        }),
+    );
+    setSightingsByReport(Object.fromEntries(activeDetails));
+
     const reportPetId = reportRows.find(
       (row) => row.id === params.reportId,
     )?.petId;
@@ -116,10 +153,13 @@ export default function AlertsScreen() {
   }, [routePetId, params.reportId]);
 
   useEffect(() => {
-    setMode(
-      routeMode === "feed" || routeMode === "updates" ? routeMode : "report",
-    );
-  }, [routeMode, params.reportId]);
+    if (routeMode === "updates") {
+      router.replace("/notifications");
+      return;
+    }
+    setMode(routeMode === "feed" ? "feed" : "report");
+    if (routePetId) setShowReportForm(true);
+  }, [routeMode, routePetId, params.reportId, router]);
 
   const loadNearby = useCallback(async (coordinates: Coordinates) => {
     const rows = await getNearbyLostReports(
@@ -191,9 +231,10 @@ export default function AlertsScreen() {
         longitude: pin.longitude,
         accuracyM: pin.accuracyM,
       });
-      setReports(await listMyLostReports());
+      await loadCore();
       setLastSeenText("");
       setDetails("");
+      setShowReportForm(false);
       setMessage(
         `${report.petName} is now in the recovery network. Nearby members with recovery alerts enabled can be notified.`,
       );
@@ -210,7 +251,7 @@ export default function AlertsScreen() {
     setError("");
     try {
       await markPetReunited(report.id);
-      setReports(await listMyLostReports());
+      await loadCore();
       if (location) await loadNearby(location);
       setMessage(`${report.petName} has been marked reunited.`);
     } catch (cause) {
@@ -335,18 +376,11 @@ export default function AlertsScreen() {
           }
         >
           <View style={styles.topBar}>
+            <Text style={styles.screenTitle}>Recovery</Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={() => goBack("/dashboard")}
-              style={styles.iconButton}
-            >
-              <BackArrow />
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Recovery notifications"
-              onPress={() => setMode("updates")}
+              accessibilityLabel="Notifications"
+              onPress={() => router.push("/notifications")}
               style={styles.iconButton}
             >
               <BellIcon />
@@ -354,11 +388,10 @@ export default function AlertsScreen() {
             </Pressable>
           </View>
 
-          <Text style={styles.category}>RECOVERY NETWORK</Text>
-          <Text style={styles.heading}>Lost, sighted, reunited.</Text>
+          <Text style={styles.heading}>Lost pet recovery</Text>
           <Text style={styles.supporting}>
-            Publish a GPS-backed lost report, see nearby cases, and receive
-            finder sightings without exposing private account data.
+            Manage your reports, follow finder sightings, and see nearby
+            recovery cases.
           </Text>
 
           <Pressable
@@ -380,7 +413,7 @@ export default function AlertsScreen() {
           ) : null}
 
           <View style={styles.segment}>
-            {(["report", "feed", "updates"] as Mode[]).map((key) => (
+            {(["report", "feed"] as Mode[]).map((key) => (
               <Pressable
                 key={key}
                 accessibilityRole="tab"
@@ -400,11 +433,7 @@ export default function AlertsScreen() {
                     mode === key && styles.segmentLabelActive,
                   ]}
                 >
-                  {key === "report"
-                    ? "Report lost"
-                    : key === "feed"
-                      ? "Nearby"
-                      : `Updates${unreadCount ? ` (${unreadCount})` : ""}`}
+                  {key === "report" ? "My reports" : "Nearby"}
                 </Text>
               </Pressable>
             ))}
@@ -419,11 +448,26 @@ export default function AlertsScreen() {
 
           {!loading && mode === "report" ? (
             <>
+              <View style={styles.sectionHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>My recovery cases</Text>
+                  <Text style={styles.helper}>
+                    Active lost reports and finder sightings.
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Report a lost pet"
+                  onPress={() => setShowReportForm(true)}
+                  style={styles.smallButton}
+                >
+                  <PinIcon size={16} />
+                  <Text style={styles.smallButtonText}>Report lost</Text>
+                </Pressable>
+              </View>
               {activeCases.length ? (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>
-                    Your active recovery cases
-                  </Text>
+                  <Text style={styles.sectionTitle}>Active cases</Text>
                   {activeCases.map((report) => (
                     <View key={report.id} style={styles.caseCard}>
                       <View style={styles.caseTop}>
@@ -454,6 +498,70 @@ export default function AlertsScreen() {
                           Latest sighting: {when(report.lastSightedAt)}
                         </Text>
                       ) : null}
+
+                      <View style={styles.caseMapBlock}>
+                        <Text style={styles.caseMapTitle}>Recovery trail</Text>
+                        <Text style={styles.helper}>
+                          Original lost location plus finder-reported sightings.
+                        </Text>
+                        <RecoveryMap
+                          pins={[
+                            {
+                              id: `${report.id}-lost`,
+                              latitude: report.lastSeenLatitude,
+                              longitude: report.lastSeenLongitude,
+                              title: `${report.petName} · last seen`,
+                              description: `Original lost report · ${report.lastSeenText}`,
+                              status: "LOST",
+                              kind: "lost",
+                            },
+                            ...orderedMapSightings(
+                              sightingsByReport[report.id] || [],
+                            ).map((sighting) => ({
+                              id: sighting.id,
+                              latitude: sighting.latitude!,
+                              longitude: sighting.longitude!,
+                              title:
+                                sighting.encounterType === "HAVE_PET"
+                                  ? "Finder reported having the pet"
+                                  : "Finder sighting",
+                              description: `${when(sighting.createdAt)}${
+                                sighting.locationText
+                                  ? ` · ${sighting.locationText}`
+                                  : ""
+                              }${
+                                sighting.riskState === "REVIEW"
+                                  ? " · Needs review"
+                                  : ""
+                              }`,
+                              status: "SIGHTED" as const,
+                              kind:
+                                sighting.encounterType === "HAVE_PET"
+                                  ? ("found" as const)
+                                  : ("sighting" as const),
+                            })),
+                          ]}
+                          trail={[
+                            {
+                              latitude: report.lastSeenLatitude,
+                              longitude: report.lastSeenLongitude,
+                            },
+                            ...orderedMapSightings(
+                              sightingsByReport[report.id] || [],
+                            ).map((sighting) => ({
+                              latitude: sighting.latitude!,
+                              longitude: sighting.longitude!,
+                            })),
+                          ]}
+                          selected={null}
+                          height={230}
+                        />
+                        <Text style={styles.caseMapLegend}>
+                          Green line: lost → first → latest · Red: last seen ·
+                          Gold: sighting · Dark gold: finder has pet
+                        </Text>
+                      </View>
+
                       <Pressable
                         accessibilityRole="button"
                         onPress={() => void reunite(report)}
@@ -465,134 +573,161 @@ export default function AlertsScreen() {
                     </View>
                   ))}
                 </View>
-              ) : null}
-
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Publish lost report</Text>
-                <Text style={styles.label}>Pet</Text>
-                <View style={styles.petChoices}>
-                  {pets.map((pet) => (
-                    <Pressable
-                      key={pet.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Select ${pet.name} for lost report`}
-                      accessibilityState={{
-                        selected: selectedPetId === pet.id,
-                      }}
-                      onPress={() => setSelectedPetId(pet.id)}
-                      style={[
-                        styles.petChoice,
-                        selectedPetId === pet.id && styles.petChoiceActive,
-                      ]}
-                    >
-                      <PawIcon size={17} color={Palette.forestDark} />
-                      <Text style={styles.petChoiceText}>{pet.name}</Text>
-                    </Pressable>
-                  ))}
+              ) : (
+                <View style={styles.emptyCard}>
+                  <CheckIcon size={22} color={Palette.forestDark} />
+                  <Text style={styles.emptyTitle}>
+                    No active recovery cases
+                  </Text>
+                  <Text style={styles.helper}>
+                    If a pet goes missing, start a report here.
+                  </Text>
                 </View>
-                {pets.length === 0 ? (
+              )}
+
+              {showReportForm ? (
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sectionTitle}>Report a lost pet</Text>
+                      <Text style={styles.helper}>
+                        Add the last known place and GPS pin.
+                      </Text>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Cancel lost pet report"
+                      onPress={() => setShowReportForm(false)}
+                      style={styles.smallButton}
+                    >
+                      <Text style={styles.smallButtonText}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.label}>Pet</Text>
+                  <View style={styles.petChoices}>
+                    {pets.map((pet) => (
+                      <Pressable
+                        key={pet.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Select ${pet.name} for lost report`}
+                        accessibilityState={{
+                          selected: selectedPetId === pet.id,
+                        }}
+                        onPress={() => setSelectedPetId(pet.id)}
+                        style={[
+                          styles.petChoice,
+                          selectedPetId === pet.id && styles.petChoiceActive,
+                        ]}
+                      >
+                        <PawIcon size={17} color={Palette.forestDark} />
+                        <Text style={styles.petChoiceText}>{pet.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {pets.length === 0 ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Add a pet"
+                      onPress={() => router.push("/add-pet")}
+                      style={styles.smallButton}
+                    >
+                      <PawIcon size={16} />
+                      <Text style={styles.smallButtonText}>Add a pet</Text>
+                    </Pressable>
+                  ) : null}
+
+                  <Text style={styles.label}>Last seen</Text>
+                  <TextInput
+                    accessibilityLabel="Last seen"
+                    value={lastSeenText}
+                    onChangeText={setLastSeenText}
+                    placeholder="e.g. Freedom Park, Tagum"
+                    placeholderTextColor={Palette.placeholder}
+                    style={styles.input}
+                  />
+
+                  <Text style={styles.label}>Details</Text>
+                  <TextInput
+                    accessibilityLabel="Lost pet details"
+                    value={details}
+                    onChangeText={setDetails}
+                    placeholder="Collar, behavior, direction of travel..."
+                    placeholderTextColor={Palette.placeholder}
+                    multiline
+                    style={[styles.input, styles.textArea]}
+                  />
+
+                  <Text style={styles.label}>Last known GPS pin</Text>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Add a pet"
-                    onPress={() => router.push("/add-pet")}
-                    style={styles.smallButton}
+                    disabled={loadingLocation}
+                    onPress={() => void useGps()}
+                    style={styles.gpsButton}
                   >
-                    <PawIcon size={16} />
-                    <Text style={styles.smallButtonText}>Add a pet</Text>
+                    {loadingLocation ? (
+                      <ActivityIndicator color={Palette.forestDark} />
+                    ) : (
+                      <>
+                        <PinIcon size={19} />
+                        <Text style={styles.gpsText}>
+                          {location ? "Refresh my GPS" : "Use my GPS"}
+                        </Text>
+                      </>
+                    )}
                   </Pressable>
-                ) : null}
 
-                <Text style={styles.label}>Last seen</Text>
-                <TextInput
-                  accessibilityLabel="Last seen"
-                  value={lastSeenText}
-                  onChangeText={setLastSeenText}
-                  placeholder="e.g. Freedom Park, Tagum"
-                  placeholderTextColor={Palette.placeholder}
-                  style={styles.input}
-                />
+                  <RecoveryMap
+                    selected={
+                      location
+                        ? {
+                            latitude: location.latitude,
+                            longitude: location.longitude,
+                          }
+                        : null
+                    }
+                    pins={[]}
+                    onSelect={(coordinate) =>
+                      setLocation((current) => ({
+                        ...coordinate,
+                        accuracyM: current?.accuracyM ?? null,
+                      }))
+                    }
+                    height={230}
+                  />
+                  {location ? (
+                    <Text style={styles.helper}>
+                      Pin: {location.latitude.toFixed(5)},{" "}
+                      {location.longitude.toFixed(5)}
+                      {location.accuracyM
+                        ? ` · ±${Math.round(location.accuracyM)} m`
+                        : ""}
+                    </Text>
+                  ) : null}
 
-                <Text style={styles.label}>Details</Text>
-                <TextInput
-                  accessibilityLabel="Lost pet details"
-                  value={details}
-                  onChangeText={setDetails}
-                  placeholder="Collar, behavior, direction of travel..."
-                  placeholderTextColor={Palette.placeholder}
-                  multiline
-                  style={[styles.input, styles.textArea]}
-                />
-
-                <Text style={styles.label}>Last known GPS pin</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={loadingLocation}
-                  onPress={() => void useGps()}
-                  style={styles.gpsButton}
-                >
-                  {loadingLocation ? (
-                    <ActivityIndicator color={Palette.forestDark} />
-                  ) : (
-                    <>
-                      <PinIcon size={19} />
-                      <Text style={styles.gpsText}>
-                        {location ? "Refresh my GPS" : "Use my GPS"}
-                      </Text>
-                    </>
-                  )}
-                </Pressable>
-
-                <RecoveryMap
-                  selected={
-                    location
-                      ? {
-                          latitude: location.latitude,
-                          longitude: location.longitude,
-                        }
-                      : null
-                  }
-                  pins={[]}
-                  onSelect={(coordinate) =>
-                    setLocation((current) => ({
-                      ...coordinate,
-                      accuracyM: current?.accuracyM ?? null,
-                    }))
-                  }
-                  height={230}
-                />
-                {location ? (
-                  <Text style={styles.helper}>
-                    Pin: {location.latitude.toFixed(5)},{" "}
-                    {location.longitude.toFixed(5)}
-                    {location.accuracyM
-                      ? ` · ±${Math.round(location.accuracyM)} m`
-                      : ""}
+                  <Text style={styles.publicWarning}>
+                    This location becomes public while the report is active so
+                    finders can search around the last known area.
                   </Text>
-                ) : null}
 
-                <Text style={styles.publicWarning}>
-                  This location becomes public while the report is active so
-                  finders can search around the last known area.
-                </Text>
-
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={publishing}
-                  onPress={() => void publish()}
-                  style={styles.publishButton}
-                >
-                  {publishing ? (
-                    <ActivityIndicator color={Palette.forestDark} />
-                  ) : (
-                    <>
-                      <SendIcon />
-                      <Text style={styles.publishText}>
-                        Publish lost report
-                      </Text>
-                    </>
-                  )}
-                </Pressable>
-              </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={publishing}
+                    onPress={() => void publish()}
+                    style={styles.publishButton}
+                  >
+                    {publishing ? (
+                      <ActivityIndicator color={Palette.forestDark} />
+                    ) : (
+                      <>
+                        <SendIcon />
+                        <Text style={styles.publishText}>
+                          Publish lost report
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              ) : null}
             </>
           ) : null}
 
@@ -726,7 +861,7 @@ export default function AlertsScreen() {
             </View>
           ) : null}
         </ScrollView>
-        <BottomNav active="alerts" />
+        <BottomNav active="recovery" />
       </SafeAreaView>
     </View>
   );
@@ -749,8 +884,15 @@ const styles = StyleSheet.create({
   },
   topBar: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
     marginTop: Spacing.two,
+  },
+  screenTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 19,
+    fontWeight: "800",
+    color: Palette.forestDark,
   },
   iconButton: {
     width: 42,
@@ -781,10 +923,10 @@ const styles = StyleSheet.create({
   },
   heading: {
     fontFamily: Fonts.sans,
-    fontSize: 28,
+    fontSize: 27,
     fontWeight: "800",
     color: Palette.forestDark,
-    marginTop: Spacing.one,
+    marginTop: Spacing.four,
   },
   supporting: {
     fontFamily: Fonts.sans,
@@ -903,6 +1045,22 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: Palette.forestDark,
     letterSpacing: 0.6,
+  },
+  caseMapBlock: {
+    marginTop: Spacing.three,
+    gap: Spacing.two,
+  },
+  caseMapTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  caseMapLegend: {
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
+    lineHeight: 15,
+    color: Palette.inkMuted,
   },
   reuniteButton: {
     marginTop: Spacing.three,
