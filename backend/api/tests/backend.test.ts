@@ -78,8 +78,15 @@ async function resetTestDb() {
 }
 
 before(async () => {
-  if (!process.env.FIREBASE_AUTH_EMULATOR_HOST) {
-    throw new Error("Tests require FIREBASE_AUTH_EMULATOR_HOST");
+  const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+  const firebaseProjectId = process.env.FIREBASE_PROJECT_ID;
+  if (
+    authEmulatorHost !== "127.0.0.1:9199" ||
+    firebaseProjectId !== "demo-petconnect-test"
+  ) {
+    throw new Error(
+      "Backend tests require the isolated Firebase Auth test emulator at 127.0.0.1:9199 with FIREBASE_PROJECT_ID=demo-petconnect-test. Run `npm run test:backend` instead of test:backend:run directly.",
+    );
   }
   const schemaSql = readFileSync(
     new URL("../../../sql/schema.sql", import.meta.url),
@@ -466,7 +473,7 @@ test("owner initialization repairs an orphaned local emulator identity", async (
   assert.equal(users[0].status, "ACTIVE");
 });
 
-test("owner initialization never replaces a local identity that owns data", async () => {
+test("owner initialization reassigns orphaned local owner data", async () => {
   const auth = client("owner-local-conflict");
   const credential = await createUserWithEmailAndPassword(
     auth,
@@ -489,12 +496,8 @@ test("owner initialization never replaces a local identity that owns data", asyn
     .set("Authorization", `Bearer ${token}`)
     .send({ displayName: "Replacement Owner" });
 
-  assert.equal(initRes.status, 409);
-  assert.equal(initRes.body.error, "account-conflict");
-  assert.equal(
-    initRes.body.message,
-    "This account is already registered. Sign in with the existing account or contact support.",
-  );
+  assert.equal(initRes.status, 200);
+  assert.equal(initRes.body.status, "ACTIVE");
 
   const [users] = await pool.query<(RowDataPacket & { id: string })[]>(
     "SELECT id FROM users WHERE email = ?",
@@ -502,13 +505,53 @@ test("owner initialization never replaces a local identity that owns data", asyn
   );
   assert.deepEqual(
     users.map((row) => row.id),
-    ["stale-owner-with-data"],
+    [credential.user.uid],
   );
-  const [pets] = await pool.query<RowDataPacket[]>(
-    "SELECT id FROM pets WHERE owner_id = ?",
-    ["stale-owner-with-data"],
-  );
+
+  const [pets] = await pool.query<
+    (RowDataPacket & { id: string; owner_id: string })[]
+  >("SELECT id, owner_id FROM pets WHERE id = ?", ["PC-STALE-OWNER-DATA"]);
   assert.equal(pets.length, 1);
+  assert.equal(pets[0].owner_id, credential.user.uid);
+});
+
+test("owner initialization never reassigns a live local emulator identity", async () => {
+  const auth = client("owner-local-live-conflict");
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    "owner-local-live-conflict@example.test",
+    "Example-pass-123!",
+  );
+  const token = await credential.user.getIdToken();
+
+  const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
+  await getAdminAuth().createUser({
+    uid: "stale-owner-live-auth",
+    email: "stale-owner-live-auth@example.test",
+  });
+
+  await pool.query(
+    "INSERT INTO users (id, email, role, display_name, status) VALUES (?, ?, 'OWNER', 'Existing Owner', 'ACTIVE')",
+    ["stale-owner-live-auth", "owner-local-live-conflict@example.test"],
+  );
+  await pool.query(
+    "INSERT INTO pets (id, owner_id, name, species) VALUES (?, ?, ?, ?)",
+    ["PC-LIVE-OWNER-DATA", "stale-owner-live-auth", "Bantay", "Dog"],
+  );
+
+  const initRes = await request(app)
+    .post("/v1/account/initialize")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ displayName: "Replacement Owner" });
+
+  assert.equal(initRes.status, 409);
+  assert.equal(initRes.body.error, "account-conflict");
+
+  const [pets] = await pool.query<(RowDataPacket & { owner_id: string })[]>(
+    "SELECT owner_id FROM pets WHERE id = ?",
+    ["PC-LIVE-OWNER-DATA"],
+  );
+  assert.equal(pets[0].owner_id, "stale-owner-live-auth");
 });
 
 test("production mode never auto-reconciles a conflicting owner identity", async () => {

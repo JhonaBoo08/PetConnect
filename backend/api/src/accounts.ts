@@ -61,28 +61,42 @@ export class Accounts {
         throw new Error("Account disabled");
       }
       if (existing.status === "ACTIVE") {
-        return { status: "ACTIVE", refreshToken: false };
+        const refreshToken = authUser.customClaims?.role !== "OWNER";
+        if (refreshToken) {
+          await this.auth.setCustomUserClaims(uid, {
+            ...(authUser.customClaims || {}),
+            role: "OWNER",
+          });
+        }
+        return { status: "ACTIVE", refreshToken };
       }
     } else {
       const [emailUsers] = await this.pool.query<RowDataPacket[]>(
         "SELECT id, role, status FROM users WHERE email = ? AND id <> ? LIMIT 1",
         [email, uid],
       );
+      let reconciled = false;
       if (emailUsers.length > 0) {
-        const reconciled = await this.reconcileLocalEmulatorIdentity(
+        reconciled = await this.reconcileLocalEmulatorIdentity(
           emailUsers[0],
           email,
+          uid,
         );
         if (!reconciled) throw new AccountIdentityConflictError();
       }
 
-      await this.pool.query(
-        "INSERT INTO users (id, email, role, display_name, phone, status) VALUES (?, ?, 'OWNER', ?, ?, 'PENDING')",
-        [uid, email, displayName, phone],
-      );
+      if (!reconciled) {
+        await this.pool.query(
+          "INSERT INTO users (id, email, role, display_name, phone, status) VALUES (?, ?, 'OWNER', ?, ?, 'PENDING')",
+          [uid, email, displayName, phone],
+        );
+      }
     }
 
-    await this.auth.setCustomUserClaims(uid, { role: "OWNER" });
+    await this.auth.setCustomUserClaims(uid, {
+      ...(authUser.customClaims || {}),
+      role: "OWNER",
+    });
 
     await this.pool.query(
       "UPDATE users SET status = 'ACTIVE', display_name = ?, phone = ? WHERE id = ?",
@@ -100,6 +114,7 @@ export class Accounts {
   private async reconcileLocalEmulatorIdentity(
     staleUser: RowDataPacket,
     email: string,
+    uid: string,
   ): Promise<boolean> {
     if (
       process.env.NODE_ENV === "production" ||
@@ -111,12 +126,30 @@ export class Accounts {
     }
 
     const staleUid = String(staleUser.id);
+
+    // Development-only recovery is allowed only when the old database UID no
+    // longer exists in the Auth emulator. If it is still a live Auth identity,
+    // never move its data to a different account.
+    try {
+      await this.auth.getUser(staleUid);
+      return false;
+    } catch (error) {
+      if ((error as { code?: string } | null)?.code !== "auth/user-not-found") {
+        return false;
+      }
+    }
+
     const connection = await this.pool.getConnection();
     try {
       await connection.beginTransaction();
 
       const [locked] = await connection.query<RowDataPacket[]>(
-        "SELECT id, role, status FROM users WHERE id = ? AND email = ? FOR UPDATE",
+        `SELECT id, email, role, status, display_name, phone,
+                share_recovery_phone, share_precise_recovery_location,
+                share_phone_with_clinics, created_at, updated_at
+           FROM users
+          WHERE id = ? AND email = ?
+          FOR UPDATE`,
         [staleUid, email],
       );
       if (
@@ -128,33 +161,59 @@ export class Accounts {
         return false;
       }
 
-      const [references] = await connection.query<RowDataPacket[]>(
-        `SELECT (
-          EXISTS(SELECT 1 FROM pets WHERE owner_id = ?) OR
-          EXISTS(SELECT 1 FROM lost_reports WHERE owner_id = ?) OR
-          EXISTS(SELECT 1 FROM appointments WHERE owner_id = ?) OR
-          EXISTS(SELECT 1 FROM appointments WHERE vet_id = ?) OR
-          EXISTS(SELECT 1 FROM health_reminders WHERE owner_id = ?) OR
-          EXISTS(SELECT 1 FROM health_records WHERE vet_id = ?) OR
-          EXISTS(SELECT 1 FROM notifications WHERE user_id = ?) OR
-          EXISTS(SELECT 1 FROM push_devices WHERE user_id = ?) OR
-          EXISTS(SELECT 1 FROM recovery_contact_events WHERE owner_id = ?) OR
-          EXISTS(SELECT 1 FROM scheduled_notifications WHERE user_id = ?) OR
-          EXISTS(SELECT 1 FROM sightings WHERE finder_user_id = ?) OR
-          EXISTS(SELECT 1 FROM clinic_members WHERE user_id = ?)
-        ) AS has_references`,
-        Array(12).fill(staleUid),
+      const [current] = await connection.query<RowDataPacket[]>(
+        "SELECT id FROM users WHERE id = ? FOR UPDATE",
+        [uid],
       );
-
-      if (references[0]?.has_references) {
+      if (current.length > 0) {
         await connection.rollback();
         return false;
       }
 
-      await connection.query("DELETE FROM users WHERE id = ? AND email = ?", [
-        staleUid,
-        email,
-      ]);
+      const temporaryEmail = `__petconnect_stale__${staleUid}`;
+      await connection.query(
+        "UPDATE users SET email = ? WHERE id = ? AND email = ?",
+        [temporaryEmail, staleUid, email],
+      );
+      await connection.query(
+        `INSERT INTO users (
+           id, email, role, display_name, phone,
+           share_recovery_phone, share_precise_recovery_location,
+           share_phone_with_clinics, status, created_at, updated_at
+         )
+         SELECT ?, ?, role, display_name, phone,
+                share_recovery_phone, share_precise_recovery_location,
+                share_phone_with_clinics, status, created_at, updated_at
+           FROM users
+          WHERE id = ?`,
+        [uid, email, staleUid],
+      );
+
+      const [references] = await connection.query<RowDataPacket[]>(
+        `SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name
+           FROM information_schema.KEY_COLUMN_USAGE
+          WHERE REFERENCED_TABLE_SCHEMA = DATABASE()
+            AND REFERENCED_TABLE_NAME = 'users'
+            AND REFERENCED_COLUMN_NAME = 'id'`,
+      );
+
+      const quoteIdentifier = (value: unknown) => {
+        const identifier = String(value);
+        if (!/^[A-Za-z0-9_]+$/.test(identifier)) {
+          throw new Error("Unsafe database identifier");
+        }
+        return "`" + identifier + "`";
+      };
+      for (const reference of references) {
+        const table = quoteIdentifier(reference.table_name);
+        const column = quoteIdentifier(reference.column_name);
+        await connection.query(
+          `UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`,
+          [uid, staleUid],
+        );
+      }
+
+      await connection.query("DELETE FROM users WHERE id = ?", [staleUid]);
       await connection.commit();
       return true;
     } catch (error) {
