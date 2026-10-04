@@ -42,15 +42,18 @@ function createDevProxy({
     upstream.setTimeout(timeoutMs, () =>
       upstream.destroy(new Error("timeout")),
     );
-    upstream.on("error", () => {
+    upstream.on("error", (error) => {
+      const target = api ? "PetConnect API" : "Firebase Auth emulator";
+      console.error(
+        `[dev-proxy] ${target} is unavailable on 127.0.0.1:${port}: ${error.message}`,
+      );
       if (res.headersSent) return res.destroy();
       res.writeHead(502, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
           error: "development-service-unavailable",
-          message: api
-            ? "Start the PetConnect API with npm --prefix backend/api run dev."
-            : "Start the Firebase Auth emulator with npm run emulators.",
+          message:
+            "PetConnect is temporarily unavailable. Please try again in a moment.",
         }),
       );
     });

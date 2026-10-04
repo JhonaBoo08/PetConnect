@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it, jest } from "@jest/globals";
 
 jest.mock("firebase/auth", () => ({
   onIdTokenChanged: jest.fn(() => jest.fn()),
@@ -9,7 +9,16 @@ jest.mock("../firebase/client", () => ({
 }));
 
 jest.mock("../auth", () => ({
-  ApiError: class ApiError extends Error {},
+  ApiError: class ApiError extends Error {
+    status: number;
+    code?: string;
+
+    constructor(message: string, status: number, code?: string) {
+      super(message);
+      this.status = status;
+      this.code = code;
+    }
+  },
   authenticatedFetch: jest.fn(),
   getApiBaseUrl: () => "http://127.0.0.1:3000",
   currentSession: jest.fn(),
@@ -19,6 +28,7 @@ jest.mock("../auth", () => ({
   registerOwner: jest.fn(),
 }));
 
+import { ApiError } from "../auth";
 import { authErrorMessage } from "../auth-context";
 
 function firebaseError(code: string) {
@@ -26,12 +36,19 @@ function firebaseError(code: string) {
 }
 
 describe("authErrorMessage", () => {
-  const previousEnv = process.env.EXPO_PUBLIC_FIREBASE_ENV;
-  const previousHost = process.env.EXPO_PUBLIC_EMULATOR_HOST;
+  it("keeps local service details out of user-facing errors", () => {
+    const message = authErrorMessage(
+      new ApiError(
+        "Start the PetConnect API with npm --prefix backend/api run dev.",
+        502,
+        "development-service-unavailable",
+      ),
+    );
 
-  afterEach(() => {
-    process.env.EXPO_PUBLIC_FIREBASE_ENV = previousEnv;
-    process.env.EXPO_PUBLIC_EMULATOR_HOST = previousHost;
+    expect(message).toBe(
+      "PetConnect is temporarily unavailable. Please try again in a moment.",
+    );
+    expect(message).not.toMatch(/npm|127\.0\.0\.1|port|firebase|api/i);
   });
 
   it("keeps credential failures indistinguishable from one another", () => {
@@ -47,51 +64,52 @@ describe("authErrorMessage", () => {
     }
   });
 
-  it("separates configuration errors from connectivity errors", () => {
-    const invalidApiKey = authErrorMessage(
-      firebaseError("auth/invalid-api-key"),
-    );
-    const notAllowed = authErrorMessage(
-      firebaseError("auth/operation-not-allowed"),
-    );
-    const notConfigured = authErrorMessage(
-      firebaseError("auth/configuration-not-found"),
-    );
-    const timeout = authErrorMessage(firebaseError("auth/timeout"));
-
-    expect(invalidApiKey).not.toBe(notAllowed);
-    expect(notAllowed).not.toBe(notConfigured);
-    expect(timeout).not.toBe(invalidApiKey);
-    expect(invalidApiKey).toMatch(/API key/i);
-    expect(notAllowed).toMatch(/Email\/Password/i);
-    expect(timeout).toMatch(/time/i);
+  it("does not expose Firebase configuration details to users", () => {
+    for (const code of [
+      "auth/invalid-api-key",
+      "auth/api-key-not-supported",
+      "auth/app-not-found",
+      "auth/configuration-not-found",
+      "auth/operation-not-allowed",
+      "auth/unauthorized-domain",
+      "auth/project-not-found",
+      "auth/emulator-config-failed",
+    ]) {
+      const message = authErrorMessage(firebaseError(code));
+      expect(message).toBe(
+        "PetConnect sign-in is temporarily unavailable. Please try again later.",
+      );
+      expect(message).not.toMatch(/firebase|api key|emulator|project|domain/i);
+    }
   });
 
-  it("names the exact emulator address that failed to respond", () => {
-    process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
-    process.env.EXPO_PUBLIC_EMULATOR_HOST = "192.168.0.26";
+  it("keeps transport failures generic and user-safe", () => {
+    for (const code of ["auth/timeout", "auth/network-request-failed"]) {
+      const message = authErrorMessage(firebaseError(code));
+      expect(message).toBe(
+        "PetConnect is temporarily unavailable. Please try again in a moment.",
+      );
+      expect(message).not.toMatch(/localhost|127\.0\.0\.1|9099|npm|emulator/i);
+    }
+  });
+
+  it("does not surface unknown Firebase error codes", () => {
+    const message = authErrorMessage(firebaseError("auth/some-future-error"));
+    expect(message).toBe(
+      "We could not complete that request. Please try again.",
+    );
+    expect(message).not.toContain("auth/some-future-error");
+  });
+
+  it("sanitizes internal configuration details from generic errors", () => {
     const message = authErrorMessage(
-      firebaseError("auth/network-request-failed"),
+      new Error(
+        "Firebase configuration is incomplete. Check frontend/.env.local and EXPO_PUBLIC_FIREBASE_API_KEY.",
+      ),
     );
-
-    expect(message).toContain("http://192.168.0.26:9099");
-    expect(message).toContain("npm run emulators");
-    expect(message).not.toBe(
-      "Cannot reach Firebase Auth. Check your connection or local emulator.",
+    expect(message).toBe(
+      "PetConnect is temporarily unavailable. Please try again in a moment.",
     );
-  });
-
-  it("mentions 10.0.2.2 guidance for Android emulator hosts", () => {
-    process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
-    process.env.EXPO_PUBLIC_EMULATOR_HOST = "10.0.2.2";
-    expect(
-      authErrorMessage(firebaseError("auth/network-request-failed")),
-    ).toContain("10.0.2.2");
-  });
-
-  it("surfaces unrecognised auth codes instead of a generic message", () => {
-    expect(authErrorMessage(firebaseError("auth/some-future-error"))).toBe(
-      "Firebase Auth error: auth/some-future-error",
-    );
+    expect(message).not.toMatch(/firebase|env|api key|expo_public/i);
   });
 });

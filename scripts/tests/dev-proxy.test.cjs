@@ -128,5 +128,10 @@ test("reports an unavailable service with a bounded gateway error", async (t) =>
   const dev = await proxy(t, { apiPort: port });
   const response = await fetch(dev.url + "/petconnect-api/v1/health");
   assert.equal(response.status, 502);
-  assert.match((await response.json()).message, /start/i);
+  const body = await response.json();
+  assert.equal(
+    body.message,
+    "PetConnect is temporarily unavailable. Please try again in a moment.",
+  );
+  assert.doesNotMatch(body.message, /npm|127\.0\.0\.1|port|firebase|api/i);
 });

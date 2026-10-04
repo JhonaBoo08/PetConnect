@@ -24,7 +24,6 @@ import {
   registerOwner,
 } from "@/services/auth";
 import { firebaseClient } from "@/services/firebase/client";
-import { authEmulatorUrl } from "./development-endpoints";
 
 export type AuthState =
   | { status: "loading" }
@@ -55,19 +54,8 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/**
- * Builds the auth/network-request-failed message. The Firebase SDK only tells
- * us the request failed, not which endpoint, so we read back the address this
- * app is actually configured to reach. In emulator mode that address is the
- * one the developer must be able to open, which turns a vague connectivity
- * warning into an actionable one.
- */
 function firebaseNetworkMessage(): string {
-  const environment = process.env.EXPO_PUBLIC_FIREBASE_ENV ?? "emulator";
-  if (environment === "emulator") {
-    return `Cannot reach the Firebase Auth emulator at ${authEmulatorUrl()}. Start it with "npm run emulators", then reload the app.`;
-  }
-  return `Cannot reach Firebase Auth for the "${environment}" environment. Check your connection and that the Firebase project is reachable.`;
+  return "PetConnect is temporarily unavailable. Please try again in a moment.";
 }
 
 export function authErrorMessage(error: unknown): string {
@@ -75,11 +63,14 @@ export function authErrorMessage(error: unknown): string {
     if (error.code === "account-not-found") {
       return "Your account setup is unfinished. Complete your profile to continue.";
     }
+    if (error.code === "development-service-unavailable") {
+      return "PetConnect is temporarily unavailable. Please try again in a moment.";
+    }
     if (error.status === 401 || error.status === 403) {
       return "This account cannot access Pet-Connect. Contact support if you think this is a mistake.";
     }
     return error.status >= 500
-      ? "The account service is unavailable. Please try again."
+      ? "PetConnect is temporarily unavailable. Please try again in a moment."
       : error.message;
   }
   const code = (error as { code?: string } | null)?.code;
@@ -109,49 +100,37 @@ export function authErrorMessage(error: unknown): string {
     case "auth/unverified-email":
       return "Verify your email address before signing in.";
 
-    // Firebase project / console configuration. These mean the app is pointed
-    // at the wrong project or a provider was never switched on, which is very
-    // different from a connectivity problem and needs a different fix.
     case "auth/invalid-api-key":
-      return "The Firebase API key is not valid. Check the EXPO_PUBLIC_FIREBASE_* values in frontend/.env.local.";
     case "auth/api-key-not-supported":
-      return "The Firebase API key is not a Web API key. Copy it from the Firebase console Web app settings.";
     case "auth/app-not-found":
-      return "No Firebase app matches the configured appId. Check EXPO_PUBLIC_FIREBASE_APP_ID.";
     case "auth/configuration-not-found":
-      return "This Firebase project has no Auth configuration. Open the Firebase console and enable Authentication.";
     case "auth/operation-not-allowed":
-      return "Email/Password sign-in is disabled for this Firebase project. Enable it under Authentication > Sign-in method.";
     case "auth/unauthorized-domain":
-      return "This domain is not authorized by the Firebase project. Add it under Authentication > Settings > Authorized domains.";
     case "auth/project-not-found":
-      return "The Firebase project in frontend/.env.local does not exist.";
     case "auth/unsupported-first-argument":
-      return "This sign-in method is not available in the current build.";
-
-    // Emulator wiring. connectAuthEmulator was called twice or the emulator
-    // was already configured on this Auth instance.
     case "auth/emulator-config-failed":
-      return "The Firebase Auth emulator is already connected to this app. Restart the app if the address is wrong.";
-
-    // Transport. Distinguish "emulator/host unreachable" from a general
-    // timeout so the user knows whether to start the emulator or check Wi-Fi.
+      return "PetConnect sign-in is temporarily unavailable. Please try again later.";
     case "auth/timeout":
-      return "Firebase Auth did not respond in time. Check your connection and try again.";
     case "auth/network-request-failed":
       return firebaseNetworkMessage();
   }
   if (error instanceof TypeError && error.message.includes("fetch")) {
-    return "Cannot reach the Pet-Connect API. Check the API address and try again.";
+    return "PetConnect is temporarily unavailable. Please try again in a moment.";
   }
   if (code && code.startsWith("auth/")) {
-    // Never swallow an unrecognised Firebase code: surface it verbatim so a
-    // new SDK error is diagnosable instead of degrading to a generic string.
-    return `Firebase Auth error: ${code}`;
+    return "We could not complete that request. Please try again.";
   }
-  return error instanceof Error
-    ? error.message
-    : "Something went wrong. Please try again.";
+  if (error instanceof Error) {
+    if (
+      /firebase|expo_public|localhost|127\.0\.0\.1|backend\/api|npm run|https?:\/\//i.test(
+        error.message,
+      )
+    ) {
+      return "PetConnect is temporarily unavailable. Please try again in a moment.";
+    }
+    return error.message;
+  }
+  return "Something went wrong. Please try again.";
 }
 
 function failedSession(error: unknown, user: User): AuthState {
