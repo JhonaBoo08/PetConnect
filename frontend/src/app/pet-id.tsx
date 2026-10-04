@@ -206,10 +206,7 @@ export default function PetIdScreen() {
               accessibilityRole="button"
               accessibilityLabel="Notifications"
               onPress={() =>
-                router.push({
-                  pathname: "/alerts",
-                  params: { mode: "updates" },
-                })
+                router.push("/notifications")
               }
               style={styles.iconButton}
             >

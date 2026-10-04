@@ -187,7 +187,7 @@ export default function RecoveryReportScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => goBack("/alerts")}
+              onPress={() => goBack({ pathname: "/alerts", params: { mode: "reports" } })}
               style={styles.iconButton}
             >
               <BackArrow />
@@ -216,7 +216,7 @@ export default function RecoveryReportScreen() {
               </Text>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.replace("/alerts")}
+                onPress={() => router.replace({ pathname: "/alerts", params: { mode: "reports" } })}
                 style={styles.secondaryButton}
               >
                 <Text style={styles.secondaryButtonText}>Back to recovery</Text>

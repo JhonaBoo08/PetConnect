@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -45,7 +46,7 @@ export default function ScanScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {!owner ? (
             <Pressable
               accessibilityRole="button"
@@ -58,7 +59,7 @@ export default function ScanScreen() {
           ) : null}
 
           <Text style={[styles.heading, owner && styles.ownerHeading]}>
-            Scan Pet QR
+            Scan
           </Text>
           <Text style={styles.instruction}>
             Point your camera at a PetConnect tag or digital Pet ID.
@@ -125,7 +126,7 @@ export default function ScanScreen() {
               successful scan.
             </Text>
           )}
-        </View>
+        </ScrollView>
 
         {owner ? <BottomNav active="scan" /> : null}
       </SafeAreaView>
@@ -145,7 +146,7 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.four,
   },
@@ -162,15 +163,15 @@ const styles = StyleSheet.create({
   },
   heading: {
     fontFamily: Fonts.sans,
-    fontSize: 29,
-    lineHeight: 35,
+    fontSize: 19,
+    lineHeight: 26,
     fontWeight: "800",
     letterSpacing: -0.5,
     color: Palette.forestDark,
     marginTop: Spacing.four,
   },
   ownerHeading: {
-    marginTop: Spacing.five,
+    marginTop: Spacing.two,
   },
   instruction: {
     fontFamily: Fonts.sans,
