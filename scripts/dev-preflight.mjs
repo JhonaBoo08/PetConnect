@@ -1,14 +1,5 @@
 import net from "node:net";
 
-const requiredPorts = [
-  [3000, "PetConnect API"],
-  [8081, "Expo frontend"],
-  [9099, "Firebase Auth emulator"],
-  [4000, "Firebase Emulator UI"],
-  [4400, "Firebase Emulator Hub"],
-  [4500, "Firebase reserved port"],
-];
-
 function isListening(port) {
   return new Promise((resolve) => {
     const socket = net.createConnection({ host: "127.0.0.1", port });
@@ -28,24 +19,18 @@ function isListening(port) {
   });
 }
 
-const busy = [];
-for (const [port, label] of requiredPorts) {
-  if (await isListening(port)) busy.push({ port, label });
-}
-
-if (busy.length) {
+// Only Expo must be exclusively owned by this invocation. The dev launcher can
+// safely reuse a healthy PetConnect API/Auth pair left behind by an interrupted
+// terminal session, and it can start whichever backend service is missing.
+if (await isListening(8081)) {
   console.error("");
   console.error(
-    "PetConnect development cannot start because required local ports are already in use:",
+    "PetConnect development cannot start because the Expo frontend is already running on port 8081.",
   );
-  for (const { port, label } of busy) {
-    console.error(`  - ${port}: ${label}`);
-  }
-  console.error("");
   console.error(
-    "A previous PetConnect development session may still be running. Stop it with Ctrl+C in its terminal, then run npm run dev again.",
+    "Use the existing Expo session, or stop it with Ctrl+C before running npm run dev again.",
   );
   process.exit(1);
 }
 
-console.log("PetConnect development ports are available.");
+console.log("PetConnect frontend port is available.");

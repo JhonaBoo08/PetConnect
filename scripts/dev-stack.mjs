@@ -160,18 +160,12 @@ function handleServicesExit(code) {
   maybeExit();
 }
 
-function startLocalServices() {
-  const running = concurrently(
-    [
-      { command: "npm run emulators", name: "auth" },
-      { command: "npm --prefix backend/api run dev", name: "api" },
-    ],
-    {
-      cwd: process.cwd(),
-      killOthersOn: ["failure"],
-      prefix: "name",
-    },
-  );
+function startLocalServices(commands) {
+  const running = concurrently(commands, {
+    cwd: process.cwd(),
+    killOthersOn: ["failure"],
+    prefix: "name",
+  });
 
   running.result.then(
     (events) => handleServicesExit(serviceExitCode(events, 0)),
@@ -181,13 +175,46 @@ function startLocalServices() {
   return running;
 }
 
+async function prepareLocalServices() {
+  const apiIsReady = await apiReady();
+  const authIsReady = await isListening(9099);
+  const commands = [];
+
+  if (!authIsReady) {
+    for (const port of [9099, 4000, 4400, 4500]) {
+      if (await isListening(port)) {
+        throw new Error(
+          `Port ${port} is already in use, but the PetConnect Auth emulator is not ready. Stop the conflicting process and run npm run dev again.`,
+        );
+      }
+    }
+    commands.push({ command: "npm run emulators", name: "auth" });
+  }
+
+  if (!apiIsReady) {
+    if (await isListening(3000)) {
+      throw new Error(
+        "Port 3000 is already in use, but the PetConnect API is not ready. Stop the conflicting process and run npm run dev again.",
+      );
+    }
+    commands.push({ command: "npm --prefix backend/api run dev", name: "api" });
+  }
+
+  if (commands.length) {
+    services = startLocalServices(commands);
+  } else {
+    console.log("Reusing the healthy PetConnect API and Auth emulator.");
+  }
+
+  await waitForLocalServices();
+}
+
 process.once("SIGINT", () => shutdown(0));
 process.once("SIGTERM", () => shutdown(0));
 
 try {
   console.log("Starting PetConnect API and authentication...");
-  services = startLocalServices();
-  await waitForLocalServices();
+  await prepareLocalServices();
   console.log("");
   console.log("API and authentication are ready.");
   console.log(
