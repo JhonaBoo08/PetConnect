@@ -1,9 +1,8 @@
 import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,43 +14,33 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   BellIcon,
   CalendarIcon,
-  HealthIcon,
-  PlusIcon,
+  ChevronRightIcon,
+  PawIcon,
   PinIcon,
-  QrIcon,
+  PlusIcon,
 } from "@/components/app-icons";
 import { BottomNav } from "@/components/bottom-nav";
-import {
-  OwnerCareCalendar,
-  type CareCalendarHandle,
-} from "@/components/owner-care-calendar";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { authErrorMessage, useAuth } from "@/services/auth-context";
-import { listPets } from "@/services/pets";
-import type { Pet } from "../../../shared/contracts";
+import {
+  listAppointments,
+  listHealthReminders,
+} from "@/services/health-clinic";
+import { listPets, petPhotoUri } from "@/services/pets";
+import type {
+  Appointment,
+  HealthReminder,
+  Pet,
+} from "../../../shared/contracts";
 
-function QuickCareCard({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: ReactNode;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}
-    >
-      {icon}
-      <Text style={styles.quickLabel}>{label}</Text>
-    </Pressable>
-  );
-}
+type CarePreviewItem = {
+  id: string;
+  petName: string;
+  title: string;
+  at: string;
+  kind: "reminder" | "appointment";
+};
 
 const weekdays = [
   "Sunday",
@@ -86,50 +75,126 @@ function useNow() {
   return { dateLabel, greeting };
 }
 
+function toCarePreview(
+  reminders: HealthReminder[],
+  appointments: Appointment[],
+): CarePreviewItem[] {
+  const now = Date.now();
+  return [
+    ...reminders
+      .filter(
+        (item) =>
+          item.status === "PENDING" && new Date(item.dueAt).getTime() >= now,
+      )
+      .map((item) => ({
+        id: item.id,
+        petName: item.petName,
+        title: item.title,
+        at: item.dueAt,
+        kind: "reminder" as const,
+      })),
+    ...appointments
+      .filter(
+        (item) =>
+          (item.status === "REQUESTED" || item.status === "SCHEDULED") &&
+          new Date(item.appointmentDate).getTime() >= now,
+      )
+      .map((item) => ({
+        id: item.id,
+        petName: item.petName,
+        title: item.reason || `Appointment at ${item.clinic.name}`,
+        at: item.appointmentDate,
+        kind: "appointment" as const,
+      })),
+  ]
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+    .slice(0, 3);
+}
+
+function formatCareDate(value: string) {
+  const date = new Date(value);
+  return {
+    date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    time: date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    }),
+  };
+}
+
 export default function DashboardScreen() {
   const { dateLabel, greeting } = useNow();
   const { state } = useAuth();
+  const router = useRouter();
   const firstName =
     state.status === "ready"
       ? state.session.displayName.split(" ")[0]
       : "there";
-  const router = useRouter();
-  const calendarRef = useRef<CareCalendarHandle>(null);
-  const addGlow = useState(() => new Animated.Value(0))[0];
+
   const [pets, setPets] = useState<Pet[]>([]);
-  const [loadingPets, setLoadingPets] = useState(true);
+  const [care, setCare] = useState<CarePreviewItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [petsError, setPetsError] = useState("");
+  const [careError, setCareError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoadingPets(true);
-      listPets()
-        .then((items) => {
-          if (active) {
-            setPets(items);
-            setPetsError("");
-          }
-        })
-        .catch((error) => {
-          if (active) setPetsError(authErrorMessage(error));
-        })
-        .finally(() => {
-          if (active) setLoadingPets(false);
-        });
+      setLoading(true);
+
+      const now = new Date();
+      const end = new Date(now);
+      end.setDate(end.getDate() + 90);
+      const range = { from: now.toISOString(), to: end.toISOString() };
+
+      Promise.allSettled([
+        listPets(),
+        Promise.all([
+          listHealthReminders(undefined, range),
+          listAppointments(range),
+        ]),
+      ]).then((results) => {
+        if (!active) return;
+
+        const [petsResult, careResult] = results;
+        if (petsResult.status === "fulfilled") {
+          setPets(petsResult.value);
+          setPetsError("");
+        } else {
+          setPetsError(authErrorMessage(petsResult.reason));
+        }
+
+        if (careResult.status === "fulfilled") {
+          setCare(toCarePreview(careResult.value[0], careResult.value[1]));
+          setCareError("");
+        } else {
+          setCareError(authErrorMessage(careResult.reason));
+        }
+
+        setLoading(false);
+      });
+
       return () => {
         active = false;
       };
     }, [retryKey]),
   );
 
-  const fadeAddPet = (toValue: number) =>
-    Animated.timing(addGlow, {
-      toValue,
-      duration: 180,
-      useNativeDriver: false,
-    }).start();
+  function reportLost() {
+    if (pets.length === 0) {
+      router.push("/add-pet");
+      return;
+    }
+    if (pets.length === 1) {
+      router.push({
+        pathname: "/alerts",
+        params: { mode: "report", petId: pets[0].id },
+      });
+      return;
+    }
+    router.push({ pathname: "/my-pets", params: { action: "lost" } });
+  }
 
   return (
     <View style={styles.container}>
@@ -137,7 +202,6 @@ export default function DashboardScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
             <View style={styles.brandRow}>
@@ -148,27 +212,15 @@ export default function DashboardScreen() {
                   contentFit="contain"
                 />
               </View>
-              <View>
-                <Text style={styles.brandName}>Pet-Connect</Text>
-                <Text style={styles.brandTagline}>
-                  SCAN · PROTECT · RECONNECT
-                </Text>
-              </View>
+              <Text style={styles.brandName}>PetConnect</Text>
             </View>
-
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Notifications"
-              onPress={() =>
-                router.push({
-                  pathname: "/alerts",
-                  params: { mode: "updates" },
-                })
-              }
-              style={styles.bellButton}
+              onPress={() => router.push("/notifications")}
+              style={styles.iconButton}
             >
               <BellIcon />
-              <View style={styles.bellDot} />
             </Pressable>
           </View>
 
@@ -177,96 +229,176 @@ export default function DashboardScreen() {
             {greeting}, {firstName}!
           </Text>
 
-          {petsError ? (
-            <Text accessibilityRole="alert" style={styles.petDetails}>
-              {petsError}
-            </Text>
+          {loading ? (
+            <ActivityIndicator color={Palette.forestDark} style={styles.loader} />
           ) : null}
+
           {petsError ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setRetryKey((key) => key + 1)}
-            >
-              <Text style={styles.addPetLabel}>Retry loading pets</Text>
-            </Pressable>
+            <View style={styles.errorCard}>
+              <Text accessibilityRole="alert" style={styles.errorText}>
+                {petsError}
+              </Text>
+              <Pressable onPress={() => setRetryKey((value) => value + 1)}>
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
           ) : null}
-          <OwnerCareCalendar
-            ref={calendarRef}
-            pets={pets}
-            loadingPets={loadingPets}
-          />
 
-          <View style={styles.sectionRow}>
-            <Text style={styles.sectionTitle}>Quick care</Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push("/add-pet")}
-              onPressIn={() => fadeAddPet(1)}
-              onPressOut={() => fadeAddPet(0)}
-              style={styles.addPet}
-            >
-              <Animated.View
-                pointerEvents="none"
-                style={[styles.addPetGlow, { opacity: addGlow }]}
-              />
-              <PlusIcon size={14} />
-              <Text style={styles.addPetLabel}>Add pet</Text>
-            </Pressable>
-          </View>
-          <View style={styles.quickRow}>
-            <QuickCareCard
-              icon={<QrIcon />}
-              label="View ID"
-              onPress={() => {
-                if (pets.length === 0) router.push("/add-pet");
-                else if (pets.length === 1)
-                  router.push({
-                    pathname: "/pet-id",
-                    params: { id: pets[0].id },
-                  });
-                else
-                  router.push({
-                    pathname: "/my-pets",
-                    params: { action: "id" },
-                  });
-              }}
-            />
-            <QuickCareCard
-              icon={<HealthIcon />}
-              label="Health"
-              onPress={() => router.push("/health-reminders")}
-            />
-            <QuickCareCard
-              icon={<CalendarIcon />}
-              label="Reminders"
-              onPress={() => calendarRef.current?.addReminder()}
-            />
-          </View>
+          {!loading && !petsError && pets.length === 0 ? (
+            <View style={styles.welcomeCard}>
+              <View style={styles.welcomeIcon}>
+                <PawIcon size={28} />
+              </View>
+              <Text style={styles.welcomeTitle}>Add your first pet</Text>
+              <Text style={styles.welcomeText}>
+                Create a Pet ID, keep health records together, and enable
+                recovery if your pet ever goes missing.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Add your first pet"
+                onPress={() => router.push("/add-pet")}
+                style={styles.primaryButton}
+              >
+                <PlusIcon size={18} color={Palette.white} />
+                <Text style={styles.primaryButtonText}>Add your first pet</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Report a lost pet"
-            onPress={() => {
-              if (pets.length === 0) router.push("/add-pet");
-              else if (pets.length === 1)
-                router.push({
-                  pathname: "/alerts",
-                  params: { mode: "report", petId: pets[0].id },
-                });
-              else
-                router.push({
-                  pathname: "/my-pets",
-                  params: { action: "lost" },
-                });
-            }}
-            style={({ pressed }) => [
-              styles.lostButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <PinIcon />
-            <Text style={styles.lostLabel}>Report Lost Pet</Text>
-          </Pressable>
+          {pets.length > 0 ? (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Your pets</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push("/my-pets")}
+                  style={styles.textAction}
+                >
+                  <Text style={styles.textActionLabel}>See all</Text>
+                  <ChevronRightIcon size={16} />
+                </Pressable>
+              </View>
+
+              <View style={styles.petList}>
+                {pets.slice(0, 2).map((pet) => (
+                  <Pressable
+                    key={pet.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${pet.name}`}
+                    onPress={() =>
+                      router.push({ pathname: "/pet-id", params: { id: pet.id } })
+                    }
+                    style={({ pressed }) => [
+                      styles.petCard,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View style={styles.petPhoto}>
+                      {pet.photoUrl ? (
+                        <Image
+                          source={{ uri: petPhotoUri(pet.photoUrl)! }}
+                          style={styles.petPhotoImage}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <PawIcon size={24} />
+                      )}
+                    </View>
+                    <View style={styles.petBody}>
+                      <Text style={styles.petName}>{pet.name}</Text>
+                      <Text style={styles.petMeta}>
+                        {[pet.breed || pet.species, pet.sex, pet.ageLabel]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Text>
+                    </View>
+                    <ChevronRightIcon />
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Up next</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push("/care-calendar")}
+                  style={styles.textAction}
+                >
+                  <Text style={styles.textActionLabel}>Care</Text>
+                  <ChevronRightIcon size={16} />
+                </Pressable>
+              </View>
+
+              <View style={styles.careCard}>
+                {careError ? (
+                  <Text accessibilityRole="alert" style={styles.subtleError}>
+                    Care schedule is temporarily unavailable.
+                  </Text>
+                ) : care.length ? (
+                  care.map((item, index) => {
+                    const formatted = formatCareDate(item.at);
+                    return (
+                      <Pressable
+                        key={`${item.kind}-${item.id}`}
+                        accessibilityRole="button"
+                        onPress={() => router.push("/health-reminders")}
+                        style={[
+                          styles.careRow,
+                          index > 0 && styles.careRowBorder,
+                        ]}
+                      >
+                        <View style={styles.careDate}>
+                          <Text style={styles.careDateMain}>{formatted.date}</Text>
+                          <Text style={styles.careDateSub}>{formatted.time}</Text>
+                        </View>
+                        <View style={styles.careBody}>
+                          <Text numberOfLines={1} style={styles.careTitle}>
+                            {item.title}
+                          </Text>
+                          <Text style={styles.careMeta}>{item.petName}</Text>
+                        </View>
+                        <CalendarIcon size={18} />
+                      </Pressable>
+                    );
+                  })
+                ) : (
+                  <View style={styles.emptyCare}>
+                    <Text style={styles.emptyCareTitle}>Nothing scheduled soon</Text>
+                    <Text style={styles.emptyCareText}>
+                      Add reminders from your pet&apos;s care section when you need
+                      them.
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Recovery</Text>
+              </View>
+              <View style={styles.recoveryCard}>
+                <View style={styles.recoveryCopy}>
+                  <Text style={styles.recoveryTitle}>Is a pet missing?</Text>
+                  <Text style={styles.recoveryText}>
+                    Start one recovery report and follow sightings from the
+                    Recovery tab.
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Report a lost pet"
+                  onPress={reportLost}
+                  style={({ pressed }) => [
+                    styles.recoveryButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <PinIcon size={18} />
+                  <Text style={styles.recoveryButtonText}>Report lost pet</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
         </ScrollView>
 
         <BottomNav active="home" />
@@ -278,18 +410,13 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FBF8F0",
-    borderWidth: 1,
-    borderColor: Palette.border,
-    borderRadius: 32,
-    overflow: "hidden",
-    flexDirection: "row",
-    justifyContent: "center",
+    backgroundColor: Palette.cream,
+    alignItems: "center",
   },
   safeArea: {
     flex: 1,
-    maxWidth: MaxContentWidth,
     width: "100%",
+    maxWidth: MaxContentWidth,
   },
   content: {
     flexGrow: 1,
@@ -305,38 +432,26 @@ const styles = StyleSheet.create({
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.three,
+    gap: Spacing.two,
   },
   brandMark: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: Palette.white,
-    alignItems: "center",
-    justifyContent: "center",
     overflow: "hidden",
   },
   brandMarkImage: {
     width: "100%",
     height: "100%",
-    borderRadius: 22,
   },
   brandName: {
     fontFamily: Fonts.sans,
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: "800",
     color: Palette.forestDark,
-    letterSpacing: -0.3,
   },
-  brandTagline: {
-    fontFamily: Fonts.sans,
-    fontSize: 10,
-    fontWeight: "600",
-    color: Palette.inkMuted,
-    letterSpacing: 1.2,
-    marginTop: 2,
-  },
-  bellButton: {
+  iconButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
@@ -346,17 +461,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  bellDot: {
-    position: "absolute",
-    top: 10,
-    right: 11,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Palette.gold,
-    borderWidth: 1.5,
-    borderColor: Palette.surface,
-  },
   date: {
     fontFamily: Fonts.sans,
     fontSize: 13,
@@ -365,196 +469,263 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontFamily: Fonts.sans,
-    fontSize: 27,
+    fontSize: 28,
     lineHeight: 34,
     fontWeight: "800",
     color: Palette.forestDark,
     letterSpacing: -0.5,
     marginTop: Spacing.one,
   },
-  sectionRow: {
+  loader: {
+    marginTop: Spacing.five,
+  },
+  sectionHeader: {
+    marginTop: Spacing.five,
+    marginBottom: Spacing.three,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: Spacing.five,
   },
   sectionTitle: {
     fontFamily: Fonts.sans,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "800",
     color: Palette.forestDark,
   },
-  sectionSpacing: {
-    marginTop: Spacing.five,
-  },
-  addPet: {
-    position: "relative",
-    overflow: "hidden",
+  textAction: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-    borderRadius: 999,
+    gap: 2,
+    minHeight: 36,
+    paddingHorizontal: Spacing.one,
   },
-  addPetGlow: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: Palette.gold,
-    borderRadius: 999,
-  },
-  addPetLabel: {
+  textActionLabel: {
     fontFamily: Fonts.sans,
     fontSize: 13,
     fontWeight: "700",
     color: Palette.forestDark,
   },
-  petList: {
-    gap: Spacing.three,
-    marginTop: Spacing.three,
-  },
-  petCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.three,
+  welcomeCard: {
+    marginTop: Spacing.five,
+    padding: Spacing.four,
+    borderRadius: 20,
     backgroundColor: Palette.surface,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
-    borderRadius: 16,
+    alignItems: "center",
+  },
+  welcomeIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Palette.sage,
+  },
+  welcomeTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 21,
+    fontWeight: "800",
+    color: Palette.forestDark,
+    marginTop: Spacing.three,
+  },
+  welcomeText: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    lineHeight: 21,
+    color: Palette.inkMuted,
+    textAlign: "center",
+    marginTop: Spacing.two,
+  },
+  primaryButton: {
+    minHeight: 48,
+    marginTop: Spacing.four,
+    borderRadius: 24,
+    backgroundColor: Palette.forestDark,
+    paddingHorizontal: Spacing.four,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
+  },
+  primaryButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.white,
+  },
+  petList: {
+    gap: Spacing.two,
+  },
+  petCard: {
+    minHeight: 76,
     padding: Spacing.three,
-    minHeight: 88,
-    boxShadow: "0px 3px 8px rgba(27, 67, 50, 0.06)",
-    elevation: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.three,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
   },
   petPhoto: {
-    width: 65,
-    height: 65,
-    borderRadius: 12,
+    width: 50,
+    height: 50,
+    borderRadius: 14,
     backgroundColor: Palette.sage,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  petInfo: {
+  petPhotoImage: {
+    width: "100%",
+    height: "100%",
+  },
+  petBody: {
     flex: 1,
     gap: 3,
   },
   petName: {
     fontFamily: Fonts.sans,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "800",
     color: Palette.forestDark,
   },
-  petDetails: {
+  petMeta: {
     fontFamily: Fonts.sans,
     fontSize: 12,
     color: Palette.inkMuted,
   },
-  statusPill: {
-    alignSelf: "flex-start",
+  careCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    overflow: "hidden",
+  },
+  careRow: {
+    minHeight: 70,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 3,
-    marginTop: 3,
-  },
-  statusHealthy: {
-    backgroundColor: Palette.sage,
-  },
-  statusWarning: {
-    backgroundColor: Palette.goldSoft,
-  },
-  statusText: {
-    fontFamily: Fonts.sans,
-    fontSize: 10,
-    fontWeight: "700",
-    color: Palette.forestDark,
-  },
-  quickRow: {
-    flexDirection: "row",
     gap: Spacing.three,
-    marginTop: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
   },
-  quickCard: {
-    flex: 1,
-    aspectRatio: 1,
-    backgroundColor: Palette.sage,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.two,
+  careRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: Palette.borderSoft,
   },
-  quickLabel: {
+  careDate: {
+    width: 58,
+  },
+  careDateMain: {
     fontFamily: Fonts.sans,
-    fontSize: 12,
-    fontWeight: "700",
-    color: Palette.forestDark,
-  },
-  lostButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.two,
-    height: 52,
-    borderRadius: 999,
-    backgroundColor: Palette.gold,
-    marginTop: Spacing.five,
-    boxShadow: "0px 4px 10px rgba(242, 182, 50, 0.3)",
-    elevation: 3,
-  },
-  lostLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "800",
     color: Palette.forestDark,
   },
-  reminderCard: {
-    backgroundColor: Palette.forestDark,
-    borderRadius: 16,
+  careDateSub: {
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
+    color: Palette.inkMuted,
+    marginTop: 2,
+  },
+  careBody: {
+    flex: 1,
+  },
+  careTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "700",
+    color: Palette.forestDark,
+  },
+  careMeta: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+    marginTop: 3,
+  },
+  emptyCare: {
     padding: Spacing.four,
-    marginTop: Spacing.three,
-    gap: Spacing.two,
   },
-  reminderIcon: {
-    width: 36,
-    height: 36,
+  emptyCareTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  emptyCareText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    lineHeight: 19,
+    color: Palette.inkMuted,
+    marginTop: Spacing.one,
+  },
+  recoveryCard: {
+    padding: Spacing.four,
     borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: Spacing.one,
+    backgroundColor: Palette.goldSoft,
+    borderWidth: 1,
+    borderColor: "#EBCF86",
+    gap: Spacing.three,
   },
-  reminderTitle: {
+  recoveryCopy: {
+    gap: Spacing.one,
+  },
+  recoveryTitle: {
     fontFamily: Fonts.sans,
     fontSize: 17,
     fontWeight: "800",
-    color: Palette.white,
+    color: Palette.forestDark,
   },
-  reminderMeta: {
+  recoveryText: {
     fontFamily: Fonts.sans,
     fontSize: 13,
     lineHeight: 19,
-    color: "#D8E2D6",
+    color: Palette.inkMuted,
   },
-  reminderButton: {
-    alignSelf: "flex-start",
+  recoveryButton: {
+    minHeight: 46,
+    borderRadius: 23,
     backgroundColor: Palette.gold,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    marginTop: Spacing.two,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
   },
-  reminderButtonLabel: {
+  recoveryButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  errorCard: {
+    marginTop: Spacing.four,
+    padding: Spacing.three,
+    borderRadius: 14,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+  },
+  errorText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    color: Palette.danger,
+  },
+  retryText: {
     fontFamily: Fonts.sans,
     fontSize: 13,
     fontWeight: "800",
     color: Palette.forestDark,
+    marginTop: Spacing.two,
+  },
+  subtleError: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    color: Palette.inkMuted,
+    padding: Spacing.three,
   },
   pressed: {
-    opacity: 0.85,
+    opacity: 0.84,
   },
 });
