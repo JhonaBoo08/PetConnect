@@ -39,6 +39,11 @@ export function notificationTarget(
       pathname: "/recovery-report",
       params: { eventId: id("recoveryContactEventId") },
     };
+  if (data.type === "PET_TAG_SCANNED" && id("petId"))
+    return {
+      pathname: "/pet-id",
+      params: { id: id("petId") },
+    };
   if (data.type === "LOST_PET_NEARBY")
     return { pathname: "/alerts", params: { mode: "feed" } };
   if (id("reportId"))

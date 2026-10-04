@@ -134,15 +134,34 @@ export async function observePushTokenChanges(): Promise<() => void> {
   };
 }
 
-export async function requestCurrentCoordinates(): Promise<Coordinates> {
+export async function requestCurrentCoordinates(
+  options: { preferFast?: boolean } = {},
+): Promise<Coordinates> {
   const permission = await Location.requestForegroundPermissionsAsync();
   if (permission.status !== "granted") {
     throw new Error(
       "Location permission is needed to place recovery pins and find nearby reports.",
     );
   }
+
+  if (options.preferFast) {
+    const recent = await Location.getLastKnownPositionAsync({
+      maxAge: 60_000,
+      requiredAccuracy: 250,
+    }).catch(() => null);
+    if (recent) {
+      return {
+        latitude: recent.coords.latitude,
+        longitude: recent.coords.longitude,
+        accuracyM: recent.coords.accuracy,
+      };
+    }
+  }
+
   const location = await Location.getCurrentPositionAsync({
-    accuracy: Location.Accuracy.High,
+    accuracy: options.preferFast
+      ? Location.Accuracy.Balanced
+      : Location.Accuracy.High,
   });
   return {
     latitude: location.coords.latitude,

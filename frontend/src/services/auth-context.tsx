@@ -24,6 +24,7 @@ import {
   registerOwner,
 } from "@/services/auth";
 import { firebaseClient } from "@/services/firebase/client";
+import { clearCached } from "@/services/resource-cache";
 
 export type AuthState =
   | { status: "loading" }
@@ -158,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadSession = useCallback(async (user: User | null) => {
     const turn = ++revision.current;
     if (!user) {
+      clearCached();
       resolvedOnce.current = true;
       setRefreshing(false);
       setState({ status: "guest" });
@@ -218,6 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     busy.current = true;
     ++revision.current;
     try {
+      clearCached();
       const result = await action();
       ++revision.current;
       resolvedOnce.current = true;
@@ -278,6 +281,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // authenticated session when the notification service is unavailable.
         }
         await logout();
+        clearCached();
         ++revision.current;
         resolvedOnce.current = true;
         setRefreshing(false);

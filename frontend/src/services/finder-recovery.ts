@@ -91,10 +91,7 @@ export type FinderEvidenceUpload = {
   mimeType: string;
 };
 
-export async function uploadFinderPhoto(
-  recoveryToken: string,
-  uri: string,
-): Promise<FinderEvidenceUpload> {
+async function finderPhotoForm(uri: string): Promise<FormData> {
   const form = new FormData();
   if (Platform.OS === "web") {
     const blob = await (await fetch(uri)).blob();
@@ -109,9 +106,26 @@ export async function uploadFinderPhoto(
       type: "image/jpeg",
     } as unknown as Blob);
   }
+  return form;
+}
+
+export async function uploadFinderPhoto(
+  recoveryToken: string,
+  uri: string,
+): Promise<FinderEvidenceUpload> {
   return finderRequest<FinderEvidenceUpload>(
     `/v1/recovery/${encodeURIComponent(recoveryToken)}/evidence/photo`,
-    { method: "POST", body: form },
+    { method: "POST", body: await finderPhotoForm(uri) },
+  );
+}
+
+export async function uploadFinderPhotoByReportId(
+  reportId: string,
+  uri: string,
+): Promise<FinderEvidenceUpload> {
+  return finderRequest<FinderEvidenceUpload>(
+    `/v1/recovery/report/${encodeURIComponent(reportId)}/evidence/photo`,
+    { method: "POST", body: await finderPhotoForm(uri) },
   );
 }
 
@@ -124,6 +138,18 @@ export const submitFinderReport = (
     {
       method: "POST",
       body: JSON.stringify(input),
+    },
+  );
+
+export const submitFinderReportByReportId = (
+  reportId: string,
+  input: FinderSightingInput,
+) =>
+  finderRequest<FinderSubmissionResult>(
+    `/v1/recovery/report/${encodeURIComponent(reportId)}/sightings`,
+    {
+      method: "POST",
+      body: JSON.stringify({ ...input, encounterType: "SEEN" }),
     },
   );
 
