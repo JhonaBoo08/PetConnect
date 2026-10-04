@@ -7,6 +7,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -29,6 +30,7 @@ import { RecoveryMap } from "@/components/recovery-map";
 import type { RecoveryMapPin } from "@/components/recovery-map/types";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
+import { getApiBaseUrl } from "@/services/auth";
 import { authErrorMessage } from "@/services/auth-context";
 import { showFeedback } from "@/services/feedback";
 import { requestCurrentCoordinates } from "@/services/device-recovery";
@@ -78,6 +80,14 @@ function orderedMapSightings(sightings: Sighting[]) {
       (a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
+}
+
+function htmlText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 export default function RecoveryScreen() {
@@ -298,6 +308,59 @@ export default function RecoveryScreen() {
     } finally {
       setReuniting("");
     }
+  }
+
+  async function sharePoster(report: LostReport) {
+    const publicUrl =
+      Platform.OS === "web"
+        ? `${window.location.origin}/recover?reportId=${encodeURIComponent(report.id)}`
+        : `PetConnect recovery report ${report.id}`;
+
+    if (Platform.OS !== "web") {
+      await Share.share({
+        title: `Missing pet: ${report.petName}`,
+        message: [
+          `MISSING: ${report.petName}`,
+          report.petBreed || report.petSpecies,
+          `Last seen: ${report.lastSeenText}`,
+          report.details || "",
+          publicUrl,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
+      return;
+    }
+
+    const popup = window.open("", "_blank", "width=760,height=980");
+    if (!popup) {
+      setError("Pop-ups are blocked. Allow pop-ups to print the poster.");
+      return;
+    }
+    const photo = report.petPhotoUrl
+      ? `${getApiBaseUrl()}${report.petPhotoUrl}`
+      : "";
+    popup.document.write(`<!doctype html>
+<html><head><title>Missing - ${htmlText(report.petName)}</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#fff;color:#173f35}
+main{max-width:720px;margin:0 auto;padding:42px;text-align:center}
+h1{font-size:62px;margin:0 0 8px}h2{font-size:38px;margin:0 0 24px}
+img{width:360px;height:360px;object-fit:cover;border-radius:24px;margin:10px auto 28px}
+.card{border:4px solid #173f35;border-radius:24px;padding:28px}
+p{font-size:24px;line-height:1.35;margin:12px 0}.small{font-size:18px}
+.url{font-family:monospace;word-break:break-all;font-size:17px;margin-top:24px}
+@media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+</style></head><body><main><div class="card">
+<h1>MISSING</h1><h2>${htmlText(report.petName)}</h2>
+${photo ? `<img src="${htmlText(photo)}" alt="${htmlText(report.petName)}">` : ""}
+<p><strong>${htmlText(report.petBreed || report.petSpecies)}</strong></p>
+<p>Last seen: ${htmlText(report.lastSeenText)}</p>
+${report.details ? `<p class="small">${htmlText(report.details)}</p>` : ""}
+<p><strong>If seen, please report it through PetConnect.</strong></p>
+<p class="url">${htmlText(publicUrl)}</p>
+</div></main><script>window.onload=()=>window.print()</script></body></html>`);
+    popup.document.close();
   }
 
   async function refresh() {
@@ -915,6 +978,20 @@ export default function RecoveryScreen() {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={
+                        (Platform.OS === "web" ? "Print " : "Share ") +
+                        report.petName +
+                        " lost poster"
+                      }
+                      onPress={() => void sharePoster(report)}
+                      style={styles.posterButton}
+                    >
+                      <Text style={styles.posterButtonText}>
+                        {Platform.OS === "web" ? "Print poster" : "Share poster"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
                         "Mark " + report.petName + " Reunited"
                       }
                       accessibilityState={{
@@ -1141,8 +1218,24 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: Palette.inkMuted,
   },
-  reuniteButton: {
+  posterButton: {
     marginTop: Spacing.three,
+    minHeight: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  posterButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  reuniteButton: {
+    marginTop: Spacing.two,
     minHeight: 38,
     borderRadius: 10,
     backgroundColor: Palette.forestDark,
