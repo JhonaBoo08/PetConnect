@@ -2,9 +2,9 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BackArrow, BellIcon, ChevronRightIcon } from "@/components/app-icons";
+import { ListSkeleton } from "@/components/loading-skeleton";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
@@ -24,6 +25,8 @@ import { authErrorMessage } from "@/services/auth-context";
 import {
   listRecoveryNotifications,
   markRecoveryNotificationRead,
+  peekRecoveryNotifications,
+  peekRecoveryNotificationsCached,
 } from "@/services/recovery-network";
 import type { RecoveryNotification } from "../../../shared/contracts";
 
@@ -31,17 +34,25 @@ function when(value: string) {
   return new Date(value).toLocaleString();
 }
 
+function NotificationSeparator() {
+  return <View style={styles.itemSeparator} />;
+}
+
 export default function NotificationsScreen() {
   const router = useRouter();
-  const [items, setItems] = useState<RecoveryNotification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<RecoveryNotification[]>(
+    peekRecoveryNotifications,
+  );
+  const [loading, setLoading] = useState(
+    () => peekRecoveryNotificationsCached() === undefined,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [pushMessage, setPushMessage] = useState("");
   const [enablingPush, setEnablingPush] = useState(false);
 
-  const load = useCallback(async () => {
-    const rows = await listRecoveryNotifications();
+  const load = useCallback(async (force = false) => {
+    const rows = await listRecoveryNotifications({ force });
     setItems(rows);
     setError("");
   }, []);
@@ -49,7 +60,6 @@ export default function NotificationsScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
       load()
         .catch((cause) => {
           if (active) setError(authErrorMessage(cause));
@@ -66,7 +76,7 @@ export default function NotificationsScreen() {
   async function refresh() {
     setRefreshing(true);
     try {
-      await load();
+      await load(true);
     } catch (cause) {
       setError(authErrorMessage(cause));
     } finally {
@@ -76,17 +86,20 @@ export default function NotificationsScreen() {
 
   async function openNotification(item: RecoveryNotification) {
     if (!item.readAt) {
+      const optimisticReadAt = new Date().toISOString();
+      setItems((current) =>
+        current.map((row) =>
+          row.id === item.id ? { ...row, readAt: optimisticReadAt } : row,
+        ),
+      );
       try {
         await markRecoveryNotificationRead(item.id);
+      } catch {
         setItems((current) =>
           current.map((row) =>
-            row.id === item.id
-              ? { ...row, readAt: new Date().toISOString() }
-              : row,
+            row.id === item.id ? { ...row, readAt: null } : row,
           ),
         );
-      } catch {
-        // Opening should still work if read-state synchronization fails.
       }
     }
 
@@ -103,9 +116,9 @@ export default function NotificationsScreen() {
     setPushMessage("");
     try {
       // A denied location does not prevent registering this device for push.
-      const coordinates = await requestCurrentCoordinates().catch(
-        () => undefined,
-      );
+      const coordinates = await requestCurrentCoordinates({
+        preferFast: true,
+      }).catch(() => undefined);
       const result = await enableRecoveryPush(coordinates);
       setPushMessage(
         result.enabled
@@ -124,7 +137,9 @@ export default function NotificationsScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView
+        <FlatList
+          data={!loading && !error ? items : []}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -134,129 +149,142 @@ export default function NotificationsScreen() {
               onRefresh={() => void refresh()}
             />
           }
-        >
-          <View style={styles.topBar}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={() => goBack("/dashboard")}
-              style={styles.iconButton}
-            >
-              <BackArrow />
-            </Pressable>
-            <View style={styles.titleRow}>
-              <BellIcon size={19} />
-              <Text style={styles.screenTitle}>Notifications</Text>
-            </View>
-          </View>
+          ItemSeparatorComponent={NotificationSeparator}
+          ListHeaderComponentStyle={styles.listHeader}
+          ListHeaderComponent={
+            <>
+              <View style={styles.topBar}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                  onPress={() => goBack("/dashboard")}
+                  style={styles.iconButton}
+                >
+                  <BackArrow />
+                </Pressable>
+                <View style={styles.titleRow}>
+                  <BellIcon size={19} />
+                  <Text style={styles.screenTitle}>Notifications</Text>
+                </View>
+              </View>
 
-          <Text style={styles.supporting}>
-            Care, clinic, and recovery activity.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Enable notifications"
-            accessibilityState={{ disabled: enablingPush, busy: enablingPush }}
-            disabled={enablingPush}
-            onPress={() => void enablePush()}
-            style={styles.pushButton}
-          >
-            {enablingPush ? (
-              <ActivityIndicator color={Palette.forestDark} />
-            ) : (
-              <>
-                <BellIcon size={17} />
-                <Text style={styles.pushButtonText}>Enable notifications</Text>
-              </>
-            )}
-          </Pressable>
-          {pushMessage ? (
-            <Text accessibilityLiveRegion="polite" style={styles.supporting}>
-              {pushMessage}
-            </Text>
-          ) : null}
-
-          {unreadCount ? (
-            <Text style={styles.unreadLabel}>
-              {unreadCount} unread{" "}
-              {unreadCount === 1 ? "notification" : "notifications"}
-            </Text>
-          ) : null}
-
-          {error ? (
-            <View>
-              <Text accessibilityRole="alert" style={styles.error}>
-                {error}
+              <Text style={styles.supporting}>
+                Care, clinic, and recovery activity.
               </Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Retry notifications"
-                accessibilityState={{ disabled: refreshing, busy: refreshing }}
-                disabled={refreshing}
-                onPress={() => void refresh()}
-                style={[styles.pushButton, styles.retryButton]}
+                accessibilityLabel="Enable notifications"
+                accessibilityState={{
+                  disabled: enablingPush,
+                  busy: enablingPush,
+                }}
+                disabled={enablingPush}
+                onPress={() => void enablePush()}
+                style={styles.pushButton}
               >
-                {refreshing ? (
-                  <ActivityIndicator color={Palette.white} />
+                {enablingPush ? (
+                  <ActivityIndicator color={Palette.forestDark} />
                 ) : (
-                  <Text style={[styles.pushButtonText, styles.retryButtonText]}>
-                    Retry
-                  </Text>
+                  <>
+                    <BellIcon size={17} />
+                    <Text style={styles.pushButtonText}>
+                      Enable notifications
+                    </Text>
+                  </>
                 )}
               </Pressable>
-            </View>
-          ) : null}
-          {loading ? (
-            <ActivityIndicator
-              color={Palette.forestDark}
-              style={styles.loader}
-            />
-          ) : null}
+              {pushMessage ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={styles.supporting}
+                >
+                  {pushMessage}
+                </Text>
+              ) : null}
 
-          {!loading && !error && items.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <View style={styles.emptyIcon}>
-                <BellIcon size={24} />
-              </View>
-              <Text style={styles.emptyTitle}>You&apos;re all caught up</Text>
-              <Text style={styles.emptyText}>
-                New notifications will appear here.
-              </Text>
-            </View>
-          ) : null}
+              {unreadCount ? (
+                <Text style={styles.unreadLabel}>
+                  {unreadCount} unread{" "}
+                  {unreadCount === 1 ? "notification" : "notifications"}
+                </Text>
+              ) : null}
 
-          <View style={styles.list}>
-            {items.map((item) => (
-              <Pressable
-                key={item.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${item.title}`}
-                accessibilityHint={
-                  item.readAt ? "Read notification" : "Unread notification"
-                }
-                onPress={() => void openNotification(item)}
-                style={({ pressed }) => [
-                  styles.card,
-                  !item.readAt && styles.cardUnread,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.statusDot,
-                    item.readAt && styles.statusDotRead,
-                  ]}
-                />
-                <View style={styles.cardBody}>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardText}>{item.body}</Text>
-                  <Text style={styles.cardTime}>{when(item.createdAt)}</Text>
+              {error ? (
+                <View>
+                  <Text accessibilityRole="alert" style={styles.error}>
+                    {error}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry notifications"
+                    accessibilityState={{
+                      disabled: refreshing,
+                      busy: refreshing,
+                    }}
+                    disabled={refreshing}
+                    onPress={() => void refresh()}
+                    style={[styles.pushButton, styles.retryButton]}
+                  >
+                    {refreshing ? (
+                      <ActivityIndicator color={Palette.white} />
+                    ) : (
+                      <Text
+                        style={[styles.pushButtonText, styles.retryButtonText]}
+                      >
+                        Retry
+                      </Text>
+                    )}
+                  </Pressable>
                 </View>
-                <ChevronRightIcon size={18} />
-              </Pressable>
-            ))}
-          </View>
-        </ScrollView>
+              ) : null}
+
+              {loading ? (
+                <View style={styles.loader}>
+                  <ListSkeleton rows={3} />
+                </View>
+              ) : null}
+
+              {!loading && !error && items.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <View style={styles.emptyIcon}>
+                    <BellIcon size={24} />
+                  </View>
+                  <Text style={styles.emptyTitle}>
+                    You&apos;re all caught up
+                  </Text>
+                  <Text style={styles.emptyText}>
+                    New notifications will appear here.
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          }
+          renderItem={({ item }) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${item.title}`}
+              accessibilityHint={
+                item.readAt ? "Read notification" : "Unread notification"
+              }
+              onPress={() => void openNotification(item)}
+              style={({ pressed }) => [
+                styles.card,
+                !item.readAt && styles.cardUnread,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View
+                style={[styles.statusDot, item.readAt && styles.statusDotRead]}
+              />
+              <View style={styles.cardBody}>
+                <Text style={styles.cardTitle}>{item.title}</Text>
+                <Text style={styles.cardText}>{item.body}</Text>
+                <Text style={styles.cardTime}>{when(item.createdAt)}</Text>
+              </View>
+              <ChevronRightIcon size={18} />
+            </Pressable>
+          )}
+        />
       </SafeAreaView>
     </View>
   );
@@ -321,7 +349,8 @@ const styles = StyleSheet.create({
     color: Palette.danger,
     marginTop: Spacing.three,
   },
-  list: { gap: Spacing.two, marginTop: Spacing.four },
+  listHeader: { marginBottom: Spacing.four },
+  itemSeparator: { height: Spacing.two },
   card: {
     minHeight: 86,
     borderRadius: 17,
@@ -333,7 +362,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.three,
   },
-  cardUnread: { borderColor: "#96B49A", backgroundColor: "#F6FBF3" },
+  cardUnread: {
+    borderColor: Palette.border,
+    backgroundColor: Palette.sage,
+  },
   statusDot: {
     width: 9,
     height: 9,

@@ -2,7 +2,6 @@ import { Image } from "expo-image";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -23,10 +22,16 @@ import {
   QrIcon,
 } from "@/components/app-icons";
 import { BottomNav } from "@/components/bottom-nav";
+import { ListSkeleton } from "@/components/loading-skeleton";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { authErrorMessage } from "@/services/auth-context";
-import { listPets, petPhotoUri } from "@/services/pets";
+import {
+  listPets,
+  peekPets,
+  peekPetsCached,
+  petPhotoUri,
+} from "@/services/pets";
 import type { Pet } from "../../../shared/contracts";
 
 type PetAction = "open" | "id" | "edit" | "health" | "lost";
@@ -46,13 +51,13 @@ export default function MyPetsScreen() {
       : "open";
   const selectionMode = action !== "open";
 
-  const [pets, setPets] = useState<Pet[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [pets, setPets] = useState<Pet[]>(peekPets);
+  const [loading, setLoading] = useState(() => peekPetsCached() === undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
-    const rows = await listPets();
+  const load = useCallback(async (force = false) => {
+    const rows = await listPets({ force });
     setPets(rows);
     setError("");
   }, []);
@@ -60,7 +65,6 @@ export default function MyPetsScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
       load()
         .catch((cause) => {
           if (active) setError(authErrorMessage(cause));
@@ -77,7 +81,7 @@ export default function MyPetsScreen() {
   async function refresh() {
     setRefreshing(true);
     try {
-      await load();
+      await load(true);
     } catch (cause) {
       setError(authErrorMessage(cause));
     } finally {
@@ -175,10 +179,9 @@ export default function MyPetsScreen() {
           ) : null}
 
           {loading ? (
-            <ActivityIndicator
-              color={Palette.forestDark}
-              style={styles.loader}
-            />
+            <View style={styles.loader}>
+              <ListSkeleton rows={3} />
+            </View>
           ) : null}
 
           {!loading && pets.length === 0 ? (
@@ -221,6 +224,9 @@ export default function MyPetsScreen() {
                         source={{ uri: petPhotoUri(pet.photoUrl)! }}
                         style={styles.photoImage}
                         contentFit="cover"
+                        cachePolicy="memory-disk"
+                        recyclingKey={pet.photoUrl || pet.id}
+                        transition={120}
                       />
                     ) : (
                       <PawIcon size={30} />
@@ -233,9 +239,7 @@ export default function MyPetsScreen() {
                         .filter(Boolean)
                         .join(" · ")}
                     </Text>
-                    <Text style={styles.protectedText}>
-                      Pet ID active
-                    </Text>
+                    <Text style={styles.protectedText}>Pet ID active</Text>
                   </View>
                   <ChevronRightIcon />
                 </Pressable>

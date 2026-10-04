@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
-  error: { marginTop: Spacing.three, color: "#9E342C" },
+  error: { marginTop: Spacing.three, color: Palette.danger },
   button: {
     marginTop: Spacing.five,
     height: 48,

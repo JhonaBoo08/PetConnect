@@ -5,7 +5,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Image as NativeImage,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,6 +27,7 @@ import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
 import { authErrorMessage } from "@/services/auth-context";
+import { showFeedback } from "@/services/feedback";
 import {
   createPet,
   getPet,
@@ -64,38 +64,41 @@ export default function AddPetScreen() {
   const [saveError, setSaveError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
 
-  const preparePhoto = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
-    // Show the chosen image before doing any expensive native processing.
-    setPhoto(asset.uri);
-    setRemoveExisting(false);
-    setPhotoFeedback("Photo selected.");
+  const preparePhoto = useCallback(
+    async (asset: ImagePicker.ImagePickerAsset) => {
+      // Show the chosen image before doing any expensive native processing.
+      setPhoto(asset.uri);
+      setRemoveExisting(false);
+      setPhotoFeedback("Photo selected.");
 
-    try {
-      const context = ImageManipulator.ImageManipulator.manipulate(asset.uri);
-      const width = Number(asset.width) || 0;
-      const height = Number(asset.height) || 0;
-      const longest = Math.max(width, height);
-      if (longest > 1200) {
-        context.resize({
-          width: Math.round((width * 1200) / longest),
-          height: Math.round((height * 1200) / longest),
+      try {
+        const context = ImageManipulator.ImageManipulator.manipulate(asset.uri);
+        const width = Number(asset.width) || 0;
+        const height = Number(asset.height) || 0;
+        const longest = Math.max(width, height);
+        if (longest > 1200) {
+          context.resize({
+            width: Math.round((width * 1200) / longest),
+            height: Math.round((height * 1200) / longest),
+          });
+        }
+        const rendered = await context.renderAsync();
+        const jpeg = await rendered.saveAsync({
+          format: ImageManipulator.SaveFormat.JPEG,
+          compress: 0.78,
         });
+        setPhoto(jpeg.uri);
+        setPhotoFeedback("Photo ready.");
+      } catch {
+        // Keep the original picker URI instead of making a successful selection
+        // disappear when native optimization is unavailable.
+        setPhotoFeedback(
+          "Photo selected. PetConnect could not optimize it, so the original will be used.",
+        );
       }
-      const rendered = await context.renderAsync();
-      const jpeg = await rendered.saveAsync({
-        format: ImageManipulator.SaveFormat.JPEG,
-        compress: 0.78,
-      });
-      setPhoto(jpeg.uri);
-      setPhotoFeedback("Photo ready.");
-    } catch {
-      // Keep the original picker URI instead of making a successful selection
-      // disappear when native optimization is unavailable.
-      setPhotoFeedback(
-        "Photo selected. PetConnect could not optimize it, so the original will be used.",
-      );
-    }
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
     let active = true;
@@ -114,7 +117,8 @@ export default function AddPetScreen() {
         }
         if (active) {
           setPhotoFeedback(
-            pending.message || "The selected photo could not be restored. Please choose it again.",
+            pending.message ||
+              "The selected photo could not be restored. Please choose it again.",
           );
         }
       })
@@ -170,7 +174,9 @@ export default function AddPetScreen() {
       if (result.canceled) return;
       const asset = result.assets?.[0];
       if (!asset?.uri) {
-        setPhotoFeedback("That photo could not be read. Please choose another one.");
+        setPhotoFeedback(
+          "That photo could not be read. Please choose another one.",
+        );
         return;
       }
 
@@ -201,6 +207,7 @@ export default function AddPetScreen() {
         ageLabel: age,
         identifyingDetails: notes,
       };
+      const updating = Boolean(savedId);
       const pet = savedId
         ? await updatePet(savedId, input)
         : await createPet(input);
@@ -208,6 +215,7 @@ export default function AddPetScreen() {
       setSavedId(pet.id);
       if (photo) await uploadPetPhoto(pet.id, photo);
       else if (removeExisting) await removePetPhoto(pet.id);
+      showFeedback(updating ? "Pet updated." : "Pet added.");
       router.replace({ pathname: "/pet-id", params: { id: pet.id } });
     } catch (error) {
       setSaveError(
@@ -299,10 +307,12 @@ export default function AddPetScreen() {
           <View style={styles.photoPreview}>
             <View style={styles.photoThumb}>
               {photo || (existingPhoto && !removeExisting) ? (
-                <NativeImage
+                <ExpoImage
                   source={{ uri: photo || petPhotoUri(existingPhoto)! }}
                   style={styles.photoThumb}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={120}
                 />
               ) : (
                 <PawIcon size={34} color={Palette.forestDark} />
@@ -352,10 +362,7 @@ export default function AddPetScreen() {
             </Text>
           </Pressable>
           {photoFeedback ? (
-            <Text
-              accessibilityLiveRegion="polite"
-              style={styles.photoFeedback}
-            >
+            <Text accessibilityLiveRegion="polite" style={styles.photoFeedback}>
               {photoFeedback}
             </Text>
           ) : null}
@@ -809,7 +816,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: Palette.gold,
     marginTop: Spacing.five,
-    shadowColor: "#F2B632",
+    shadowColor: Palette.gold,
     shadowOpacity: 0.3,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },

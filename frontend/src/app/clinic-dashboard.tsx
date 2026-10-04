@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
   scanMeta: {
     marginTop: 3,
     fontFamily: Fonts.sans,
-    color: "#DDE9E1",
+    color: Palette.sage,
     fontSize: 11.5,
     lineHeight: 16,
   },

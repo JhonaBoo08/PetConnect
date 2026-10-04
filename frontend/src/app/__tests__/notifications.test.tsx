@@ -32,6 +32,8 @@ jest.mock("@/services/auth-context", () => ({
 jest.mock("@/services/recovery-network", () => ({
   listRecoveryNotifications: (...args: unknown[]) => mockNotifications(...args),
   markRecoveryNotificationRead: (...args: unknown[]) => mockMarkRead(...args),
+  peekRecoveryNotifications: () => [],
+  peekRecoveryNotificationsCached: () => undefined,
 }));
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),

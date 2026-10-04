@@ -23,7 +23,7 @@ import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { authErrorMessage, useAuth } from "@/services/auth-context";
-import { listPets } from "@/services/pets";
+import { listPets, peekPetsCached } from "@/services/pets";
 
 function SettingsCard({
   icon,
@@ -66,7 +66,10 @@ export default function ProfileScreen() {
   const router = useRouter();
   const session = state.status === "ready" ? state.session : null;
 
-  const [petCount, setPetCount] = useState<number | null>(null);
+  const [petCount, setPetCount] = useState<number | null>(() => {
+    const cached = peekPetsCached();
+    return cached ? cached.length : null;
+  });
   const [petsError, setPetsError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
   const [confirming, setConfirming] = useState(false);
@@ -296,12 +299,12 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.sans,
     fontSize: 12,
     fontWeight: "700",
-    color: "#D8E2D6",
+    color: Palette.sage,
   },
   email: {
     fontFamily: Fonts.sans,
     fontSize: 13,
-    color: "#D8E2D6",
+    color: Palette.sage,
   },
   sectionLabel: {
     fontFamily: Fonts.sans,
@@ -356,8 +359,8 @@ const styles = StyleSheet.create({
     marginTop: Spacing.five,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E9D3C7",
-    backgroundColor: "rgba(255,253,247,0.55)",
+    borderColor: Palette.dangerSoft,
+    backgroundColor: "rgba(255,255,255,0.68)",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

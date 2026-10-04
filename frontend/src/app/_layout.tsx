@@ -19,6 +19,7 @@ import {
 } from "react-native";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { FeedbackHost } from "@/components/feedback-host";
 import { Palette } from "@/constants/palette";
 import { notificationTarget } from "@/lib/notification-target";
 import {
@@ -130,7 +131,10 @@ function AppNavigator() {
           contentStyle: { backgroundColor: Palette.cream },
         }}
       >
-        <Stack.Screen name="scan" options={{ animation: "fade" }} />
+        <Stack.Screen
+          name="scan"
+          options={{ animation: "fade", freezeOnBlur: true }}
+        />
         <Stack.Screen name="recover" options={{ animation: "fade" }} />
         <Stack.Protected guard={guest}>
           <Stack.Screen name="(tabs)" />
@@ -141,8 +145,14 @@ function AppNavigator() {
           <Stack.Screen name="create-account" />
         </Stack.Protected>
         <Stack.Protected guard={owner}>
-          <Stack.Screen name="dashboard" options={{ animation: "fade" }} />
-          <Stack.Screen name="alerts" options={{ animation: "fade" }} />
+          <Stack.Screen
+            name="dashboard"
+            options={{ animation: "fade", freezeOnBlur: true }}
+          />
+          <Stack.Screen
+            name="alerts"
+            options={{ animation: "fade", freezeOnBlur: true }}
+          />
           <Stack.Screen
             name="notifications"
             options={{ animation: "slide_from_right" }}
@@ -151,7 +161,10 @@ function AppNavigator() {
             name="recovery-report"
             options={{ animation: "slide_from_right" }}
           />
-          <Stack.Screen name="profile" options={{ animation: "fade" }} />
+          <Stack.Screen
+            name="profile"
+            options={{ animation: "fade", freezeOnBlur: true }}
+          />
           <Stack.Screen
             name="privacy-settings"
             options={{ animation: "slide_from_right" }}
@@ -164,7 +177,10 @@ function AppNavigator() {
             name="add-pet"
             options={{ animation: "slide_from_right" }}
           />
-          <Stack.Screen name="my-pets" options={{ animation: "fade" }} />
+          <Stack.Screen
+            name="my-pets"
+            options={{ animation: "fade", freezeOnBlur: true }}
+          />
           <Stack.Screen
             name="health-reminders"
             options={{ animation: "slide_from_right" }}
@@ -210,6 +226,7 @@ export default function RootLayout() {
         <StatusBar style="dark" />
         <AnimatedSplashOverlay />
         <AppNavigator />
+        <FeedbackHost />
       </AuthProvider>
     </ThemeProvider>
   );
@@ -236,7 +253,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    backgroundColor: "rgba(255,253,247,0.96)",
+    backgroundColor: "rgba(255,255,255,0.96)",
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     elevation: 4,

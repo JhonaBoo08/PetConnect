@@ -1,14 +1,7 @@
 import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -20,6 +13,7 @@ import {
   PlusIcon,
 } from "@/components/app-icons";
 import { BottomNav } from "@/components/bottom-nav";
+import { ListSkeleton } from "@/components/loading-skeleton";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { authErrorMessage, useAuth } from "@/services/auth-context";
@@ -27,7 +21,12 @@ import {
   listAppointments,
   listHealthReminders,
 } from "@/services/health-clinic";
-import { listPets, petPhotoUri } from "@/services/pets";
+import {
+  listPets,
+  peekPets,
+  peekPetsCached,
+  petPhotoUri,
+} from "@/services/pets";
 import type {
   Appointment,
   HealthReminder,
@@ -134,9 +133,9 @@ export default function DashboardScreen() {
       ? state.session.displayName.split(" ")[0]
       : "there";
 
-  const [pets, setPets] = useState<Pet[]>([]);
+  const [pets, setPets] = useState<Pet[]>(peekPets);
   const [care, setCare] = useState<CarePreviewItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekPetsCached() === undefined);
   const [petsError, setPetsError] = useState("");
   const [careError, setCareError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
@@ -144,12 +143,13 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
 
       const now = new Date();
-      const end = new Date(now);
-      end.setTime(now.getTime() + 60 * 86400000);
-      const range = { from: now.toISOString(), to: end.toISOString() };
+      const from = new Date(now);
+      from.setHours(0, 0, 0, 0);
+      const end = new Date(from);
+      end.setTime(from.getTime() + 60 * 86400000);
+      const range = { from: from.toISOString(), to: end.toISOString() };
 
       Promise.allSettled([
         listPets(),
@@ -233,10 +233,9 @@ export default function DashboardScreen() {
           </Text>
 
           {loading ? (
-            <ActivityIndicator
-              color={Palette.forestDark}
-              style={styles.loader}
-            />
+            <View style={styles.loader}>
+              <ListSkeleton rows={2} />
+            </View>
           ) : null}
 
           {petsError ? (
@@ -309,6 +308,9 @@ export default function DashboardScreen() {
                           source={{ uri: petPhotoUri(pet.photoUrl)! }}
                           style={styles.petPhotoImage}
                           contentFit="cover"
+                          cachePolicy="memory-disk"
+                          recyclingKey={pet.photoUrl || pet.id}
+                          transition={120}
                         />
                       ) : (
                         <PawIcon size={24} />
@@ -693,7 +695,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: Palette.goldSoft,
     borderWidth: 1,
-    borderColor: "#EBCF86",
+    borderColor: Palette.gold,
     gap: Spacing.three,
   },
   recoveryCopy: {

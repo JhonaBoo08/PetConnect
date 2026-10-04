@@ -18,6 +18,8 @@ jest.mock("@/services/auth-context", () => ({
 }));
 jest.mock("@/services/pets", () => ({
   listPets: (...args: unknown[]) => mockListPets(...args),
+  peekPets: () => [],
+  peekPetsCached: () => undefined,
   petPhotoUri: (value: string) => value,
 }));
 jest.mock("expo-router", () => ({
