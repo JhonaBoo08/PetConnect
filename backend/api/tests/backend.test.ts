@@ -2,7 +2,6 @@ import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import { readFileSync } from "node:fs";
-import fs from "node:fs/promises";
 import { RowDataPacket } from "mysql2/promise";
 import sharp from "sharp";
 import { initializeApp, deleteApp } from "firebase/app";
@@ -20,11 +19,14 @@ import {
   scheduledNotifications,
 } from "../src/server.js";
 import { Notifications } from "../src/notifications.js";
+import { ScheduledNotifications } from "../src/scheduled-notifications.js";
 import { createPool } from "../src/db.js";
 import {
   HealthClinic,
   HealthClinicValidationError,
 } from "../src/health-clinic.js";
+import { FinderEvidence } from "../src/finder-evidence.js";
+import type { MediaStorage } from "../src/media-storage.js";
 
 const projectId = process.env.FIREBASE_PROJECT_ID || "demo-petconnect";
 const apps: ReturnType<typeof initializeApp>[] = [];
@@ -50,6 +52,7 @@ function client(name: string) {
 
 async function resetTestDb() {
   await pool.query("SET FOREIGN_KEY_CHECKS = 0");
+  await pool.query("TRUNCATE TABLE media_cleanup_jobs");
   await pool.query("TRUNCATE TABLE audit_logs");
   await pool.query("TRUNCATE TABLE scheduled_notifications");
   await pool.query("TRUNCATE TABLE health_reminders");
@@ -340,6 +343,42 @@ test("deletion stops a care update already claimed behind another delivery", asy
     ["health-reminder:" + reminders[1].id],
   );
   assert.equal(cancelled[0].status, "CANCELLED");
+});
+
+test("scheduled delivery retry after a restart creates one durable notification", async (t) => {
+  await pool.query(
+    "INSERT INTO users (id,email,display_name,role,status) VALUES ('restart-owner','restart@example.test','Restart','OWNER','ACTIVE')",
+  );
+  const sender = new Notifications(pool);
+  const worker = new ScheduledNotifications(pool, sender);
+  await worker.schedule({
+    userId: "restart-owner",
+    type: "HEALTH_REMINDER",
+    title: "Reminder",
+    body: "Due",
+    scheduledAt: new Date(Date.now() - 60000),
+  });
+  const original = sender.notifyUser.bind(sender);
+  let interrupted = true;
+  t.mock.method(
+    sender,
+    "notifyUser",
+    async (...args: Parameters<typeof original>) => {
+      await original(...args);
+      if (interrupted)
+        throw new Error("Simulated restart after durable insertion");
+    },
+  );
+  assert.deepEqual(await worker.processDue(), { sent: 0, failed: 1 });
+  interrupted = false;
+  assert.deepEqual(
+    await new ScheduledNotifications(pool, sender).processDue(),
+    { sent: 1, failed: 0 },
+  );
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS count FROM notifications WHERE user_id='restart-owner'",
+  );
+  assert.equal(Number(rows[0].count), 1);
 });
 
 test("GET /v1/health returns ok", async () => {
@@ -1339,56 +1378,57 @@ test("finder cleanup keeps failed deletions eligible for retry", async () => {
     .set("Authorization", `Bearer ${owner.token}`)
     .send({ name: "Retry", species: "Dog" })
     .expect(201);
-  const recoveryState = await request(app)
-    .get(`/v1/pets/${pet.body.id}/recovery`)
-    .set("Authorization", `Bearer ${owner.token}`)
-    .expect(200);
   const session = await request(app)
     .post("/v1/recovery/finder-session")
     .expect(201);
-  const png = await sharp({
-    create: { width: 16, height: 16, channels: 3, background: "#abcdef" },
-  })
-    .png()
-    .toBuffer();
-  const staged = await request(app)
-    .post(
-      `/v1/recovery/${encodeURIComponent(recoveryState.body.token)}/evidence/photo`,
-    )
-    .set("X-Finder-Session", session.body.credential)
-    .attach("file", png, { filename: "retry.png", contentType: "image/png" })
-    .expect(201);
-  const [rows] = await pool.query<(RowDataPacket & { storage_url: string })[]>(
-    "SELECT storage_url FROM sighting_evidence WHERE id = ?",
-    [staged.body.id],
+  const finderSessionId = String(session.body.credential).split(".")[0];
+  const storageUrl =
+    "/uploads/recovery/00000000-0000-4000-8000-000000000001.webp";
+  const removed: string[] = [];
+  let failRemoval = true;
+  const storage: MediaStorage = {
+    owns: (reference) => reference === storageUrl,
+    save: async () => {
+      throw new Error("unused");
+    },
+    read: async () => {
+      throw new Error("unused");
+    },
+    remove: async (reference) => {
+      assert.equal(reference, storageUrl);
+      if (failRemoval) throw new Error("simulated storage failure");
+      removed.push(reference);
+    },
+  };
+  const retryableEvidence = new FinderEvidence(pool, storage);
+  const staged = await retryableEvidence.stage(pet.body.id, finderSessionId, {
+    relativeUrl: storageUrl,
+    mimeType: "image/webp",
+    byteSize: 1,
+    width: 1,
+    height: 1,
+    sha256: "0".repeat(64),
+  });
+  await pool.query(
+    "UPDATE sighting_evidence SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 HOUR) WHERE id = ?",
+    [staged.evidence.id],
   );
-  const file = finderEvidence.absolutePath(rows[0].storage_url);
-  const normalized = await fs.readFile(file);
-  try {
-    await fs.unlink(file);
-    await fs.mkdir(file);
-    await pool.query(
-      "UPDATE sighting_evidence SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 HOUR) WHERE id = ?",
-      [staged.body.id],
-    );
-    await assert.rejects(finderEvidence.cleanupExpired());
-    const [failed] = await pool.query<(RowDataPacket & { status: string })[]>(
-      "SELECT status FROM sighting_evidence WHERE id = ?",
-      [staged.body.id],
-    );
-    assert.equal(failed[0].status, "STAGED");
-    await fs.rm(file, { recursive: true });
-    await fs.writeFile(file, normalized);
-    await finderEvidence.cleanupExpired();
-    const [retried] = await pool.query<(RowDataPacket & { status: string })[]>(
-      "SELECT status FROM sighting_evidence WHERE id = ?",
-      [staged.body.id],
-    );
-    assert.equal(retried[0].status, "DELETED");
-    await assert.rejects(fs.stat(file), { code: "ENOENT" });
-  } finally {
-    await fs.rm(file, { recursive: true, force: true });
-  }
+
+  await assert.rejects(retryableEvidence.cleanupExpired());
+  const [failed] = await pool.query<(RowDataPacket & { status: string })[]>(
+    "SELECT status FROM sighting_evidence WHERE id = ?",
+    [staged.evidence.id],
+  );
+  assert.equal(failed[0].status, "STAGED");
+
+  failRemoval = false;
+  await retryableEvidence.cleanupExpired();
+  const [retried] = await pool.query<(RowDataPacket & { status: string })[]>(
+    "SELECT status FROM sighting_evidence WHERE id = ?",
+    [staged.evidence.id],
+  );
+  assert.equal(retried[0].status, "DELETED");
+  assert.deepEqual(removed, [storageUrl]);
 });
 
 test("finder sessions resume safely and reject expired or blocked credentials", async () => {

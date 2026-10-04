@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool, RowDataPacket } from "mysql2/promise";
+import type { Pool, RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import type {
   PushDeviceInput,
   RecoveryNotification,
@@ -123,7 +123,7 @@ export class Notifications {
     // Expo removes receipts after 24 hours. Expired tickets must not occupy
     // the front of every bounded batch and starve newer delivery results.
     await this.pool.query(
-      "DELETE FROM expo_push_receipts WHERE created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)",
+      "DELETE FROM expo_push_receipts WHERE created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR) LIMIT 500",
     );
     const [rows] = await this.pool.query<PushReceiptRow[]>(
       `SELECT receipt_id, expo_push_token
@@ -218,8 +218,19 @@ export class Notifications {
     title: string,
     body: string,
     data: Record<string, unknown> = {},
+    notificationId?: string,
   ): Promise<void> {
-    await this.insertNotification(userId, type, title, body, data);
+    if (
+      !(await this.insertNotification(
+        userId,
+        type,
+        title,
+        body,
+        data,
+        notificationId,
+      ))
+    )
+      return;
     const [devices] = await this.pool.query<PushDeviceRow[]>(
       `SELECT expo_push_token, user_id
          FROM push_devices
@@ -298,19 +309,30 @@ export class Notifications {
     title: string,
     body: string,
     data: Record<string, unknown>,
-  ) {
-    await this.pool.query(
-      `INSERT INTO notifications (id, user_id, type, title, body, data)
+    notificationId?: string,
+  ): Promise<boolean> {
+    try {
+      await this.pool.query<ResultSetHeader>(
+        `INSERT INTO notifications (id, user_id, type, title, body, data)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        `NT-${randomUUID().toUpperCase()}`,
-        userId,
-        type,
-        title.slice(0, 120),
-        body.slice(0, 500),
-        JSON.stringify(data),
-      ],
-    );
+        [
+          notificationId || `NT-${randomUUID().toUpperCase()}`,
+          userId,
+          type,
+          title.slice(0, 120),
+          body.slice(0, 500),
+          JSON.stringify(data),
+        ],
+      );
+      return true;
+    } catch (error) {
+      if (
+        notificationId &&
+        (error as { code?: string }).code === "ER_DUP_ENTRY"
+      )
+        return false;
+      throw error;
+    }
   }
 
   private async sendPush(

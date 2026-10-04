@@ -6,13 +6,7 @@ import multer from "multer";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import dotenv from "dotenv";
-import {
-  initializeApp,
-  getApps,
-  cert,
-  App,
-  type ServiceAccount,
-} from "firebase-admin/app";
+import { initializeApp, getApps, cert, App } from "firebase-admin/app";
 import { getAuth, DecodedIdToken } from "firebase-admin/auth";
 import { createPool } from "./db.js";
 import { Accounts } from "./accounts.js";
@@ -50,20 +44,13 @@ import {
   requestObservability,
   type RequestWithId,
 } from "./observability.js";
-import { assertProductionEnvironment } from "./config.js";
+import { assertProductionEnvironment, serverPort } from "./config.js";
+import { createMediaStorage, MediaStorageError } from "./media-storage.js";
+import { MediaCleanup } from "./media-cleanup.js";
+import { firebaseServiceAccount } from "./firebase-admin-config.js";
 
 dotenv.config();
 assertProductionEnvironment();
-
-function firebaseServiceAccount(): ServiceAccount | undefined {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw) as ServiceAccount;
-  } catch {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON must be valid JSON.");
-  }
-}
 
 let adminApp: App;
 if (getApps().length === 0) {
@@ -123,15 +110,17 @@ app.use(
 );
 
 const configuredUploadDir = process.env.UPLOAD_DIR?.trim();
-if (process.env.NODE_ENV === "production" && !configuredUploadDir) {
-  throw new Error(
-    "UPLOAD_DIR is required in production and must point to durable storage.",
-  );
-}
 const uploadDir = path.resolve(
   configuredUploadDir || path.join(process.cwd(), "uploads"),
 );
-if (!fs.existsSync(uploadDir)) {
+const mediaStorage = createMediaStorage(uploadDir);
+export const mediaCleanup = new MediaCleanup(pool, mediaStorage);
+const reserveMedia = (reference: string) =>
+  mediaCleanup.schedule(reference, 24 * 60 * 60);
+if (
+  (process.env.UPLOAD_STORAGE_PROVIDER || "local") === "local" &&
+  !fs.existsSync(uploadDir)
+) {
   fs.mkdirSync(uploadDir, { recursive: true, mode: 0o750 });
 }
 // Recovery evidence is private. It is delivered only through authenticated
@@ -200,9 +189,21 @@ const finderSubmissionLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-const finderOtpLimiter = rateLimit({
+const finderOtpSendLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: Math.max(3, Number(process.env.FINDER_OTP_RATE_LIMIT_HOURLY) || 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const finderOtpVerifyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  // Verification already has a strict five-attempt budget per challenge. Keep a
+  // separate coarse IP ceiling so failed code entry cannot consume the much
+  // smaller OTP-send budget and lock out otherwise valid verification flows.
+  limit: Math.max(
+    15,
+    Number(process.env.FINDER_OTP_VERIFY_RATE_LIMIT_HOURLY) || 50,
+  ),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -261,7 +262,10 @@ app.get("/v1/health", (_req: Request, res: Response) => {
 
 app.get("/v1/ready", async (_req: Request, res: Response) => {
   try {
-    await pool.query("SELECT 1");
+    await pool.query({
+      sql: "SELECT 1 FROM media_cleanup_jobs LIMIT 0",
+      timeout: 5000,
+    });
     res.json({ status: "ready" });
   } catch {
     res.status(503).json({ status: "not-ready" });
@@ -401,7 +405,7 @@ export const finderSessions = new FinderSessions(
 );
 export const finderEvidence = new FinderEvidence(
   pool,
-  uploadDir,
+  mediaStorage,
   Number(process.env.FINDER_EVIDENCE_RETENTION_HOURS) || 24,
   Number(process.env.FINDER_INCIDENT_RETENTION_DAYS) || 30,
 );
@@ -527,7 +531,7 @@ app.post(
 
 app.post(
   "/v1/recovery/finder-session/otp/send",
-  finderOtpLimiter,
+  finderOtpSendLimiter,
   requireFinderSession,
   petRoute(async (req, res) => {
     const result = await finderVerification.send(
@@ -540,7 +544,7 @@ app.post(
 
 app.post(
   "/v1/recovery/finder-session/otp/verify",
-  finderOtpLimiter,
+  finderOtpVerifyLimiter,
   requireFinderSession,
   petRoute(async (req, res) => {
     await finderVerification.verify(
@@ -581,7 +585,11 @@ app.post(
       });
       return;
     }
-    const processed = await sanitizeFinderPhoto(req.file.buffer, uploadDir);
+    const processed = await sanitizeFinderPhoto(
+      req.file.buffer,
+      mediaStorage,
+      reserveMedia,
+    );
     const staged = await finderEvidence.stage(petId, req.finder!.id, processed);
     res.status(201).json({
       id: staged.evidence.id,
@@ -871,7 +879,7 @@ app.get(
   requireOwner,
   petRoute(async (req, res) => {
     const file = await finderEvidence.ownerFile(req.params.id, req.user!.uid);
-    if (!file || !fs.existsSync(file.absolutePath)) {
+    if (!file) {
       res.status(404).json({
         error: "not-found",
         message: "Finder evidence not found.",
@@ -881,7 +889,7 @@ app.get(
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.type(file.mimeType);
-    res.sendFile(file.absolutePath);
+    res.send(await mediaStorage.read(file.storageUrl));
   }),
 );
 
@@ -1324,15 +1332,6 @@ app.post(
   }),
 );
 
-function removeStoredPhoto(url: string | null) {
-  if (!url || !/^\/uploads\/[a-f0-9-]+\.(jpg|png|webp)$/.test(url)) return;
-  void fs.promises
-    .unlink(path.join(uploadDir, path.basename(url)))
-    .catch((error) => {
-      console.error("Could not remove pet photo:", error);
-    });
-}
-
 app.delete(
   "/v1/pets/:id",
   requireAuth,
@@ -1340,9 +1339,11 @@ app.delete(
   petRoute(async (req, res) => {
     const previous = await pets.get(req.user!.uid, req.params.id);
     if (!previous) return petNotFound(res);
+    await mediaCleanup.schedule(previous.photoUrl);
+    await mediaCleanup.schedulePetEvidence(req.params.id);
     if (!(await pets.delete(req.user!.uid, req.params.id)))
       return petNotFound(res);
-    removeStoredPhoto(previous.photoUrl);
+    await mediaCleanup.removeNow(previous.photoUrl);
     res.status(204).end();
   }),
 );
@@ -1382,11 +1383,16 @@ app.put(
       return;
     }
 
-    const processed = await sanitizePetPhoto(req.file.buffer, uploadDir);
+    const processed = await sanitizePetPhoto(
+      req.file.buffer,
+      mediaStorage,
+      reserveMedia,
+    );
     let stored = false;
     try {
       const previous = await pets.get(req.user!.uid, req.params.id);
       if (!previous) return petNotFound(res);
+      await mediaCleanup.schedule(previous.photoUrl);
       const pet = await pets.setPhoto(
         req.user!.uid,
         req.params.id,
@@ -1394,11 +1400,11 @@ app.put(
       );
       if (!pet) return petNotFound(res);
       stored = true;
-      removeStoredPhoto(previous.photoUrl);
+      await mediaCleanup.removeNow(previous.photoUrl);
       res.json(pet);
     } finally {
       if (!stored)
-        await fs.promises.unlink(processed.absolutePath).catch(() => {});
+        await mediaStorage.remove(processed.relativeUrl).catch(() => {});
     }
   }),
 );
@@ -1410,9 +1416,10 @@ app.delete(
   petRoute(async (req, res) => {
     const previous = await pets.get(req.user!.uid, req.params.id);
     if (!previous) return petNotFound(res);
+    await mediaCleanup.schedule(previous.photoUrl);
     const pet = await pets.setPhoto(req.user!.uid, req.params.id, null);
     if (!pet) return petNotFound(res);
-    removeStoredPhoto(previous.photoUrl);
+    await mediaCleanup.removeNow(previous.photoUrl);
     res.json(pet);
   }),
 );
@@ -1472,6 +1479,10 @@ app.use(
             : "Invalid photo upload.",
       });
     }
+    if (err instanceof MediaStorageError)
+      return res
+        .status(503)
+        .json({ error: "unavailable", message: err.message });
     logError(err, req);
     res.status(500).json({
       error: "internal",
@@ -1489,7 +1500,8 @@ if (process.env.NODE_ENV !== "test") {
   finderEvidence.start(
     Number(process.env.FINDER_CLEANUP_INTERVAL_MS) || 60 * 60 * 1000,
   );
-  const port = Number(process.env.PORT) || 3000;
+  mediaCleanup.start();
+  const port = serverPort();
   const server = app.listen(port, "0.0.0.0", () => {
     process.stdout.write(
       JSON.stringify({
@@ -1507,6 +1519,7 @@ if (process.env.NODE_ENV !== "test") {
     shuttingDown = true;
     scheduledNotifications.stop();
     finderEvidence.stop();
+    mediaCleanup.stop();
     process.stdout.write(
       JSON.stringify({
         ts: new Date().toISOString(),

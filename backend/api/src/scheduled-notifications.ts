@@ -27,6 +27,7 @@ function sqlDate(value: Date) {
 
 export class ScheduledNotifications {
   private timer: NodeJS.Timeout | null = null;
+  private running = false;
 
   constructor(
     private pool: Pool,
@@ -103,7 +104,8 @@ export class ScheduledNotifications {
         `UPDATE scheduled_notifications
             SET status = 'PENDING', claimed_at = NULL
           WHERE status = 'PROCESSING'
-            AND claimed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE)`,
+            AND claimed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE)
+          LIMIT 100`,
       );
       const [selected] = await connection.query<ScheduledRow[]>(
         `SELECT id, user_id, type, title, body, data
@@ -169,6 +171,7 @@ export class ScheduledNotifications {
           row.title,
           row.body,
           data,
+          `NT-${row.id}`,
         );
         await this.pool.query(
           `UPDATE scheduled_notifications
@@ -194,12 +197,20 @@ export class ScheduledNotifications {
   start(intervalMs = 60_000): void {
     if (this.timer) return;
     const run = () => {
+      if (this.running) return;
+      this.running = true;
       void (async () => {
         await this.processDue();
         await this.notifications.processPushReceipts();
-      })().catch((error) =>
-        console.error("Scheduled notification worker failed:", error),
-      );
+      })()
+        .catch(() =>
+          console.error(
+            "Scheduled notification worker temporarily unavailable.",
+          ),
+        )
+        .finally(() => {
+          this.running = false;
+        });
     };
     run();
     this.timer = setInterval(run, Math.max(10_000, intervalMs));
