@@ -2,6 +2,7 @@ import { defineConfig, devices, type WebServerConfig } from "@playwright/test";
 
 const localChromium = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim();
 const integration = process.env.PETCONNECT_E2E_INTEGRATION === "1";
+const developmentUrl = process.env.PETCONNECT_E2E_DEV_URL?.trim();
 const inheritedEnv = Object.fromEntries(
   Object.entries(process.env).filter(
     (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -45,13 +46,14 @@ const integrationServers: WebServerConfig[] = [
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: integration ? 60_000 : 30_000,
+  // A live development run compiles routes and can follow public tunnel links.
+  timeout: developmentUrl ? 120_000 : integration ? 60_000 : 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: developmentUrl || "http://127.0.0.1:4173",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -66,5 +68,9 @@ export default defineConfig({
       },
     },
   ],
-  webServer: integration ? [staticServer, ...integrationServers] : staticServer,
+  webServer: developmentUrl
+    ? undefined
+    : integration
+      ? [staticServer, ...integrationServers]
+      : staticServer,
 });

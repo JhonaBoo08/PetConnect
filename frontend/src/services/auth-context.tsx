@@ -24,6 +24,7 @@ import {
   registerOwner,
 } from "@/services/auth";
 import { firebaseClient } from "@/services/firebase/client";
+import { authEmulatorUrl } from "./development-endpoints";
 
 export type AuthState =
   | { status: "loading" }
@@ -64,8 +65,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 function firebaseNetworkMessage(): string {
   const environment = process.env.EXPO_PUBLIC_FIREBASE_ENV ?? "emulator";
   if (environment === "emulator") {
-    const host = process.env.EXPO_PUBLIC_EMULATOR_HOST || "127.0.0.1";
-    return `Cannot reach the Firebase Auth emulator at http://${host}:9099. Start it with "npm run emulators". On an Android emulator use 10.0.2.2 instead of 127.0.0.1; on a physical device use this computer's LAN IP.`;
+    return `Cannot reach the Firebase Auth emulator at ${authEmulatorUrl()}. Start it with "npm run emulators", then reload the app.`;
   }
   return `Cannot reach Firebase Auth for the "${environment}" environment. Check your connection and that the Firebase project is reachable.`;
 }

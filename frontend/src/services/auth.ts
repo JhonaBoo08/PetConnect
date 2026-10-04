@@ -5,6 +5,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { firebaseClient } from "./firebase/client";
+import { developmentServerOrigin } from "./development-endpoints";
 import type {
   InitializeOwnerRequest,
   PrivacySettings,
@@ -35,7 +36,11 @@ export function getApiBaseUrl(): string {
       "Set EXPO_PUBLIC_API_BASE_URL for this Firebase environment.",
     );
   }
-  return (configured || "http://127.0.0.1:3000").replace(/\/$/, "");
+  const origin = developmentServerOrigin();
+  return (
+    configured ||
+    (origin ? `${origin}/petconnect-api` : "http://127.0.0.1:3000")
+  ).replace(/\/$/, "");
 }
 
 export async function authenticatedFetch<T>(
