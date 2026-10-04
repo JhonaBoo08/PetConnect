@@ -83,24 +83,19 @@ Migrations are checksum-tracked. Do not edit a migration that may already have b
 
 The repository intentionally uses the fake project ID `demo-petconnect` only for local/test emulator workflows.
 
-Start the emulator:
+Start the complete local development stack with one command:
 
 ```bash
-npm run emulators
+npm run dev
 ```
 
-Local Auth accounts are imported from `.firebase/emulators` and saved there when the emulator shuts down normally with Ctrl+C. Run `npm run emulators:save` before a forced restart. This ignored local state keeps Firebase user IDs aligned with the MySQL owner profiles between development sessions.
+This starts the Firebase Auth emulator, PetConnect API, and Expo frontend together. Local Auth accounts are imported from `.firebase/emulators` and saved there when the emulator shuts down normally with Ctrl+C. Run `npm run emulators:save` before a forced restart. This ignored local state keeps Firebase user IDs aligned with the MySQL owner profiles between development sessions.
 
-Then start the API and frontend in separate terminals:
-
-```bash
-npm --prefix backend/api run dev
-npm run web
-```
+If you intentionally want to run components separately, use `npm run emulators`, `npm run dev:api`, and `npm run dev:frontend`.
 
 Default local endpoints are API `http://127.0.0.1:3000`, Expo web `http://127.0.0.1:8081`, Auth emulator `127.0.0.1:9099`, and Emulator UI `http://127.0.0.1:4000`.
 
-In emulator-mode development, API, photo, and Firebase Auth SDK requests automatically go through the Expo server. Leave `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_EMULATOR_HOST` unset to use this route. It works with web, LAN, Android emulators, and `npm run dev:tunnel` on a physical phone, including mobile data. Start MySQL, the API, and Auth emulator before scanning the Expo QR code.
+In emulator-mode development, API, photo, and Firebase Auth SDK requests automatically go through the Expo server. Leave `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_EMULATOR_HOST` unset to use this route. It works with web, LAN, Android emulators, and `npm run dev:tunnel` on a physical phone, including mobile data. MySQL must already be running before `npm run dev`.
 
 If an older `frontend/.env.local` sets localhost endpoint overrides, remove those two lines and restart Expo with `npm run dev:tunnel`. Explicit overrides are still supported for separate services; those addresses must be reachable from the device. Production and exported builds use explicitly configured service endpoints and do not include the development proxy.
 
