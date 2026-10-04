@@ -36,11 +36,17 @@ import {
   newFinderIdempotencyKey,
   sendFinderOtp,
   submitFinderReport,
+  submitFinderReportByReportId,
   uploadFinderPhoto,
+  uploadFinderPhotoByReportId,
   verifyFinderOtp,
 } from "@/services/finder-recovery";
 import { petPhotoUri } from "@/services/pets";
-import { getPublicRecovery } from "@/services/recovery";
+import {
+  getPublicRecovery,
+  getPublicRecoveryByReport,
+  recordRecoveryScan,
+} from "@/services/recovery";
 import type {
   Coordinates,
   FinderEncounterType,
@@ -66,21 +72,30 @@ function encounterCopy(encounter: FinderEncounterType, petName: string) {
   return encounter === "HAVE_PET"
     ? {
         title: `I have ${petName}`,
-        subtitle:
-          "Tell the owner where the pet is now. A current photo is required for this report.",
-        submit: "Send found-pet report",
+        subtitle: "Add a current photo and location.",
+        submit: "Send to owner",
       }
     : {
         title: `I saw ${petName}`,
-        subtitle:
-          "Send a quick location update. A photo is helpful but not required.",
-        submit: "Submit Sighting",
+        subtitle: "Share where you saw them.",
+        submit: "Send sighting",
       };
 }
 
 export default function RecoverScreen() {
-  const params = useLocalSearchParams<{ token?: string }>();
+  const params = useLocalSearchParams<{
+    token?: string;
+    reportId?: string;
+    source?: string;
+  }>();
   const token = Array.isArray(params.token) ? params.token[0] : params.token;
+  const reportId = Array.isArray(params.reportId)
+    ? params.reportId[0]
+    : params.reportId;
+  const source = Array.isArray(params.source)
+    ? params.source[0]
+    : params.source;
+  const noTagFlow = Boolean(reportId && !token);
 
   const [profile, setProfile] = useState<PublicRecoveryProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,15 +132,22 @@ export default function RecoverScreen() {
   );
 
   const load = useCallback(async () => {
-    if (!token) {
-      throw new Error("This recovery link is missing its PetConnect token.");
+    if (!token && !reportId) {
+      throw new Error("This recovery link is incomplete.");
     }
-    const result = await getPublicRecovery(token);
+    const [result, finder] = await Promise.all([
+      token ? getPublicRecovery(token) : getPublicRecoveryByReport(reportId!),
+      ensureFinderSession().catch(() => null),
+    ]);
     setProfile(result);
-    // Finder sessions are intentionally independent from PetConnect accounts.
-    // Session setup failure must not block viewing the public recovery profile.
-    void ensureFinderSession().catch(() => {});
-  }, [token]);
+    if (token && finder) {
+      void recordRecoveryScan(
+        token,
+        finder.credential,
+        source === "CODE" ? "CODE" : "QR",
+      ).catch(() => {});
+    }
+  }, [reportId, source, token]);
 
   useEffect(() => {
     let active = true;
@@ -229,15 +251,17 @@ export default function RecoverScreen() {
   }
 
   async function prepareEvidence(): Promise<string | undefined> {
-    if (!photoUri || !token) return undefined;
+    if (!photoUri || (!token && !reportId)) return undefined;
     if (evidenceId) return evidenceId;
-    const uploaded = await uploadFinderPhoto(token, photoUri);
+    const uploaded = reportId
+      ? await uploadFinderPhotoByReportId(reportId, photoUri)
+      : await uploadFinderPhoto(token!, photoUri);
     setEvidenceId(uploaded.id);
     return uploaded.id;
   }
 
   async function sendReport() {
-    if (!token || !profile) return;
+    if ((!token && !reportId) || !profile) return;
     setLocationError("");
     if (encounterType === "HAVE_PET" && !photoUri) {
       setError(
@@ -256,7 +280,7 @@ export default function RecoverScreen() {
     setError("");
     try {
       const attachedEvidence = photoUri ? await prepareEvidence() : undefined;
-      const result = await submitFinderReport(token, {
+      const input = {
         encounterType,
         evidenceId: attachedEvidence,
         finderName: finderName.trim() || undefined,
@@ -267,9 +291,12 @@ export default function RecoverScreen() {
         latitude: location?.latitude ?? null,
         longitude: location?.longitude ?? null,
         accuracyM: location?.accuracyM ?? null,
-        locationSource: location ? "GPS" : "TEXT",
+        locationSource: location ? ("GPS" as const) : ("TEXT" as const),
         idempotencyKey,
-      });
+      };
+      const result = reportId
+        ? await submitFinderReportByReportId(reportId, input)
+        : await submitFinderReport(token!, input);
       setSubmission(result);
       setFlow("SUCCESS");
     } catch (cause) {
@@ -389,6 +416,8 @@ export default function RecoverScreen() {
                       source={{ uri: petPhotoUri(profile.pet.photoUrl) || "" }}
                       style={StyleSheet.absoluteFill}
                       contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={120}
                       accessibilityLabel={`${profile.pet.name} photo`}
                     />
                   ) : (
@@ -460,10 +489,6 @@ export default function RecoverScreen() {
                         selected={null}
                         height={210}
                       />
-                      <Text style={styles.privacyHint}>
-                        The map follows the owner's public-location privacy
-                        setting and may intentionally show an approximate area.
-                      </Text>
                     </View>
                   ) : (
                     <View style={styles.infoCard}>
@@ -484,7 +509,19 @@ export default function RecoverScreen() {
                         ? `How did you encounter ${profile.pet.name}?`
                         : `Did you find ${profile.pet.name}?`}
                     </Text>
-                    {active ? (
+                    {noTagFlow ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Report sighting"
+                        onPress={() => begin("SEEN")}
+                        style={styles.primaryChoice}
+                      >
+                        <PinIcon size={22} color={Palette.white} />
+                        <Text style={styles.primaryChoiceTitle}>
+                          Report sighting
+                        </Text>
+                      </Pressable>
+                    ) : active ? (
                       <>
                         <Pressable
                           accessibilityRole="button"
@@ -493,14 +530,9 @@ export default function RecoverScreen() {
                           style={styles.primaryChoice}
                         >
                           <PawIcon size={23} color={Palette.white} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.primaryChoiceTitle}>
-                              I have this pet
-                            </Text>
-                            <Text style={styles.primaryChoiceMeta}>
-                              The pet is currently with me
-                            </Text>
-                          </View>
+                          <Text style={styles.primaryChoiceTitle}>
+                            I have this pet
+                          </Text>
                         </Pressable>
                         <Pressable
                           accessibilityRole="button"
@@ -509,14 +541,9 @@ export default function RecoverScreen() {
                           style={styles.secondaryChoice}
                         >
                           <PinIcon size={22} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.secondaryChoiceTitle}>
-                              I saw this pet
-                            </Text>
-                            <Text style={styles.secondaryChoiceMeta}>
-                              I spotted the pet but do not have them
-                            </Text>
-                          </View>
+                          <Text style={styles.secondaryChoiceTitle}>
+                            I saw this pet
+                          </Text>
                         </Pressable>
                       </>
                     ) : (
@@ -527,14 +554,9 @@ export default function RecoverScreen() {
                         style={styles.primaryChoice}
                       >
                         <PawIcon size={23} color={Palette.white} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.primaryChoiceTitle}>
-                            I found this pet
-                          </Text>
-                          <Text style={styles.primaryChoiceMeta}>
-                            Privately alert the registered owner
-                          </Text>
-                        </View>
+                        <Text style={styles.primaryChoiceTitle}>
+                          I found this pet
+                        </Text>
                       </Pressable>
                     )}
                   </View>
@@ -550,15 +572,6 @@ export default function RecoverScreen() {
                       <Text style={styles.callButtonText}>Call pet owner</Text>
                     </Pressable>
                   ) : null}
-
-                  <View style={styles.privacyCard}>
-                    <ShieldIcon size={22} />
-                    <Text style={styles.privacyText}>
-                      No PetConnect account or app is required. This recovery
-                      page excludes the owner's email, account identity, health
-                      records, appointments, and internal database IDs.
-                    </Text>
-                  </View>
                 </>
               ) : null}
 
@@ -569,8 +582,8 @@ export default function RecoverScreen() {
 
                   <Text style={styles.stepLabel}>
                     {encounterType === "HAVE_PET"
-                      ? "1 · CURRENT PET PHOTO — REQUIRED"
-                      : "PHOTO — OPTIONAL"}
+                      ? "PHOTO · REQUIRED"
+                      : "PHOTO · OPTIONAL"}
                   </Text>
                   {photoUri ? (
                     <View style={styles.evidencePreview}>
@@ -618,10 +631,6 @@ export default function RecoverScreen() {
                               ? "Take a current photo"
                               : "Add a photo"}
                           </Text>
-                          <Text style={styles.cameraMeta}>
-                            Camera is preferred; your browser may also allow an
-                            existing photo.
-                          </Text>
                         </>
                       )}
                     </Pressable>
@@ -629,7 +638,7 @@ export default function RecoverScreen() {
 
                   <Text style={styles.stepLabel}>
                     {encounterType === "HAVE_PET"
-                      ? "2 · WHERE ARE YOU NOW?"
+                      ? "LOCATION"
                       : "WHERE DID YOU SEE THE PET?"}
                   </Text>
                   <Pressable
@@ -684,11 +693,6 @@ export default function RecoverScreen() {
                     placeholderTextColor={Palette.placeholder}
                     style={styles.input}
                   />
-                  <Text style={styles.privacyHint}>
-                    Exact GPS, when shared, is sent privately to the owner.
-                    Public lost-pet maps still follow the owner's location
-                    privacy setting.
-                  </Text>
 
                   <Text style={styles.stepLabel}>
                     {encounterType === "HAVE_PET"
@@ -1015,7 +1019,7 @@ const styles = StyleSheet.create({
   petMeta: {
     fontFamily: Fonts.sans,
     fontSize: 13,
-    color: "#C9DBC6",
+    color: Palette.sage,
     marginTop: 3,
   },
   statusPill: {
@@ -1047,7 +1051,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1.2,
-    color: "#C9DBC6",
+    color: Palette.sage,
   },
   identifyingText: {
     fontFamily: Fonts.sans,
@@ -1128,7 +1132,7 @@ const styles = StyleSheet.create({
   primaryChoiceMeta: {
     fontFamily: Fonts.sans,
     fontSize: 12,
-    color: "#C9DBC6",
+    color: Palette.sage,
     marginTop: 2,
   },
   secondaryChoice: {
@@ -1373,7 +1377,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     color: Palette.danger,
-    backgroundColor: "#FBEDEA",
+    backgroundColor: Palette.dangerSoft,
     borderRadius: 10,
     padding: Spacing.two,
   },

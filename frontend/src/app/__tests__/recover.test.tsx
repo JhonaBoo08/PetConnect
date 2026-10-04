@@ -12,15 +12,22 @@ import {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mockGetPublicRecovery = jest.fn();
+const mockGetPublicRecoveryByReport = jest.fn();
+const mockRecordRecoveryScan = jest.fn();
 const mockEnsureFinderSession = jest.fn();
 const mockSubmitFinderReport = jest.fn();
+const mockSubmitFinderReportByReportId = jest.fn();
 const mockUploadFinderPhoto = jest.fn();
+const mockUploadFinderPhotoByReportId = jest.fn();
 const mockSendFinderOtp = jest.fn();
 const mockVerifyFinderOtp = jest.fn();
 const mockLocate = jest.fn();
 const mockCameraPermission = jest.fn();
 const mockLaunchCamera = jest.fn();
 const mockLaunchLibrary = jest.fn();
+let mockParams: { token?: string; reportId?: string; source?: string } = {
+  token: "recovery-token",
+};
 
 jest.mock("react-native-safe-area-context", () => ({
   SafeAreaView: require("react-native").View,
@@ -39,7 +46,7 @@ jest.mock("expo-image-picker", () => ({
   launchImageLibraryAsync: (...args: unknown[]) => mockLaunchLibrary(...args),
 }));
 jest.mock("expo-router", () => ({
-  useLocalSearchParams: () => ({ token: "recovery-token" }),
+  useLocalSearchParams: () => mockParams,
 }));
 jest.mock("@/lib/navigation", () => ({ goBack: jest.fn() }));
 jest.mock("@/services/auth", () => ({
@@ -61,12 +68,19 @@ jest.mock("@/services/auth-context", () => ({
 }));
 jest.mock("@/services/recovery", () => ({
   getPublicRecovery: (...args: unknown[]) => mockGetPublicRecovery(...args),
+  getPublicRecoveryByReport: (...args: unknown[]) =>
+    mockGetPublicRecoveryByReport(...args),
+  recordRecoveryScan: (...args: unknown[]) => mockRecordRecoveryScan(...args),
 }));
 jest.mock("@/services/finder-recovery", () => ({
   ensureFinderSession: (...args: unknown[]) => mockEnsureFinderSession(...args),
   newFinderIdempotencyKey: () => "finder-test-idempotency",
   submitFinderReport: (...args: unknown[]) => mockSubmitFinderReport(...args),
+  submitFinderReportByReportId: (...args: unknown[]) =>
+    mockSubmitFinderReportByReportId(...args),
   uploadFinderPhoto: (...args: unknown[]) => mockUploadFinderPhoto(...args),
+  uploadFinderPhotoByReportId: (...args: unknown[]) =>
+    mockUploadFinderPhotoByReportId(...args),
   sendFinderOtp: (...args: unknown[]) => mockSendFinderOtp(...args),
   verifyFinderOtp: (...args: unknown[]) => mockVerifyFinderOtp(...args),
 }));
@@ -102,7 +116,7 @@ it("keeps a recoverable finder report after a temporary service failure", async 
       "Market entrance",
     ),
   );
-  await fireEvent.press(view.getByRole("button", { name: "Submit Sighting" }));
+  await fireEvent.press(view.getByRole("button", { name: "Send sighting" }));
   await waitFor(() =>
     expect(
       view.getByText(
@@ -113,7 +127,7 @@ it("keeps a recoverable finder report after a temporary service failure", async 
   expect(view.getByLabelText("Finder location description").props.value).toBe(
     "Market entrance",
   );
-  expect(view.getByRole("button", { name: "Submit Sighting" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "Send sighting" })).toBeTruthy();
   await view.unmount();
 });
 
@@ -155,12 +169,14 @@ beforeEach(() => {
   // Reset queued/rejected async implementations as well as call history so
   // one finder scenario cannot leak into the next recovery-screen test.
   jest.resetAllMocks();
+  mockParams = { token: "recovery-token" };
   mockEnsureFinderSession.mockResolvedValue({
     credential: "finder-session",
     expiresAt: "2026-11-03T00:00:00Z",
     phoneVerified: false,
     verificationRequired: false,
   });
+  mockRecordRecoveryScan.mockResolvedValue({ recorded: true });
   mockCameraPermission.mockResolvedValue({ granted: true });
   mockLaunchCamera.mockResolvedValue({ canceled: true, assets: [] });
   mockLaunchLibrary.mockResolvedValue({ canceled: true, assets: [] });
@@ -180,10 +196,12 @@ it("loads a registered Pet ID without authentication and offers a private found-
   );
   expect(view.getByText("REGISTERED PET")).toBeTruthy();
   expect(view.getByRole("button", { name: "I found this pet" })).toBeTruthy();
-  expect(
-    view.getByText(/No PetConnect account or app is required/),
-  ).toBeTruthy();
   expect(mockEnsureFinderSession).toHaveBeenCalled();
+  expect(mockRecordRecoveryScan).toHaveBeenCalledWith(
+    "recovery-token",
+    "finder-session",
+    "QR",
+  );
   await view.unmount();
 });
 
@@ -226,7 +244,7 @@ it("keeps the SEEN flow fast and makes photo evidence optional", async () => {
     expect(view.getByLabelText("Finder location description")).toBeTruthy(),
   );
   expect(view.getByText(/PHOTO.*OPTIONAL/i)).toBeTruthy();
-  expect(view.getByRole("button", { name: "Submit Sighting" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "Send sighting" })).toBeTruthy();
   expect(mockUploadFinderPhoto).not.toHaveBeenCalled();
   expect(mockSubmitFinderReport).not.toHaveBeenCalled();
   await view.unmount();
@@ -253,7 +271,7 @@ it("requires a current photo when the finder says they have the pet", async () =
     ),
   );
   await fireEvent.press(
-    view.getByRole("button", { name: "Send found-pet report" }),
+    view.getByRole("button", { name: "Send to owner" }),
   );
 
   await waitFor(() =>
@@ -291,6 +309,62 @@ it("captures current photo evidence for a HAVE_PET report", async () => {
   await view.unmount();
 });
 
+it("uploads optional no-tag photo evidence by report ID before submitting the sighting", async () => {
+  mockParams = { reportId: "LR-NO-TAG" };
+  mockGetPublicRecoveryByReport.mockResolvedValue(lostProfile);
+  mockLaunchCamera.mockResolvedValue({
+    canceled: false,
+    assets: [{ uri: "file:///finder-no-tag.jpg" }],
+  });
+  mockUploadFinderPhotoByReportId.mockResolvedValue({
+    id: "EV-NO-TAG",
+    expiresAt: "2026-10-05T00:00:00Z",
+    byteSize: 1234,
+    width: 640,
+    height: 480,
+    mimeType: "image/webp",
+  });
+  mockSubmitFinderReportByReportId.mockResolvedValue({
+    kind: "SIGHTING",
+    sighting: { id: "SG-NO-TAG" },
+  });
+
+  const view = await render(<RecoverScreen />);
+  await waitFor(() => expect(view.getByText("LOST PET")).toBeTruthy());
+  await fireEvent.press(view.getByRole("button", { name: "Report sighting" }));
+
+  await waitFor(() =>
+    expect(view.getByRole("button", { name: "Add a photo" })).toBeTruthy(),
+  );
+  await fireEvent.press(view.getByRole("button", { name: "Add a photo" }));
+  await waitFor(() => expect(mockLaunchCamera).toHaveBeenCalled());
+
+  await fireEvent.changeText(
+    view.getByLabelText("Finder location description"),
+    "Public market entrance",
+  );
+  await fireEvent.press(view.getByRole("button", { name: "Send sighting" }));
+
+  await waitFor(() =>
+    expect(mockUploadFinderPhotoByReportId).toHaveBeenCalledWith(
+      "LR-NO-TAG",
+      "file:///finder-no-tag.jpg",
+    ),
+  );
+  await waitFor(() =>
+    expect(mockSubmitFinderReportByReportId).toHaveBeenCalledWith(
+      "LR-NO-TAG",
+      expect.objectContaining({
+        encounterType: "SEEN",
+        evidenceId: "EV-NO-TAG",
+        locationText: "Public market entrance",
+      }),
+    ),
+  );
+  expect(mockUploadFinderPhoto).not.toHaveBeenCalled();
+  await view.unmount();
+});
+
 it("progressively requests phone verification only when the API requires it", async () => {
   mockGetPublicRecovery.mockResolvedValue(lostProfile);
   const { ApiError } = require("@/services/auth") as {
@@ -324,7 +398,7 @@ it("progressively requests phone verification only when the API requires it", as
     ),
   );
 
-  await fireEvent.press(view.getByRole("button", { name: "Submit Sighting" }));
+  await fireEvent.press(view.getByRole("button", { name: "Send sighting" }));
   await waitFor(() =>
     expect(view.getByText("Extra verification needed")).toBeTruthy(),
   );

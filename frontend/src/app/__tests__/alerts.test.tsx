@@ -41,17 +41,32 @@ jest.mock("@/components/recovery-map", () => ({
 jest.mock("@/services/auth-context", () => ({
   authErrorMessage: (error: Error) => error.message,
 }));
-jest.mock("@/services/pets", () => ({ listPets: () => mockListPets() }));
+jest.mock("@/services/pets", () => ({
+  listPets: (...args: unknown[]) => mockListPets(...args),
+  peekPets: () => [],
+}));
 jest.mock("@/services/device-recovery", () => ({
   enableRecoveryPush: jest.fn(),
   requestCurrentCoordinates: () => mockGps(),
 }));
 jest.mock("@/services/recovery-network", () => ({
-  listMyLostReports: (...args: unknown[]) => mockListReports(...args),
+  getOwnerRecoveryOverview: async (...args: unknown[]) => {
+    const reports = await mockListReports(...args);
+    const entries = await Promise.all(
+      reports
+        .filter((report: { status: string }) => report.status !== "REUNITED")
+        .map(async (report: { id: string }) => [
+          report.id,
+          (await mockGetLostReport(report.id)).sightings,
+        ]),
+    );
+    return { reports, sightingsByReport: Object.fromEntries(entries) };
+  },
+  peekOwnerRecoveryOverview: () => undefined,
+  peekRecoveryNotifications: () => [],
   getNearbyLostReports: (...args: unknown[]) => mockNearby(...args),
   createLostReport: (...args: unknown[]) => mockCreate(...args),
   markPetReunited: (...args: unknown[]) => mockReunite(...args),
-  getLostReport: (...args: unknown[]) => mockGetLostReport(...args),
   listRecoveryNotifications: (...args: unknown[]) => mockNotifications(...args),
   markRecoveryNotificationRead: (...args: unknown[]) => mockMarkRead(...args),
 }));

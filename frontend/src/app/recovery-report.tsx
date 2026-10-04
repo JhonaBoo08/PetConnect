@@ -30,6 +30,7 @@ import { firebaseClient } from "@/services/firebase/client";
 import {
   getLostReport,
   getRecoveryContactEvent,
+  getRecoveryTimeline,
   markPetReunited,
   reportFinderSightingAbuse,
   reportRecoveryContactAbuse,
@@ -37,6 +38,7 @@ import {
 import type {
   LostReport,
   RecoveryContactEvent,
+  RecoveryTimelineEvent,
   Sighting,
   SightingEvidence,
 } from "../../../shared/contracts";
@@ -71,6 +73,7 @@ export default function RecoveryReportScreen() {
     : params.eventId;
 
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [timeline, setTimeline] = useState<RecoveryTimelineEvent[]>([]);
   const [authHeader, setAuthHeader] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
@@ -93,10 +96,14 @@ export default function RecoveryReportScreen() {
     if (!reportId || !sightingId) {
       throw new Error("This finder report link is incomplete.");
     }
-    const result = await getLostReport(reportId);
+    const [result, events] = await Promise.all([
+      getLostReport(reportId),
+      getRecoveryTimeline(reportId),
+    ]);
     const item = result.sightings.find((row) => row.id === sightingId);
     if (!item) throw new Error("Finder report not found.");
     setDetail({ kind: "SIGHTING", report: result.report, item });
+    setTimeline(events);
   }, [eventId, reportId, sightingId]);
 
   useEffect(() => {
@@ -196,11 +203,8 @@ export default function RecoveryReportScreen() {
             </Pressable>
           </View>
 
-          <Text style={styles.category}>RECOVERY EVIDENCE</Text>
+          <Text style={styles.category}>RECOVERY</Text>
           <Text style={styles.heading}>Finder report</Text>
-          <Text style={styles.supporting}>
-            Review what the finder submitted before deciding what to do next.
-          </Text>
 
           {loading ? (
             <ActivityIndicator
@@ -298,13 +302,41 @@ export default function RecoveryReportScreen() {
                 </View>
               </View>
 
+              {detail.kind === "SIGHTING" && timeline.length ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Recovery timeline</Text>
+                  <View style={styles.timelineCard}>
+                    {timeline.map((event, index) => (
+                      <View key={event.id} style={styles.timelineRow}>
+                        <View style={styles.timelineRail}>
+                          <View style={styles.timelineDot} />
+                          {index < timeline.length - 1 ? (
+                            <View style={styles.timelineLine} />
+                          ) : null}
+                        </View>
+                        <View style={styles.timelineCopy}>
+                          <Text style={styles.timelineTitle}>
+                            {event.title}
+                          </Text>
+                          {event.detail ? (
+                            <Text style={styles.timelineDetail}>
+                              {event.detail}
+                            </Text>
+                          ) : null}
+                          <Text style={styles.timelineTime}>
+                            {when(event.createdAt)}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
               {evidenceSources.length ? (
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>Finder photo</Text>
-                  <Text style={styles.helper}>
-                    Finder-submitted evidence. It helps you assess the report,
-                    but it is not proof of identity or custody.
-                  </Text>
+
                   {evidenceSources.map(({ evidence: entry, source }) => (
                     <View key={entry.id} style={styles.photoFrame}>
                       <Image
@@ -436,9 +468,7 @@ export default function RecoveryReportScreen() {
                       Confirm {detail.report.petName} is reunited?
                     </Text>
                     <Text style={styles.helper}>
-                      A finder saying they have the pet does not confirm a
-                      reunion. Only mark this after you have verified the pet is
-                      safely back.
+                      Mark reunited after your pet is safely back.
                     </Text>
                     <View style={styles.actionRow}>
                       <Pressable
@@ -493,16 +523,6 @@ export default function RecoveryReportScreen() {
                   Report this finder submission
                 </Text>
               </Pressable>
-
-              <View style={styles.privacyCard}>
-                <ShieldIcon size={20} />
-                <Text style={styles.privacyText}>
-                  PetConnect does not show the finder session identifier, IP
-                  abuse signal, phone-verification number, or internal risk
-                  metrics here. Contact details appear only when the finder
-                  explicitly chose to share them.
-                </Text>
-              </View>
             </>
           ) : null}
         </ScrollView>
@@ -593,7 +613,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontFamily: Fonts.sans,
     fontSize: 11.5,
-    color: "#C9DBC6",
+    color: Palette.sage,
   },
   encounterPill: {
     borderRadius: 999,
@@ -616,7 +636,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.two,
-    backgroundColor: "#FBEDEA",
+    backgroundColor: Palette.dangerSoft,
     borderRadius: 11,
     padding: Spacing.two,
   },
@@ -655,6 +675,56 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
     color: Palette.forestDark,
+  },
+  timelineCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.surface,
+    padding: Spacing.three,
+  },
+  timelineRow: {
+    flexDirection: "row",
+    gap: Spacing.two,
+  },
+  timelineRail: {
+    width: 16,
+    alignItems: "center",
+  },
+  timelineDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: Palette.forestDark,
+    marginTop: 5,
+  },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    minHeight: 34,
+    backgroundColor: Palette.borderSoft,
+  },
+  timelineCopy: {
+    flex: 1,
+    paddingBottom: Spacing.three,
+  },
+  timelineTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  timelineDetail: {
+    marginTop: 2,
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+  },
+  timelineTime: {
+    marginTop: 3,
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
+    color: Palette.inkMuted,
   },
   helper: {
     fontFamily: Fonts.sans,
@@ -744,7 +814,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.four,
     padding: Spacing.two,
     borderRadius: 10,
-    backgroundColor: "#FBEDEA",
+    backgroundColor: Palette.dangerSoft,
     fontFamily: Fonts.sans,
     fontSize: 12,
     lineHeight: 18,
@@ -818,8 +888,8 @@ const styles = StyleSheet.create({
     minHeight: 46,
     borderRadius: 13,
     borderWidth: 1,
-    borderColor: "#E5C0B3",
-    backgroundColor: "#FBEDEA",
+    borderColor: Palette.danger,
+    backgroundColor: Palette.dangerSoft,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

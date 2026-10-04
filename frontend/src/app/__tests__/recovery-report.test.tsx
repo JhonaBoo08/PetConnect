@@ -5,6 +5,7 @@ import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 let mockParams: Record<string, string> = {};
 const mockGetLostReport = jest.fn();
 const mockGetRecoveryContactEvent = jest.fn();
+const mockGetRecoveryTimeline = jest.fn();
 const mockReportSightingAbuse = jest.fn();
 const mockReportContactAbuse = jest.fn();
 const mockMarkReunited = jest.fn();
@@ -45,6 +46,7 @@ jest.mock("@/services/recovery-network", () => ({
   getLostReport: (...args: unknown[]) => mockGetLostReport(...args),
   getRecoveryContactEvent: (...args: unknown[]) =>
     mockGetRecoveryContactEvent(...args),
+  getRecoveryTimeline: (...args: unknown[]) => mockGetRecoveryTimeline(...args),
   reportFinderSightingAbuse: (...args: unknown[]) =>
     mockReportSightingAbuse(...args),
   reportRecoveryContactAbuse: (...args: unknown[]) =>
@@ -111,6 +113,23 @@ beforeEach(() => {
   mockParams = { reportId: "LR-BANTAY", sightingId: "SG-BANTAY" };
   mockGetLostReport.mockResolvedValue({ report, sightings: [sighting] });
   mockGetRecoveryContactEvent.mockResolvedValue(null);
+  mockGetRecoveryTimeline.mockResolvedValue([
+    {
+      id: "reported-LR-BANTAY",
+      kind: "REPORTED_LOST",
+      title: "Bantay reported missing",
+      detail: "Freedom Park",
+      createdAt: "2026-10-04T00:00:00Z",
+    },
+    {
+      id: "SG-BANTAY",
+      kind: "FOUND",
+      title: "Finder has the pet",
+      detail: "Main guardhouse",
+      createdAt: "2026-10-04T00:02:00Z",
+      sightingId: "SG-BANTAY",
+    },
+  ]);
   mockReportSightingAbuse.mockResolvedValue(undefined);
   mockReportContactAbuse.mockResolvedValue(undefined);
   mockMarkReunited.mockResolvedValue({ ...report, status: "REUNITED" });
@@ -129,9 +148,8 @@ it("shows owner-only finder evidence and explicit trust badges", async () => {
   expect(view.getByText("Helpful Finder")).toBeTruthy();
   expect(view.getByText("Bantay is safe at the guardhouse.")).toBeTruthy();
   expect(view.getByText("+639171234567")).toBeTruthy();
-  expect(
-    view.getByText(/does not show the finder session identifier/i),
-  ).toBeTruthy();
+  expect(view.getByText("Recovery timeline")).toBeTruthy();
+  expect(view.getByText("Bantay reported missing")).toBeTruthy();
 });
 
 it("lets the owner flag a finder sighting and uses a confirmation before reunion", async () => {

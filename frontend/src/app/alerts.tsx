@@ -24,20 +24,23 @@ import {
   SendIcon,
 } from "@/components/app-icons";
 import { BottomNav } from "@/components/bottom-nav";
+import { ListSkeleton } from "@/components/loading-skeleton";
 import { RecoveryMap } from "@/components/recovery-map";
 import type { RecoveryMapPin } from "@/components/recovery-map/types";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { authErrorMessage } from "@/services/auth-context";
+import { showFeedback } from "@/services/feedback";
 import { requestCurrentCoordinates } from "@/services/device-recovery";
-import { listPets } from "@/services/pets";
+import { listPets, peekPets } from "@/services/pets";
 import {
   createLostReport,
-  getLostReport,
   getNearbyLostReports,
-  listMyLostReports,
+  getOwnerRecoveryOverview,
   listRecoveryNotifications,
   markPetReunited,
+  peekOwnerRecoveryOverview,
+  peekRecoveryNotifications,
 } from "@/services/recovery-network";
 import type {
   Coordinates,
@@ -95,14 +98,19 @@ export default function RecoveryScreen() {
   const [showReportForm, setShowReportForm] = useState(
     (routeMode === "report" || Boolean(routePetId)) && !routeReportId,
   );
-  const [pets, setPets] = useState<Pet[]>([]);
-  const [reports, setReports] = useState<LostReport[]>([]);
+  const cachedOverview = peekOwnerRecoveryOverview();
+  const [pets, setPets] = useState<Pet[]>(peekPets);
+  const [reports, setReports] = useState<LostReport[]>(
+    () => cachedOverview?.reports ?? [],
+  );
   const [sightingsByReport, setSightingsByReport] = useState<
     Record<string, Sighting[]>
-  >({});
+  >(() => cachedOverview?.sightingsByReport ?? {});
   const [failedDetails, setFailedDetails] = useState<string[]>([]);
   const [nearby, setNearby] = useState<NearbyLostReport[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(
+    () => peekRecoveryNotifications().filter((notice) => !notice.readAt).length,
+  );
   const [selectedPetId, setSelectedPetId] = useState("");
   const [lastSeenText, setLastSeenText] = useState("");
   const [details, setDetails] = useState("");
@@ -111,7 +119,9 @@ export default function RecoveryScreen() {
     null,
   );
   const [loadingLocation, setLoadingLocation] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(
+    () => peekOwnerRecoveryOverview() === undefined,
+  );
   const [coreError, setCoreError] = useState("");
   const [nearbyError, setNearbyError] = useState("");
   const [publishing, setPublishing] = useState(false);
@@ -122,40 +132,18 @@ export default function RecoveryScreen() {
   const scrollRef = useRef<ScrollView>(null);
 
   const loadCore = useCallback(
-    async (isActive: () => boolean = () => true) => {
-      const [petRows, reportRows, notificationRows] = await Promise.all([
-        listPets(),
-        listMyLostReports(),
-        listRecoveryNotifications().catch(() => []),
+    async (isActive: () => boolean = () => true, force = false) => {
+      const [petRows, overview, notificationRows] = await Promise.all([
+        listPets({ force }),
+        getOwnerRecoveryOverview({ force }),
+        listRecoveryNotifications({ force }).catch(() => []),
       ]);
-      const cases = await Promise.all(
-        reportRows
-          .filter((r) => r.status !== "REUNITED")
-          .map(async (report) => {
-            try {
-              const detail = await getLostReport(report.id);
-              return {
-                id: report.id,
-                sightings: detail.sightings,
-                failed: false,
-              };
-            } catch {
-              return {
-                id: report.id,
-                sightings: [] as Sighting[],
-                failed: true,
-              };
-            }
-          }),
-      );
       if (!isActive()) return;
       setPets(petRows);
-      setReports(reportRows);
+      setReports(overview.reports);
       setUnreadCount(notificationRows.filter((n) => !n.readAt).length);
-      setSightingsByReport(
-        Object.fromEntries(cases.map((c) => [c.id, c.sightings])),
-      );
-      setFailedDetails(cases.filter((c) => c.failed).map((c) => c.id));
+      setSightingsByReport(overview.sightingsByReport);
+      setFailedDetails([]);
       setCoreError("");
       setSelectedPetId((current) => {
         if (routePetId && petRows.some((p) => p.id === routePetId))
@@ -186,7 +174,6 @@ export default function RecoveryScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
       loadCore(() => active)
         .catch((cause) => {
           if (active) setCoreError(authErrorMessage(cause));
@@ -219,7 +206,9 @@ export default function RecoveryScreen() {
     setError("");
     if (loadFeed) setNearbyError("");
     try {
-      const next = await requestCurrentCoordinates();
+      const next = await requestCurrentCoordinates({
+        preferFast: loadFeed,
+      });
       if (loadFeed) {
         setLocation(next);
         await loadNearby(next);
@@ -280,10 +269,11 @@ export default function RecoveryScreen() {
       setDetails("");
       setReportLocation(null);
       closeReport("reports");
-      setMessage(
+      const recoveryMessage =
         report.petName +
-          " is now in Recovery. Follow finder sightings in My Reports.",
-      );
+        " is now in Recovery. Follow finder sightings in My Reports.";
+      setMessage(recoveryMessage);
+      showFeedback(report.petName + " is now in Recovery.");
       // Publication succeeded even if a subsequent refresh temporarily fails.
       await loadCore().catch((cause) => setCoreError(authErrorMessage(cause)));
     } catch (cause) {
@@ -300,6 +290,7 @@ export default function RecoveryScreen() {
     try {
       await markPetReunited(report.id);
       setMessage(report.petName + " has been marked Reunited.");
+      showFeedback(report.petName + " has been marked Reunited.");
       await loadCore();
       if (location) await loadNearby(location);
     } catch (cause) {
@@ -313,7 +304,7 @@ export default function RecoveryScreen() {
     setRefreshing(true);
     setError("");
     try {
-      await loadCore();
+      await loadCore(() => true, true);
       if (!showReportForm && mode === "nearby" && location)
         await loadNearby(location);
     } catch (cause) {
@@ -467,10 +458,9 @@ export default function RecoveryScreen() {
               </View>
             ) : null}
             {loading ? (
-              <ActivityIndicator
-                color={Palette.forestDark}
-                style={styles.loader}
-              />
+              <View style={styles.loader}>
+                <ListSkeleton rows={2} rowHeight={92} />
+              </View>
             ) : null}
 
             {!loading && reporting ? (
