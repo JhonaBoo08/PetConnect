@@ -392,12 +392,14 @@ export default function PetIdScreen() {
                 style={styles.tagInput}
               />
               <View style={styles.tagTypeRow}>
-                {([
-                  ["COLLAR", "Collar"],
-                  ["HARNESS", "Harness"],
-                  ["PRINT", "Print"],
-                  ["STICKER", "Sticker"],
-                ] as Array<[RecoveryTagType, string]>).map(([type, label]) => (
+                {(
+                  [
+                    ["COLLAR", "Collar"],
+                    ["HARNESS", "Harness"],
+                    ["PRINT", "Print"],
+                    ["STICKER", "Sticker"],
+                  ] as Array<[RecoveryTagType, string]>
+                ).map(([type, label]) => (
                   <Pressable
                     key={type}
                     accessibilityRole="button"
@@ -506,7 +508,9 @@ export default function PetIdScreen() {
                             onPress={() => void updateTag(tag, "lost")}
                             style={styles.smallButton}
                           >
-                            <Text style={styles.smallButtonText}>Mark lost</Text>
+                            <Text style={styles.smallButtonText}>
+                              Mark lost
+                            </Text>
                           </Pressable>
                         ) : null}
                         {tag.status !== "REVOKED" ? (

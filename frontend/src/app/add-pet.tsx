@@ -489,7 +489,9 @@ export default function AddPetScreen() {
             autoCapitalize="characters"
             style={styles.input}
           />
-          <Text style={styles.privateHint}>Private · only you and authorized clinic views can see the number.</Text>
+          <Text style={styles.privateHint}>
+            Private · only you and authorized clinic views can see the number.
+          </Text>
 
           <View style={styles.idPanel}>
             <ShieldIcon size={22} />
