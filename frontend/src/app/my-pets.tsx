@@ -142,7 +142,7 @@ export default function MyPetsScreen() {
               <Text style={styles.screenTitle}>Pets</Text>
             )}
 
-            <Pressable
+            {!loading && pets.length > 0 ? <Pressable
               accessibilityRole="button"
               accessibilityLabel="Add pet"
               onPress={() => router.push("/add-pet")}
@@ -150,7 +150,7 @@ export default function MyPetsScreen() {
             >
               <PlusIcon size={16} />
               <Text style={styles.addButtonText}>Add pet</Text>
-            </Pressable>
+            </Pressable> : null}
           </View>
 
           {selectionMode ? (
@@ -160,10 +160,7 @@ export default function MyPetsScreen() {
             </View>
           ) : (
             <>
-              <Text style={styles.heading}>My pets</Text>
-              <Text style={styles.supporting}>
-                Pet IDs, health, care, editing, and recovery all start here.
-              </Text>
+              <Text style={styles.supporting}>Your pets, Pet IDs, and care.</Text>
             </>
           )}
 
@@ -294,7 +291,7 @@ export default function MyPetsScreen() {
           ) : null}
         </ScrollView>
 
-        <BottomNav active="pets" />
+        {!selectionMode ? <BottomNav active="pets" /> : null}
       </SafeAreaView>
     </View>
   );

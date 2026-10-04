@@ -143,7 +143,7 @@ export default function ProfileScreen() {
             />
             <SettingsCard
               icon={<PawIcon size={22} />}
-              title="My pets"
+              title="Pets"
               subtitle={
                 petsError ||
                 (petCount === null

@@ -5,14 +5,13 @@ import type { Pet } from "../../../../shared/contracts";
 
 const mockPush = jest.fn();
 const mockListPets = jest.fn();
+let mockParams: Record<string, string> = { action: "id" };
 
 jest.mock("expo-image", () => ({ Image: require("react-native").Image }));
 jest.mock("react-native-safe-area-context", () => ({
   SafeAreaView: require("react-native").View,
 }));
-jest.mock("@/components/bottom-nav", () => ({
-  BottomNav: () => null,
-}));
+
 jest.mock("@/services/auth-context", () => ({
   authErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : "error",
@@ -22,8 +21,8 @@ jest.mock("@/services/pets", () => ({
   petPhotoUri: (value: string) => value,
 }));
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ push: mockPush, back: jest.fn() }),
-  useLocalSearchParams: () => ({ action: "id" }),
+  useRouter: () => ({ push: mockPush, back: jest.fn(), navigate: jest.fn() }),
+  useLocalSearchParams: () => mockParams,
   useFocusEffect: (callback: () => void | (() => void)) => {
     require("react").useEffect(() => callback(), [callback]);
   },
@@ -49,6 +48,7 @@ const pet = (id: string, name: string): Pet =>
 describe("MyPetsScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockParams = { action: "id" };
     mockListPets.mockResolvedValue([pet("PET-A", "Bantay"), pet("PET-B", "Luna")]);
   });
 
@@ -78,4 +78,31 @@ describe("MyPetsScreen", () => {
     fireEvent.press(view.getByText("Add your first pet"));
     expect(mockPush).toHaveBeenCalledWith("/add-pet");
   });
+
+it("keeps the Pets root free of child navigation and preserves all pet actions", async () => {
+  mockParams = {};
+  const view = await render(<MyPetsScreen />);
+  await waitFor(() => expect(view.getByText("Luna")).toBeTruthy());
+  expect(view.queryByLabelText("Go back")).toBeNull();
+  expect(view.getByRole("tab", { name: "Pets" }).props.accessibilityState.selected).toBe(true);
+  for (const [label, target] of [
+    ["View Luna Pet ID", { pathname: "/pet-id", params: { id: "PET-B" } }],
+    ["Luna care and health", { pathname: "/health-reminders", params: { petId: "PET-B" } }],
+    ["Edit Luna", { pathname: "/add-pet", params: { id: "PET-B" } }],
+    ["Report Luna lost", { pathname: "/alerts", params: { mode: "report", petId: "PET-B" } }],
+  ] as const) {
+    await fireEvent.press(view.getByLabelText(label));
+    expect(mockPush).toHaveBeenLastCalledWith(target);
+  }
+});
+
+it("shows one add action when the Pets root is empty", async () => {
+  mockParams = {};
+  mockListPets.mockResolvedValue([]);
+  const view = await render(<MyPetsScreen />);
+  await waitFor(() => expect(view.getByText("No pets yet")).toBeTruthy());
+  expect(view.queryByRole("button", { name: "Add pet" })).toBeNull();
+  expect(view.getAllByRole("button", { name: "Add your first pet" })).toHaveLength(1);
+});
+
 });
