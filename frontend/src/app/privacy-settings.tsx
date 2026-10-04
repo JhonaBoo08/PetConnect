@@ -16,10 +16,7 @@ import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
 import { authErrorMessage } from "@/services/auth-context";
-import {
-  getPrivacySettings,
-  updatePrivacySettings,
-} from "@/services/auth";
+import { getPrivacySettings, updatePrivacySettings } from "@/services/auth";
 import type { PrivacySettings } from "../../../shared/contracts";
 
 type PrivacyKey = keyof PrivacySettings;
@@ -31,21 +28,18 @@ const options: {
 }[] = [
   {
     key: "shareRecoveryPhone",
-    title: "Show phone on public Pet ID",
-    description:
-      "Off by default. When enabled, someone who scans your active Pet ID can see your contact number.",
+    title: "Show recovery phone",
+    description: "Show your phone to people who open a recovery tag.",
   },
   {
     key: "sharePreciseRecoveryLocation",
-    title: "Share precise recovery location",
-    description:
-      "Off by default. When disabled, public lost-pet maps receive a coarsened location instead of the exact GPS point.",
+    title: "Share exact lost-pet location",
+    description: "Show the exact map point while a lost report is active.",
   },
   {
     key: "sharePhoneWithClinics",
     title: "Share phone with clinics",
-    description:
-      "Controls whether an authenticated clinic that scans a valid Pet ID can see your phone number.",
+    description: "Let authorized clinic views see your phone number.",
   },
 ];
 
@@ -104,11 +98,7 @@ export default function PrivacySettingsScreen() {
             <GearIcon />
           </View>
           <Text style={styles.eyebrow}>PRIVACY</Text>
-          <Text style={styles.heading}>Control what PetConnect shares</Text>
-          <Text style={styles.supporting}>
-            Health records remain authenticated. These controls only change
-            contact and location details that can leave your owner account.
-          </Text>
+          <Text style={styles.heading}>Privacy</Text>
 
           {error ? (
             <Text accessibilityRole="alert" style={styles.error}>
@@ -128,9 +118,7 @@ export default function PrivacySettingsScreen() {
                 <View key={option.key} style={styles.card}>
                   <View style={styles.cardText}>
                     <Text style={styles.title}>{option.title}</Text>
-                    <Text style={styles.description}>
-                      {option.description}
-                    </Text>
+                    <Text style={styles.description}>{option.description}</Text>
                   </View>
                   <View style={styles.switchWrap}>
                     {saving === option.key ? (
@@ -150,14 +138,9 @@ export default function PrivacySettingsScreen() {
             </View>
           )}
 
-          <View style={styles.note}>
-            <Text style={styles.noteTitle}>Privacy defaults</Text>
-            <Text style={styles.noteText}>
-              Public phone and precise GPS sharing start off. Clinic phone
-              sharing starts on because clinics may need to coordinate a visit,
-              and you can turn it off here at any time.
-            </Text>
-          </View>
+          <Text style={styles.privateNote}>
+            Microchip numbers and health records are never public.
+          </Text>
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -236,7 +219,7 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   card: {
-    minHeight: 112,
+    minHeight: 88,
     padding: Spacing.three,
     borderRadius: 16,
     backgroundColor: Palette.surface,
@@ -266,20 +249,8 @@ const styles = StyleSheet.create({
     width: 52,
     alignItems: "center",
   },
-  note: {
+  privateNote: {
     marginTop: Spacing.four,
-    padding: Spacing.three,
-    borderRadius: 14,
-    backgroundColor: Palette.goldSoft,
-  },
-  noteTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    fontWeight: "800",
-    color: Palette.forestDark,
-  },
-  noteText: {
-    marginTop: Spacing.one,
     fontFamily: Fonts.sans,
     fontSize: 11.5,
     lineHeight: 17,
