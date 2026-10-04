@@ -305,17 +305,27 @@ test.describe("owner integration", () => {
     ).toBeVisible();
     await capture(finderPage, "13-progressive-verification");
     if (process.env.PETCONNECT_E2E_VERIFY_OTP === "1") {
-      // Only the explicitly enabled local console provider exposes this code.
-      // Production rejects the provider and code exposure at startup.
-      await finderPage
-        .getByLabel("Verification phone number")
-        .fill(`+639${Date.now().toString().slice(-9)}`);
+      const phone = `+639${Date.now().toString().slice(-9)}`;
+      await finderPage.getByLabel("Verification phone number").fill(phone);
       await finderPage
         .getByRole("button", { name: "Send verification code" })
         .click();
-      const hint = finderPage.getByText(/Local development code:/);
-      await expect(hint).toBeVisible();
-      const code = (await hint.textContent())?.match(/\d{6}/)?.[0];
+      let code: string | undefined;
+      const mockUrl = process.env.PETCONNECT_E2E_SMSGATE_URL;
+      if (mockUrl) {
+        await expect(finderPage.getByText(/Local development code:/)).toHaveCount(0);
+        await expect.poll(async () => {
+          const response = await fetch(mockUrl + "/test-code?phone=" + encodeURIComponent(phone), {
+            headers: { Authorization: "Basic " + Buffer.from("fixture:fixture-password").toString("base64") },
+          });
+          if (response.ok) code = (await response.json()).code;
+          return Boolean(code);
+        }).toBeTruthy();
+      } else {
+        const hint = finderPage.getByText(/Local development code:/);
+        await expect(hint).toBeVisible();
+        code = (await hint.textContent())?.match(/\d{6}/)?.[0];
+      }
       expect(code).toBeTruthy();
       await finderPage.getByLabel("Verification code").fill(code!);
       await capture(finderPage, "18-verification-code-entry");
