@@ -8,6 +8,13 @@ const mockMarkRead = jest.fn();
 const mockListReports = jest.fn();
 const mockGetLostReport = jest.fn();
 const mockRecoveryMap = jest.fn(() => null);
+const mockListPets = jest.fn();
+const mockNearby = jest.fn();
+const mockGps = jest.fn();
+const mockCreate = jest.fn();
+const mockReunite = jest.fn();
+const mockRouter = { push: mockPush, replace: mockReplace, navigate: jest.fn(), setParams: jest.fn() };
+let mockParams: Record<string, string> = {};
 jest.mock(
   "react-native/Libraries/Components/RefreshControl/RefreshControl",
   () => ({
@@ -22,27 +29,30 @@ jest.mock(
 jest.mock("react-native-safe-area-context", () => ({
   SafeAreaView: require("react-native").View,
 }));
-jest.mock("@/components/bottom-nav", () => ({ BottomNav: () => null }));
+
 jest.mock("@/components/recovery-map", () => ({
   RecoveryMap: (props: unknown) => mockRecoveryMap(props),
 }));
 jest.mock("@/services/auth-context", () => ({
   authErrorMessage: (error: Error) => error.message,
 }));
-jest.mock("@/services/pets", () => ({ listPets: async () => [] }));
+jest.mock("@/services/pets", () => ({ listPets: () => mockListPets() }));
 jest.mock("@/services/device-recovery", () => ({
   enableRecoveryPush: jest.fn(),
-  requestCurrentCoordinates: jest.fn(),
+  requestCurrentCoordinates: () => mockGps(),
 }));
 jest.mock("@/services/recovery-network", () => ({
   listMyLostReports: (...args: unknown[]) => mockListReports(...args),
+  getNearbyLostReports: (...args: unknown[]) => mockNearby(...args),
+  createLostReport: (...args: unknown[]) => mockCreate(...args),
+  markPetReunited: (...args: unknown[]) => mockReunite(...args),
   getLostReport: (...args: unknown[]) => mockGetLostReport(...args),
   listRecoveryNotifications: (...args: unknown[]) => mockNotifications(...args),
   markRecoveryNotificationRead: (...args: unknown[]) => mockMarkRead(...args),
 }));
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
-  useLocalSearchParams: () => ({ mode: "report" }),
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => mockParams,
   useFocusEffect: (callback: () => void | (() => void)) => {
     require("react").useEffect(() => callback(), [callback]);
   },
@@ -50,6 +60,13 @@ jest.mock("expo-router", () => ({
 import AlertsScreen from "../alerts";
 beforeEach(() => {
   jest.clearAllMocks();
+  mockParams = {};
+  mockListPets.mockResolvedValue([{ id: "PET-MAP", name: "Milo" }]);
+  mockNotifications.mockResolvedValue([]);
+  mockNearby.mockResolvedValue([]);
+  mockGps.mockResolvedValue({ latitude: 7.45, longitude: 125.81, accuracyM: 15 });
+  mockCreate.mockResolvedValue({ id: "LR-NEW", petName: "Milo" });
+  mockReunite.mockResolvedValue(undefined);
   mockMarkRead.mockResolvedValue(undefined);
   mockListReports.mockResolvedValue([]);
   mockGetLostReport.mockResolvedValue({ report: null, sightings: [] });
@@ -58,11 +75,11 @@ it("preserves the selected recovery tab when data is refreshed", async () => {
   mockNotifications.mockResolvedValue([]);
   const view = await render(<AlertsScreen />);
   await waitFor(() => expect(mockNotifications).toHaveBeenCalled());
-  await fireEvent.press(view.getByRole("tab", { name: "My reports" }));
-  await fireEvent(view.getByLabelText("Refresh recovery updates"), "refresh");
-  await waitFor(() => expect(mockNotifications).toHaveBeenCalledTimes(2));
+  await fireEvent.press(view.getByRole("tab", { name: "My Reports" }));
+  await fireEvent(view.getByLabelText("Refresh recovery"), "refresh");
+  await waitFor(() => expect(mockListReports).toHaveBeenCalledTimes(2));
   expect(
-    view.getByRole("tab", { name: "My reports" }).props.accessibilityState
+    view.getByRole("tab", { name: "My Reports" }).props.accessibilityState
       .selected,
   ).toBe(true);
 });
@@ -151,7 +168,7 @@ it("shows the owner's original lost location and finder-found location on the re
   });
 
   const view = await render(<AlertsScreen />);
-  await fireEvent.press(view.getByRole("tab", { name: "My reports" }));
+  await fireEvent.press(view.getByRole("tab", { name: "My Reports" }));
   await waitFor(() =>
     expect(mockRecoveryMap).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -175,4 +192,92 @@ it("shows the owner's original lost location and finder-found location on the re
       }),
     ),
   );
+});
+
+it("defaults to Nearby and opens a focused report only on request", async () => {
+  const view = await render(<AlertsScreen />);
+  await waitFor(() => expect(view.getByText("Location needed")).toBeTruthy());
+  expect(view.getByRole("tab", { name: "Nearby" }).props.accessibilityState.selected).toBe(true);
+  expect(view.queryByLabelText("Go back")).toBeNull();
+  expect(view.queryByLabelText("Last seen")).toBeNull();
+  expect(view.getByRole("tab", { name: "Recovery" }).props.accessibilityState.selected).toBe(true);
+  await fireEvent.press(view.getByRole("button", { name: "Report Lost Pet" }));
+  expect(view.getByLabelText("Last seen")).toBeTruthy();
+  expect(view.queryByRole("tab", { name: "Nearby" })).toBeNull();
+  expect(view.queryByRole("tab", { name: "Recovery" })).toBeNull();
+  await fireEvent.press(view.getByLabelText("Back to Recovery"));
+  expect(view.queryByLabelText("Last seen")).toBeNull();
+  expect(view.getByRole("tab", { name: "Nearby" }).props.accessibilityState.selected).toBe(true);
+});
+
+it("publishes a pet-specific deep link with its selected location", async () => {
+  mockParams = { mode: "report", petId: "PET-MAP" };
+  const view = await render(<AlertsScreen />);
+  await waitFor(() => expect(view.getByLabelText("Last seen")).toBeTruthy());
+  expect(view.getByLabelText("Select Milo for lost report").props.accessibilityState.selected).toBe(true);
+  await fireEvent.changeText(view.getByLabelText("Last seen"), "Freedom Park");
+  await fireEvent.changeText(view.getByLabelText("Lost pet details"), "Yellow collar");
+  await fireEvent.press(view.getByLabelText("Use my GPS"));
+  await waitFor(() => expect(view.getByText(/7.45000/)).toBeTruthy());
+  await fireEvent.press(view.getByRole("button", { name: "Publish lost report" }));
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledWith({
+    petId: "PET-MAP", lastSeenText: "Freedom Park", details: "Yellow collar",
+    latitude: 7.45, longitude: 125.81, accuracyM: 15,
+  }));
+  await waitFor(() => expect(view.getByRole("tab", { name: "My Reports" }).props.accessibilityState.selected).toBe(true));
+  expect(view.queryByLabelText("Last seen")).toBeNull();
+});
+
+it("offers Add a pet instead of reporting actions for an owner with no pets", async () => {
+  mockListPets.mockResolvedValue([]);
+  const view = await render(<AlertsScreen />);
+  await waitFor(() => expect(mockListPets).toHaveBeenCalled());
+  expect(view.queryByRole("button", { name: "Report Lost Pet" })).toBeNull();
+  await fireEvent.press(view.getByRole("tab", { name: "My Reports" }));
+  await fireEvent.press(view.getByRole("button", { name: "Add a pet" }));
+  expect(mockPush).toHaveBeenCalledWith("/add-pet");
+  expect(view.queryByLabelText("Last seen")).toBeNull();
+});
+
+it("keeps a reportId deep link in My Reports without opening creation", async () => {
+  mockParams = { mode: "report", reportId: "LR-OLD" };
+  const view = await render(<AlertsScreen />);
+  await waitFor(() => expect(view.getByRole("tab", { name: "My Reports" }).props.accessibilityState.selected).toBe(true));
+  expect(view.queryByLabelText("Last seen")).toBeNull();
+});
+
+it("redirects legacy Updates links to Notifications", async () => {
+  mockParams = { mode: "updates" };
+  await render(<AlertsScreen />);
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/notifications"));
+});
+
+it("shows a retry action when the recovery API fails", async () => {
+  mockListReports.mockRejectedValue(new Error("Recovery service unavailable"));
+  const view = await render(<AlertsScreen />);
+  await waitFor(() => expect(view.getByText("Recovery service unavailable")).toBeTruthy());
+  expect(view.queryByText("No active recovery cases")).toBeNull();
+  await fireEvent.press(view.getByRole("button", { name: "Retry recovery" }));
+  await waitFor(() => expect(mockListReports).toHaveBeenCalledTimes(2));
+});
+
+it("refreshes Nearby when returning after publishing a report", async () => {
+  mockNearby.mockResolvedValueOnce([]).mockResolvedValueOnce([{
+    id: "LR-NEW", petName: "Milo", petSpecies: "Dog", petBreed: "Aspin",
+    status: "LOST", lastSeenText: "Freedom Park", details: "",
+    latitude: 7.45, longitude: 125.81, distanceKm: 0,
+    reportedAt: "2026-10-04T00:00:00Z", lastSightedAt: null,
+  }]);
+  const view = await render(<AlertsScreen />);
+  await waitFor(() => expect(view.getByRole("button", { name: "Report Lost Pet" })).toBeTruthy());
+  await fireEvent.press(view.getByLabelText("Use my location"));
+  await waitFor(() => expect(view.getByText("No active cases nearby")).toBeTruthy());
+  await fireEvent.press(view.getByRole("button", { name: "Report Lost Pet" }));
+  await fireEvent.changeText(view.getByLabelText("Last seen"), "Freedom Park");
+  await fireEvent.press(view.getByRole("button", { name: "Publish lost report" }));
+  await waitFor(() => expect(view.getByRole("tab", { name: "My Reports" }).props.accessibilityState.selected).toBe(true));
+  await fireEvent.press(view.getByRole("tab", { name: "Nearby" }));
+  await waitFor(() => expect(mockNearby).toHaveBeenCalledTimes(2));
+  expect(view.getByText("Freedom Park · 0.0 km away")).toBeTruthy();
+  expect(view.queryByText("No active cases nearby")).toBeNull();
 });
