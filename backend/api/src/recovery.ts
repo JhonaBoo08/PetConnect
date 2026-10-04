@@ -56,6 +56,7 @@ type PublicRecoveryRow = RowDataPacket & {
   sex: string | null;
   age_label: string | null;
   identifying_details: string | null;
+  microchip_number: string | null;
   photo_url: string | null;
   display_name: string;
   phone: string | null;
@@ -596,7 +597,7 @@ export class RecoveryTokens {
   ): Promise<PublicRecoveryProfile | null> {
     const [rows] = await this.pool.query<PublicRecoveryRow[]>(
       `SELECT p.id AS pet_id, p.name, p.species, p.breed, p.sex, p.age_label,
-              p.identifying_details, p.photo_url,
+              p.identifying_details, p.microchip_number, p.photo_url,
               u.display_name, u.phone, u.share_recovery_phone,
               u.share_precise_recovery_location
          FROM pets p
@@ -643,6 +644,7 @@ export class RecoveryTokens {
         sex: (row.sex as PublicRecoveryProfile["pet"]["sex"]) || "",
         ageLabel: row.age_label || "",
         identifyingDetails: row.identifying_details || "",
+        microchipped: Boolean(row.microchip_number),
         photoUrl: row.photo_url,
       },
       owner: {

@@ -68,11 +68,13 @@ CREATE TABLE IF NOT EXISTS pets (
   sex VARCHAR(10) NULL,
   age_label VARCHAR(50) NULL,
   identifying_details TEXT NULL,
+  microchip_number VARCHAR(64) NULL,
   photo_url VARCHAR(512) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY pets_owner_index (owner_id),
+  UNIQUE KEY pets_microchip_unique (microchip_number),
   CONSTRAINT pets_owner_fk
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

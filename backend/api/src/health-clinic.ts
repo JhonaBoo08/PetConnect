@@ -90,6 +90,7 @@ type PetPatientRow = RowDataPacket & {
   sex: "Male" | "Female" | null;
   age_label: string | null;
   identifying_details: string | null;
+  microchip_number: string | null;
   photo_url: string | null;
   created_at: Date;
   updated_at: Date;
@@ -382,7 +383,7 @@ export class HealthClinic {
     if (!(await this.currentClinic(clinicId))) return null;
     const [rows] = await this.pool.query<PetPatientRow[]>(
       `SELECT p.id, p.name, p.species, p.breed, p.sex, p.age_label,
-              p.identifying_details, p.photo_url, p.created_at, p.updated_at,
+              p.identifying_details, p.microchip_number, p.photo_url, p.created_at, p.updated_at,
               p.owner_id, o.display_name AS owner_name,
               CASE WHEN o.share_phone_with_clinics = 1 THEN o.phone ELSE NULL END
                 AS owner_phone
@@ -414,6 +415,7 @@ export class HealthClinic {
       sex: row.sex || "",
       ageLabel: row.age_label || "",
       identifyingDetails: row.identifying_details || "",
+      microchipNumber: row.microchip_number || "",
       photoUrl: row.photo_url,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),

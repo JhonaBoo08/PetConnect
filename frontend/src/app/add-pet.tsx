@@ -55,6 +55,7 @@ export default function AddPetScreen() {
   const [sex, setSex] = useState<"" | "Male" | "Female">("");
   const [age, setAge] = useState("");
   const [notes, setNotes] = useState("");
+  const [microchipNumber, setMicrochipNumber] = useState("");
   const [errors, setErrors] = useState<{ name?: string; species?: string }>({});
   const [loading, setLoading] = useState(!!routeId);
   const [saving, setSaving] = useState(false);
@@ -144,6 +145,7 @@ export default function AddPetScreen() {
         setSex(pet.sex);
         setAge(pet.ageLabel);
         setNotes(pet.identifyingDetails);
+        setMicrochipNumber(pet.microchipNumber);
         setExistingPhoto(pet.photoUrl);
         setLoadError("");
       })
@@ -206,6 +208,7 @@ export default function AddPetScreen() {
         sex,
         ageLabel: age,
         identifyingDetails: notes,
+        microchipNumber,
       };
       const updating = Boolean(savedId);
       const pet = savedId
@@ -475,6 +478,18 @@ export default function AddPetScreen() {
             style={[styles.input, styles.textArea]}
             multiline
           />
+
+          <Text style={styles.label}>Microchip</Text>
+          <TextInput
+            accessibilityLabel="Microchip number"
+            value={microchipNumber}
+            onChangeText={setMicrochipNumber}
+            placeholder="Optional"
+            placeholderTextColor={Palette.placeholder}
+            autoCapitalize="characters"
+            style={styles.input}
+          />
+          <Text style={styles.privateHint}>Private · only you and authorized clinic views can see the number.</Text>
 
           <View style={styles.idPanel}>
             <ShieldIcon size={22} />
@@ -774,6 +789,12 @@ const styles = StyleSheet.create({
   },
   segmentLabelActive: {
     color: Palette.white,
+  },
+  privateHint: {
+    fontFamily: Fonts.sans,
+    fontSize: 11.5,
+    color: Palette.inkMuted,
+    marginTop: Spacing.one,
   },
   idPanel: {
     flexDirection: "row",

@@ -43,6 +43,7 @@ export interface PetInput {
   sex: "Male" | "Female" | "";
   ageLabel: string;
   identifyingDetails: string;
+  microchipNumber: string;
 }
 
 export interface Pet extends PetInput {
@@ -148,6 +149,7 @@ export interface NearbyLostReport {
   lastSightedAt: string | null;
   distanceKm: number;
   sightingCount: number;
+  matchReasons: string[];
 }
 
 export interface PublicActiveReport {
@@ -406,6 +408,7 @@ export interface PublicRecoveryProfile {
     sex: "Male" | "Female" | "";
     ageLabel: string;
     identifyingDetails: string;
+    microchipped: boolean;
     photoUrl: string | null;
   };
   owner: {
