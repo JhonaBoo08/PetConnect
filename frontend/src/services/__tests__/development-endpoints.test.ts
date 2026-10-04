@@ -2,13 +2,18 @@ import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
 jest.mock("expo-constants", () => ({
   __esModule: true,
-  default: { expoConfig: { hostUri: "phone-preview.exp.direct" } },
+  default: {
+    expoConfig: { hostUri: "phone-preview.exp.direct" },
+    expoGoConfig: { debuggerHost: undefined },
+    manifest2: undefined,
+  },
 }));
 jest.mock("../firebase/client", () => ({ firebaseClient: jest.fn() }));
 jest.mock("firebase/auth", () => ({}));
 
 import Constants from "expo-constants";
 import { getApiBaseUrl } from "../auth";
+import { authEmulatorUrl } from "../development-endpoints";
 
 describe("development API endpoints", () => {
   const previousApi = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -23,14 +28,25 @@ describe("development API endpoints", () => {
     else process.env.EXPO_PUBLIC_FIREBASE_ENV = previousEnvironment;
     globalThis.__DEV__ = previousDev;
     Constants.expoConfig!.hostUri = "phone-preview.exp.direct";
+    (
+      Constants as typeof Constants & {
+        expoGoConfig?: { debuggerHost?: string };
+        manifest2?: unknown;
+      }
+    ).expoGoConfig = { debuggerHost: undefined };
+    (
+      Constants as typeof Constants & {
+        manifest2?: unknown;
+      }
+    ).manifest2 = undefined;
   });
 
-  it("uses the HTTPS Expo tunnel instead of phone localhost", () => {
+  it("preserves the Expo tunnel scheme instead of phone localhost", () => {
     delete process.env.EXPO_PUBLIC_API_BASE_URL;
     process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
     globalThis.__DEV__ = true;
     expect(getApiBaseUrl()).toBe(
-      "https://phone-preview.exp.direct/petconnect-api",
+      "http://phone-preview.exp.direct/petconnect-api",
     );
   });
 
@@ -40,6 +56,51 @@ describe("development API endpoints", () => {
     globalThis.__DEV__ = true;
     Constants.expoConfig!.hostUri = "192.168.1.12:8081";
     expect(getApiBaseUrl()).toBe("http://192.168.1.12:8081/petconnect-api");
+  });
+
+  it("falls back to Expo Go debuggerHost when expoConfig.hostUri is missing", () => {
+    delete process.env.EXPO_PUBLIC_API_BASE_URL;
+    process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
+    globalThis.__DEV__ = true;
+    Constants.expoConfig!.hostUri = undefined;
+    (
+      Constants as typeof Constants & {
+        expoGoConfig?: { debuggerHost?: string };
+      }
+    ).expoGoConfig = { debuggerHost: "192.168.1.33:8081" };
+
+    expect(getApiBaseUrl()).toBe("http://192.168.1.33:8081/petconnect-api");
+    expect(authEmulatorUrl()).toBe("http://192.168.1.33:8081");
+  });
+
+  it("falls back to the SDK 57 manifest2 host when needed", () => {
+    delete process.env.EXPO_PUBLIC_API_BASE_URL;
+    process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
+    globalThis.__DEV__ = true;
+    Constants.expoConfig!.hostUri = undefined;
+    (
+      Constants as typeof Constants & {
+        expoGoConfig?: { debuggerHost?: string };
+        manifest2?: {
+          extra?: {
+            expoClient?: { hostUri?: string };
+          };
+        };
+      }
+    ).expoGoConfig = { debuggerHost: undefined };
+    (
+      Constants as typeof Constants & {
+        manifest2?: {
+          extra?: {
+            expoClient?: { hostUri?: string };
+          };
+        };
+      }
+    ).manifest2 = {
+      extra: { expoClient: { hostUri: "192.168.1.44:8081" } },
+    };
+
+    expect(getApiBaseUrl()).toBe("http://192.168.1.44:8081/petconnect-api");
   });
 
   it("preserves an explicit API override", () => {
@@ -54,10 +115,12 @@ describe("development API endpoints", () => {
     expect(getApiBaseUrl).toThrow("Set EXPO_PUBLIC_API_BASE_URL");
   });
 
-  it("does not use development proxy routes in release exports", () => {
+  it("does not silently fall back to native localhost when runtime hints are unavailable", () => {
     delete process.env.EXPO_PUBLIC_API_BASE_URL;
     process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
     globalThis.__DEV__ = false;
-    expect(getApiBaseUrl()).toBe("http://127.0.0.1:3000");
+    expect(getApiBaseUrl).toThrow(
+      "PetConnect could not determine the Expo development server address.",
+    );
   });
 });

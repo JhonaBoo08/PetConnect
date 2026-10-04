@@ -9,7 +9,7 @@ import {
 
 jest.mock("expo-constants", () => ({
   __esModule: true,
-  default: { expoConfig: { hostUri: "phone-preview.exp.direct" } },
+  default: { expoConfig: { hostUri: "https://phone-preview.exp.direct" } },
 }));
 jest.mock("firebase/app", () => ({
   getApps: () => [],

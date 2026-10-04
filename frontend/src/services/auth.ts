@@ -4,6 +4,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
+import { Platform } from "react-native";
 import { firebaseClient } from "./firebase/client";
 import { developmentServerOrigin } from "./development-endpoints";
 import type {
@@ -28,19 +29,24 @@ export class ApiError extends Error {
 
 export function getApiBaseUrl(): string {
   const configured = process.env.EXPO_PUBLIC_API_BASE_URL;
-  if (
-    !configured &&
-    (process.env.EXPO_PUBLIC_FIREBASE_ENV ?? "emulator") !== "emulator"
-  ) {
+  const environment = process.env.EXPO_PUBLIC_FIREBASE_ENV ?? "emulator";
+
+  if (!configured && environment !== "emulator") {
     throw new Error(
       "Set EXPO_PUBLIC_API_BASE_URL for this Firebase environment.",
     );
   }
+
+  if (configured) return configured.replace(/\/$/, "");
+
   const origin = developmentServerOrigin();
-  return (
-    configured ||
-    (origin ? `${origin}/petconnect-api` : "http://127.0.0.1:3000")
-  ).replace(/\/$/, "");
+  if (origin) return `${origin}/petconnect-api`;
+
+  if (Platform.OS === "web") return "http://127.0.0.1:3000";
+
+  throw new Error(
+    "PetConnect could not determine the Expo development server address.",
+  );
 }
 
 export async function authenticatedFetch<T>(
