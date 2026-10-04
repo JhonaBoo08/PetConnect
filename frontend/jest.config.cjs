@@ -19,6 +19,7 @@ module.exports = {
   testMatch: ["**/__tests__/**/*.[jt]s?(x)"],
   moduleNameMapper: {
     "\\.css$": "<rootDir>/test/style-mock.cjs",
+    "^@/assets/(.*)$": "<rootDir>/assets/$1",
     "^@/(.*)$": "<rootDir>/src/$1",
   },
   transformIgnorePatterns: [
