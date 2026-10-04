@@ -1,5 +1,6 @@
 import { X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { PoolOptions } from "mysql2/promise";
 
 function integer(
@@ -63,13 +64,32 @@ export function mysqlTlsOptions(
 export function mysqlConnectionOptions(
   env: NodeJS.ProcessEnv = process.env,
 ): PoolOptions {
+  const socketPath = env.MYSQL_SOCKET_PATH?.trim();
+  if (socketPath && !path.isAbsolute(socketPath)) {
+    throw new Error("MYSQL_SOCKET_PATH must be an absolute path.");
+  }
+  if (
+    socketPath &&
+    (env.MYSQL_SSL?.trim().toLowerCase() === "true" ||
+      env.MYSQL_SSL_CA?.trim() ||
+      env.MYSQL_SSL_CA_PATH?.trim())
+  ) {
+    throw new Error(
+      "MYSQL_SSL and CA settings must not be configured with MYSQL_SOCKET_PATH.",
+    );
+  }
+
   return {
-    host: env.MYSQL_HOST || "127.0.0.1",
+    ...(socketPath
+      ? { socketPath }
+      : {
+          host: env.MYSQL_HOST || "127.0.0.1",
+          port: integer(env, "MYSQL_PORT", 3306, 65535),
+          ssl: mysqlTlsOptions(env),
+        }),
     user: env.MYSQL_USER || "root",
     password: env.MYSQL_PASSWORD || "",
     database: env.MYSQL_DATABASE || "petconnect_db",
-    port: integer(env, "MYSQL_PORT", 3306, 65535),
-    ssl: mysqlTlsOptions(env),
     waitForConnections: true,
     connectionLimit: integer(env, "MYSQL_CONNECTION_LIMIT", 4, 10),
     maxIdle: 2,

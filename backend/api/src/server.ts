@@ -113,14 +113,14 @@ const configuredUploadDir = process.env.UPLOAD_DIR?.trim();
 const uploadDir = path.resolve(
   configuredUploadDir || path.join(process.cwd(), "uploads"),
 );
+const uploadStorageProvider = (
+  process.env.UPLOAD_STORAGE_PROVIDER || "local"
+).toLowerCase();
 const mediaStorage = createMediaStorage(uploadDir);
 export const mediaCleanup = new MediaCleanup(pool, mediaStorage);
 const reserveMedia = (reference: string) =>
   mediaCleanup.schedule(reference, 24 * 60 * 60);
-if (
-  (process.env.UPLOAD_STORAGE_PROVIDER || "local") === "local" &&
-  !fs.existsSync(uploadDir)
-) {
+if (uploadStorageProvider === "local" && !fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true, mode: 0o750 });
 }
 // Recovery evidence is private. It is delivered only through authenticated
@@ -257,15 +257,23 @@ async function requireAuth(
 }
 
 app.get("/v1/health", (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store");
   res.json({ status: "ok" });
 });
 
 app.get("/v1/ready", async (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     await pool.query({
       sql: "SELECT 1 FROM media_cleanup_jobs LIMIT 0",
       timeout: 5000,
     });
+    if (uploadStorageProvider === "local") {
+      await fs.promises.access(
+        uploadDir,
+        fs.constants.R_OK | fs.constants.W_OK,
+      );
+    }
     res.json({ status: "ready" });
   } catch {
     res.status(503).json({ status: "not-ready" });

@@ -42,9 +42,20 @@ function productionUrl(value: string, key: string): URL {
     /^(fc|fd|fe80):/i.test(host) ||
     host.endsWith(".local") ||
     host.endsWith(".exp.direct") ||
-    host.endsWith(".exp.host")
+    host.endsWith(".exp.host") ||
+    host === "example.com" ||
+    host.endsWith(".example.com") ||
+    host === "example.org" ||
+    host.endsWith(".example.org") ||
+    host === "example.net" ||
+    host.endsWith(".example.net") ||
+    host.endsWith(".example") ||
+    host.endsWith(".test") ||
+    host.endsWith(".invalid")
   ) {
-    throw new Error(`${key} cannot point to localhost in production.`);
+    throw new Error(
+      `${key} must use a routable public hostname in production.`,
+    );
   }
   return url;
 }
@@ -54,9 +65,21 @@ export function assertProductionEnvironment(
 ): void {
   if (env.NODE_ENV !== "production") return;
 
-  required(env, "MYSQL_HOST");
-  if (env.MYSQL_SSL?.toLowerCase() !== "true")
-    throw new Error("MYSQL_SSL=true is required in production.");
+  const mysqlSocketPath = env.MYSQL_SOCKET_PATH?.trim();
+  if (mysqlSocketPath) {
+    if (!path.isAbsolute(mysqlSocketPath)) {
+      throw new Error(
+        "MYSQL_SOCKET_PATH must be an absolute path in production.",
+      );
+    }
+  } else {
+    required(env, "MYSQL_HOST");
+    if (env.MYSQL_SSL?.toLowerCase() !== "true") {
+      throw new Error(
+        "MYSQL_SSL=true is required for network MySQL connections in production.",
+      );
+    }
+  }
   mysqlConnectionOptions(env);
   serverPort(env);
   const proxyHops = Number(env.TRUST_PROXY_HOPS || 0);
@@ -68,9 +91,11 @@ export function assertProductionEnvironment(
       "TRUST_PROXY_HOPS must be 0 or 1, and must be 1 behind the Render ingress.",
     );
   }
-  const mysqlPort = Number(required(env, "MYSQL_PORT"));
-  if (!Number.isInteger(mysqlPort) || mysqlPort < 1 || mysqlPort > 65535) {
-    throw new Error("MYSQL_PORT must be a valid TCP port in production.");
+  if (!mysqlSocketPath) {
+    const mysqlPort = Number(required(env, "MYSQL_PORT"));
+    if (!Number.isInteger(mysqlPort) || mysqlPort < 1 || mysqlPort > 65535) {
+      throw new Error("MYSQL_PORT must be a valid TCP port in production.");
+    }
   }
 
   const mysqlUser = required(env, "MYSQL_USER");
@@ -128,7 +153,18 @@ export function assertProductionEnvironment(
     }
   }
 
-  productionUrl(required(env, "PUBLIC_APP_BASE_URL"), "PUBLIC_APP_BASE_URL");
+  const publicAppBaseUrl = required(env, "PUBLIC_APP_BASE_URL");
+  const publicAppUrl = productionUrl(publicAppBaseUrl, "PUBLIC_APP_BASE_URL");
+  if (publicAppBaseUrl.replace(/\/$/, "") !== publicAppUrl.origin) {
+    throw new Error(
+      "PUBLIC_APP_BASE_URL must be an HTTPS origin without a path, query or fragment.",
+    );
+  }
+  if (!corsOrigins.includes(publicAppUrl.origin)) {
+    throw new Error(
+      "CORS_ALLOWED_ORIGINS must include the PUBLIC_APP_BASE_URL origin.",
+    );
+  }
 
   const recoverySecret = required(env, "RECOVERY_TOKEN_SECRET");
   if (

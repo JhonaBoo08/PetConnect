@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { rootCertificates } from "node:tls";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { mysqlConnectionOptions } from "../src/db-config.js";
 import { firebaseServiceAccount } from "../src/firebase-admin-config.js";
 import { assertProductionEnvironment, serverPort } from "../src/config.js";
+import { productionApiPreflight } from "../scripts/production-preflight.js";
 
 const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
   .privateKey.export({ type: "pkcs8", format: "pem" })
@@ -54,6 +55,27 @@ test("local MySQL remains non-TLS and bounded", () => {
   assert.equal(config.connectionLimit, 4);
   assert.equal(config.queueLimit, 64);
   assert.equal(config.connectTimeout, 10000);
+});
+
+test("MySQL supports an absolute local Unix socket without network TLS", () => {
+  const socket = path.resolve("mysql.sock");
+  const config = mysqlConnectionOptions({
+    MYSQL_SOCKET_PATH: socket,
+    MYSQL_USER: "petconnect_app",
+  });
+  assert.equal(config.socketPath, socket);
+  assert.equal(config.ssl, undefined);
+  assert.equal(config.host, undefined);
+  assert.throws(() =>
+    mysqlConnectionOptions({ MYSQL_SOCKET_PATH: "relative/mysql.sock" }),
+  );
+  assert.throws(() =>
+    mysqlConnectionOptions({
+      MYSQL_SOCKET_PATH: socket,
+      MYSQL_SSL: "true",
+      MYSQL_SSL_CA: rootCertificates[0],
+    }),
+  );
 });
 test("MySQL TLS validates inline multiline/escaped CA and never disables peer verification", () => {
   for (const ca of [
@@ -111,13 +133,73 @@ test("production supports webhook and explicitly durable local storage outside R
       ...valid,
       RENDER: "",
       FINDER_OTP_PROVIDER: "webhook",
-      FINDER_OTP_WEBHOOK_URL: "https://sms.example.org/send",
+      FINDER_OTP_WEBHOOK_URL: "https://sms.petconnect.app/send",
       UPLOAD_STORAGE_PROVIDER: "local",
       UPLOAD_LOCAL_DURABLE: "true",
       UPLOAD_DIR: path.resolve("durable-uploads"),
     }),
   );
 });
+
+test("production supports same-host MySQL through an absolute Unix socket", () => {
+  assert.doesNotThrow(() =>
+    assertProductionEnvironment({
+      ...valid,
+      RENDER: "",
+      MYSQL_HOST: "",
+      MYSQL_PORT: "",
+      MYSQL_SOCKET_PATH: path.resolve("mysqld.sock"),
+      MYSQL_SSL: "false",
+      MYSQL_SSL_CA: "",
+    }),
+  );
+});
+test("production preflight checks credential files and durable local media access", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "petconnect-preflight-"));
+  try {
+    const adminFile = path.join(dir, "firebase-admin.json");
+    const caFile = path.join(dir, "mysql-ca.pem");
+    const uploadDir = path.join(dir, "uploads");
+    writeFileSync(adminFile, account);
+    writeFileSync(caFile, rootCertificates[0]);
+    mkdirSync(uploadDir);
+
+    const env: NodeJS.ProcessEnv = {
+      ...valid,
+      RENDER: "",
+      FIREBASE_SERVICE_ACCOUNT_JSON: "",
+      GOOGLE_APPLICATION_CREDENTIALS: adminFile,
+      MYSQL_SSL_CA: "",
+      MYSQL_SSL_CA_PATH: caFile,
+      FINDER_OTP_PROVIDER: "webhook",
+      FINDER_OTP_WEBHOOK_URL: "https://sms.petconnect.app/send",
+      UPLOAD_STORAGE_PROVIDER: "local",
+      UPLOAD_LOCAL_DURABLE: "true",
+      UPLOAD_DIR: uploadDir,
+    };
+
+    await assert.doesNotReject(() => productionApiPreflight(env));
+    await assert.rejects(() =>
+      productionApiPreflight({
+        ...env,
+        UPLOAD_DIR: path.join(dir, "missing-uploads"),
+      }),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("production rejects reserved example hosts even when the URL is HTTPS", () => {
+  assert.throws(() =>
+    assertProductionEnvironment({
+      ...valid,
+      FINDER_OTP_PROVIDER: "webhook",
+      FINDER_OTP_WEBHOOK_URL: "https://sms.example.net/send",
+    }),
+  );
+});
+
 test("Firebase Admin accepts JSON and files and rejects invalid/foreign credentials without exposing them", () => {
   assert.equal(firebaseServiceAccount(valid)?.projectId, "petconnect-prod");
   const dir = mkdtempSync(path.join(os.tmpdir(), "petconnect-admin-"));
@@ -182,6 +264,9 @@ const unsafe: Array<[string, string]> = [
   ["TRUST_PROXY_HOPS", "3"],
   ["CORS_ALLOWED_ORIGINS", "*"],
   ["CORS_ALLOWED_ORIGINS", "https://pets.example.org/path"],
+  ["CORS_ALLOWED_ORIGINS", "https://different.example.org"],
+  ["PUBLIC_APP_BASE_URL", "https://petconnect-umtc-20260929.web.app/recover"],
+  ["PUBLIC_APP_BASE_URL", "https://petconnect-umtc-20260929.web.app/?x=1"],
   ...[
     "http://localhost:8081",
     "https://[::1]",

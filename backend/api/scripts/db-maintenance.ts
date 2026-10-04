@@ -24,7 +24,9 @@ dotenv.config({ path: path.join(apiDir, ".env") });
 
 const migrationDir = path.join(repoRoot, "sql", "migrations");
 const schemaPath = path.join(repoRoot, "sql", "schema.sql");
-const defaultBackupRoot = path.join(repoRoot, "backups");
+const defaultBackupRoot = path.resolve(
+  process.env.BACKUP_ROOT || path.join(repoRoot, "backups"),
+);
 
 type Migration = {
   filename: string;
@@ -389,6 +391,21 @@ function backupFiles(
   return output.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+function mysqlCliConnectionArgs(): string[] {
+  const socketPath = process.env.MYSQL_SOCKET_PATH?.trim();
+  if (socketPath) {
+    return ["--socket", socketPath, "--user", process.env.MYSQL_USER || "root"];
+  }
+  return [
+    "--host",
+    process.env.MYSQL_HOST || "127.0.0.1",
+    "--port",
+    String(Number(process.env.MYSQL_PORT) || 3306),
+    "--user",
+    process.env.MYSQL_USER || "root",
+  ];
+}
+
 function runSqlBinary(
   binary: string,
   args: string[],
@@ -451,12 +468,7 @@ async function createBackup(outputRoot?: string): Promise<string> {
   runSqlBinary(
     mysqldump,
     [
-      "--host",
-      process.env.MYSQL_HOST || "127.0.0.1",
-      "--port",
-      String(Number(process.env.MYSQL_PORT) || 3306),
-      "--user",
-      process.env.MYSQL_USER || "root",
+      ...mysqlCliConnectionArgs(),
       "--single-transaction",
       "--routines",
       "--triggers",
@@ -587,16 +599,7 @@ async function restoreBackup() {
   const mysqlBin = process.env.MYSQL_BIN || "mysql";
   runSqlBinary(
     mysqlBin,
-    [
-      "--host",
-      process.env.MYSQL_HOST || "127.0.0.1",
-      "--port",
-      String(Number(process.env.MYSQL_PORT) || 3306),
-      "--user",
-      process.env.MYSQL_USER || "root",
-      "--default-character-set=utf8mb4",
-      dbName(),
-    ],
+    [...mysqlCliConnectionArgs(), "--default-character-set=utf8mb4", dbName()],
     { stdinFile: dumpPath },
   );
 

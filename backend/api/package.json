@@ -17,7 +17,9 @@
     "db:status": "tsx scripts/db-maintenance.ts status",
     "db:baseline": "tsx scripts/db-maintenance.ts baseline",
     "db:backup": "tsx scripts/db-maintenance.ts backup",
-    "db:restore": "tsx scripts/db-maintenance.ts restore"
+    "db:restore": "tsx scripts/db-maintenance.ts restore",
+    "production:check": "tsx scripts/production-preflight.ts",
+    "production:probe": "tsx scripts/production-preflight.ts --connectivity"
   },
   "dependencies": {
     "cors": "^2.8.5",
