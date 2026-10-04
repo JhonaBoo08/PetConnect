@@ -38,7 +38,7 @@ it("ignores arbitrary URLs and malformed IDs", () => {
       { url: "https://outside.example.test", reminderId: {} },
       "OWNER",
     ),
-  ).toEqual({ pathname: "/alerts", params: { mode: "updates" } });
+  ).toBe("/notifications");
   expect(notificationTarget({ reminderId: "RM-LUNA" }, "CLINIC")).toBe(
     "/clinic-dashboard",
   );

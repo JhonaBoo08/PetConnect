@@ -32,5 +32,5 @@ export function notificationTarget(
       pathname: "/alerts",
       params: { mode: "report", reportId: id("reportId") },
     };
-  return { pathname: "/alerts", params: { mode: "updates" } };
+  return "/notifications";
 }
