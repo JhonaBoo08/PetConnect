@@ -1,4 +1,9 @@
-import { Href, useFocusEffect, useRouter } from "expo-router";
+import {
+  Href,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -20,7 +25,6 @@ import {
   PawIcon,
   PlusIcon,
 } from "@/components/app-icons";
-import { BottomNav } from "@/components/bottom-nav";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { goBack } from "@/lib/navigation";
@@ -62,6 +66,10 @@ function statusTone(status: Appointment["status"]) {
 
 export default function HealthRemindersScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ petId?: string }>();
+  const routePetId = Array.isArray(params.petId)
+    ? params.petId[0]
+    : params.petId;
   const [mode, setMode] = useState<Mode>("reminders");
   const [pets, setPets] = useState<Pet[]>([]);
   const [clinics, setClinics] = useState<ClinicSummary[]>([]);
@@ -97,9 +105,18 @@ export default function HealthRemindersScreen() {
     setRecords(recordRows);
     setReminders(reminderRows);
     setAppointments(appointmentRows);
-    setSelectedPetId((current) => current || petRows[0]?.id || "");
-    setSelectedClinicId((current) => current || clinicRows[0]?.id || "");
-  }, []);
+    setSelectedPetId((current) => {
+      if (routePetId && petRows.some((pet) => pet.id === routePetId))
+        return routePetId;
+      if (current && petRows.some((pet) => pet.id === current)) return current;
+      return petRows.length === 1 ? petRows[0].id : "";
+    });
+    setSelectedClinicId((current) => {
+      if (current && clinicRows.some((clinic) => clinic.id === current))
+        return current;
+      return clinicRows.length === 1 ? clinicRows[0].id : "";
+    });
+  }, [routePetId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -132,7 +149,11 @@ export default function HealthRemindersScreen() {
 
   async function addReminder() {
     if (!selectedPetId) {
-      setError("Add a pet before creating a health reminder.");
+      setError(
+        pets.length === 0
+          ? "Add a pet before creating a health reminder."
+          : "Choose a pet before creating a health reminder.",
+      );
       return;
     }
     setSaving(true);
@@ -284,6 +305,11 @@ export default function HealthRemindersScreen() {
                   {pets.map((pet) => (
                     <Pressable
                       key={pet.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select ${pet.name} for reminder`}
+                      accessibilityState={{
+                        selected: selectedPetId === pet.id,
+                      }}
                       onPress={() => setSelectedPetId(pet.id)}
                       style={[
                         styles.choice,
@@ -448,6 +474,11 @@ export default function HealthRemindersScreen() {
                   {pets.map((pet) => (
                     <Pressable
                       key={pet.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select ${pet.name} for appointment`}
+                      accessibilityState={{
+                        selected: selectedPetId === pet.id,
+                      }}
                       onPress={() => setSelectedPetId(pet.id)}
                       style={[
                         styles.choice,
@@ -463,6 +494,11 @@ export default function HealthRemindersScreen() {
                   {clinics.map((clinic) => (
                     <Pressable
                       key={clinic.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select ${clinic.name} for appointment`}
+                      accessibilityState={{
+                        selected: selectedClinicId === clinic.id,
+                      }}
                       onPress={() => setSelectedClinicId(clinic.id)}
                       style={[
                         styles.choice,
@@ -596,7 +632,6 @@ export default function HealthRemindersScreen() {
           ) : null}
         </ScrollView>
 
-        <BottomNav active="home" />
       </SafeAreaView>
     </View>
   );

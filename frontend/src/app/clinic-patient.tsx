@@ -586,7 +586,7 @@ const styles = StyleSheet.create({
   owner: {
     marginTop: Spacing.one,
     fontFamily: Fonts.sans,
-    color: "#DDE9E1",
+    color: Palette.sage,
     fontSize: 11.5,
   },
   segment: {

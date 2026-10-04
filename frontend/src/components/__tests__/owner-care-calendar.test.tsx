@@ -202,6 +202,9 @@ describe("OwnerCareCalendar", () => {
       await fireEvent.press(view.getByLabelText("Add a reminder"));
     });
     await act(async () => {
+      await fireEvent.press(view.getByLabelText("Assign reminder to Cooper"));
+    });
+    await act(async () => {
       await fireEvent.changeText(view.getByLabelText("Reminder"), "Checkup");
       await fireEvent.changeText(view.getByLabelText("Date"), "10/03/2026");
     });
@@ -227,6 +230,9 @@ describe("OwnerCareCalendar", () => {
     );
     await act(async () => {
       await fireEvent.press(view.getByLabelText("Add a reminder"));
+    });
+    await act(async () => {
+      await fireEvent.press(view.getByLabelText("Assign reminder to Cooper"));
     });
     await act(async () => {
       await fireEvent.changeText(view.getByLabelText("Reminder"), "Checkup");

@@ -1,39 +1,91 @@
 import { Platform } from "react-native";
+
 import type { Pet, PetInput } from "../../../shared/contracts";
 import { authenticatedFetch, getApiBaseUrl } from "./auth";
+import {
+  cachedRequest,
+  peekCached,
+  setCached,
+  updateCached,
+} from "./resource-cache";
+
+const petsCacheKey = "owner:pets";
 
 export const petPhotoUri = (url: string | null) =>
   url ? `${getApiBaseUrl()}${url}` : null;
 
-export async function listPets(): Promise<Pet[]> {
-  const result = await authenticatedFetch<{ pets: Pet[] }>("/v1/pets");
-  return result.pets;
+export const peekPetsCached = () => peekCached<Pet[]>(petsCacheKey);
+export const peekPets = () => peekPetsCached() ?? [];
+
+export async function listPets(
+  options: { force?: boolean } = {},
+): Promise<Pet[]> {
+  return cachedRequest(
+    petsCacheKey,
+    async () => {
+      const result = await authenticatedFetch<{ pets: Pet[] }>("/v1/pets");
+      return result.pets;
+    },
+    { ttlMs: 20_000, force: options.force },
+  );
 }
 
-export const getPet = (id: string) =>
-  authenticatedFetch<Pet>(`/v1/pets/${encodeURIComponent(id)}`);
+export async function getPet(id: string): Promise<Pet> {
+  const cached = peekPetsCached()?.find((pet) => pet.id === id);
+  if (cached) return cached;
+  const pet = await authenticatedFetch<Pet>(
+    `/v1/pets/${encodeURIComponent(id)}`,
+  );
+  updateCached<Pet[]>(petsCacheKey, (current) =>
+    current ? [pet, ...current.filter((item) => item.id !== pet.id)] : [pet],
+  );
+  return pet;
+}
 
-export const createPet = (input: PetInput) =>
-  authenticatedFetch<Pet>("/v1/pets", {
+export async function createPet(input: PetInput): Promise<Pet> {
+  const pet = await authenticatedFetch<Pet>("/v1/pets", {
     method: "POST",
     body: JSON.stringify(input),
   });
+  updateCached<Pet[]>(petsCacheKey, (current) =>
+    current ? [pet, ...current.filter((item) => item.id !== pet.id)] : [pet],
+  );
+  return pet;
+}
 
-export const updatePet = (id: string, input: PetInput) =>
-  authenticatedFetch<Pet>(`/v1/pets/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: JSON.stringify(input),
-  });
+export async function updatePet(id: string, input: PetInput): Promise<Pet> {
+  const pet = await authenticatedFetch<Pet>(
+    `/v1/pets/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+  updateCached<Pet[]>(petsCacheKey, (current) =>
+    current?.map((item) => (item.id === pet.id ? pet : item)),
+  );
+  return pet;
+}
 
-export const deletePet = (id: string) =>
-  authenticatedFetch<void>(`/v1/pets/${encodeURIComponent(id)}`, {
+export async function deletePet(id: string): Promise<void> {
+  await authenticatedFetch<void>(`/v1/pets/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+  updateCached<Pet[]>(petsCacheKey, (current) =>
+    current?.filter((item) => item.id !== id),
+  );
+}
 
-export const removePetPhoto = (id: string) =>
-  authenticatedFetch<Pet>(`/v1/pets/${encodeURIComponent(id)}/photo`, {
-    method: "DELETE",
-  });
+export async function removePetPhoto(id: string): Promise<Pet> {
+  const pet = await authenticatedFetch<Pet>(
+    `/v1/pets/${encodeURIComponent(id)}/photo`,
+    { method: "DELETE" },
+  );
+  updateCached<Pet[]>(petsCacheKey, (current) =>
+    current?.map((item) => (item.id === pet.id ? pet : item)),
+  );
+  return pet;
+}
 
 export async function uploadPetPhoto(id: string, uri: string): Promise<Pet> {
   const form = new FormData();
@@ -49,8 +101,17 @@ export async function uploadPetPhoto(id: string, uri: string): Promise<Pet> {
       type: "image/jpeg",
     } as unknown as Blob);
   }
-  return authenticatedFetch<Pet>(`/v1/pets/${encodeURIComponent(id)}/photo`, {
-    method: "PUT",
-    body: form,
-  });
+  const pet = await authenticatedFetch<Pet>(
+    `/v1/pets/${encodeURIComponent(id)}/photo`,
+    {
+      method: "PUT",
+      body: form,
+    },
+  );
+  updateCached<Pet[]>(petsCacheKey, (current) =>
+    current?.map((item) => (item.id === pet.id ? pet : item)),
+  );
+  return pet;
 }
+
+export const primePets = (pets: Pet[]) => setCached(petsCacheKey, pets);

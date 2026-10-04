@@ -1,6 +1,7 @@
 import { getApps, initializeApp } from "firebase/app";
 import { connectAuthEmulator } from "firebase/auth";
 import { persistentAuth } from "./persistence";
+import { authEmulatorUrl } from "../development-endpoints";
 
 let cached: ReturnType<typeof createClient> | undefined;
 
@@ -53,8 +54,7 @@ function createClient() {
     // (auth/emulator-config-failed), so the SDK's own flag is the only safe
     // idempotency check.
     if (!auth.emulatorConfig) {
-      const host = process.env.EXPO_PUBLIC_EMULATOR_HOST || "127.0.0.1";
-      connectAuthEmulator(auth, `http://${host}:9099`, {
+      connectAuthEmulator(auth, authEmulatorUrl(), {
         disableWarnings: true,
       });
     }

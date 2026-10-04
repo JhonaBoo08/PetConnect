@@ -1,11 +1,11 @@
 import type { Appointment, HealthReminder } from "../../../shared/contracts";
 
 export const CARE_COLORS = [
-  "#C5EAC0",
-  "#FFD4AE",
-  "#D3DDF5",
-  "#F3CEE0",
-  "#C5E7E5",
+  "#DCE8DF",
+  "#F9E7C2",
+  "#DDE7EA",
+  "#F6DEDA",
+  "#D6E9E6",
 ];
 
 export type CareItem =

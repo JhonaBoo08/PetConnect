@@ -34,15 +34,134 @@ async function loadNotifications(): Promise<NotificationsModule> {
   return notificationsPromise;
 }
 
-export async function requestCurrentCoordinates(): Promise<Coordinates> {
+export async function observeNotificationResponses(
+  open: (data: Record<string, unknown>) => void,
+): Promise<() => void> {
+  if (Platform.OS === "web" || isExpoGo()) return () => {};
+  const Notifications = await loadNotifications();
+  const handled = new Set<string>();
+  const handle = (
+    response: import("expo-notifications").NotificationResponse | null,
+  ) => {
+    if (
+      !response ||
+      response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER
+    )
+      return;
+    const request = response.notification?.request;
+    const data = request?.content?.data;
+    if (
+      !request?.identifier ||
+      !data ||
+      typeof data !== "object" ||
+      Array.isArray(data)
+    )
+      return;
+    const key = request.identifier + ":" + response.actionIdentifier;
+    if (handled.has(key)) return;
+    handled.add(key);
+    open(data);
+    Notifications.clearLastNotificationResponse();
+  };
+  const subscription =
+    Notifications.addNotificationResponseReceivedListener(handle);
+  handle(Notifications.getLastNotificationResponse());
+  return () => subscription.remove();
+}
+
+const pushCoordinatesStorageKey = "petconnect.recoveryPushCoordinates";
+
+export async function observePushTokenChanges(): Promise<() => void> {
+  if (Platform.OS === "web" || isExpoGo()) return () => {};
+  const projectId = expoProjectId();
+  if (!projectId) return () => {};
+  const Notifications = await loadNotifications();
+  let active = true;
+  let pending = Promise.resolve();
+  const refresh = async (
+    devicePushToken?: import("expo-notifications").DevicePushToken,
+  ) => {
+    const previousToken = await AsyncStorage.getItem(pushTokenStorageKey);
+    if (!active || !previousToken) return;
+    const permission = await Notifications.getPermissionsAsync();
+    if (!active || permission.status !== "granted") return;
+    const token = (
+      await Notifications.getExpoPushTokenAsync({
+        projectId,
+        ...(devicePushToken ? { devicePushToken } : {}),
+      })
+    ).data;
+    const savedCoordinates = await AsyncStorage.getItem(
+      pushCoordinatesStorageKey,
+    );
+    let coordinates: Coordinates | undefined;
+    if (savedCoordinates) {
+      try {
+        const saved = JSON.parse(savedCoordinates) as Coordinates;
+        if (Number.isFinite(saved.latitude) && Number.isFinite(saved.longitude))
+          coordinates = saved;
+      } catch {
+        coordinates = undefined;
+      }
+    }
+    if (!active) return;
+    await registerPushDevice({
+      expoPushToken: token,
+      platform: Platform.OS as "ios" | "android",
+      ...(coordinates || {}),
+    });
+    if (!active) return;
+    await AsyncStorage.setItem(pushTokenStorageKey, token);
+    if (previousToken !== token) {
+      try {
+        await unregisterPushDevice(previousToken);
+      } catch {
+        // Receipts also disable stale registrations if cleanup is offline.
+      }
+    }
+  };
+  const subscription = Notifications.addPushTokenListener((token) => {
+    pending = pending.then(() => refresh(token)).catch(() => {});
+  });
+  try {
+    await refresh();
+  } catch {
+    // Keep the stored opt-in and retry on a token change or next app start.
+  }
+  return () => {
+    active = false;
+    subscription.remove();
+  };
+}
+
+export async function requestCurrentCoordinates(
+  options: { preferFast?: boolean } = {},
+): Promise<Coordinates> {
   const permission = await Location.requestForegroundPermissionsAsync();
   if (permission.status !== "granted") {
     throw new Error(
       "Location permission is needed to place recovery pins and find nearby reports.",
     );
   }
+
+  if (options.preferFast) {
+    const recent = await Location.getLastKnownPositionAsync({
+      maxAge: 60_000,
+      requiredAccuracy: 250,
+    }).catch(() => null);
+    if (recent) {
+      return {
+        latitude: recent.coords.latitude,
+        longitude: recent.coords.longitude,
+        accuracyM: recent.coords.accuracy,
+      };
+    }
+  }
+
   const location = await Location.getCurrentPositionAsync({
-    accuracy: Location.Accuracy.High,
+    accuracy: options.preferFast
+      ? Location.Accuracy.Balanced
+      : Location.Accuracy.High,
   });
   return {
     latitude: location.coords.latitude,
@@ -105,6 +224,7 @@ export async function enableRecoveryPush(
   }
 
   try {
+    const previousToken = await AsyncStorage.getItem(pushTokenStorageKey);
     const token = (
       await Notifications.getExpoPushTokenAsync({
         projectId,
@@ -113,11 +233,27 @@ export async function enableRecoveryPush(
     // Persist first so a partially failed registration can still be cleaned up
     // during sign-out instead of leaving an orphaned server-side push token.
     await AsyncStorage.setItem(pushTokenStorageKey, token);
+    if (coordinates) {
+      await AsyncStorage.setItem(
+        pushCoordinatesStorageKey,
+        JSON.stringify(coordinates),
+      );
+    } else {
+      await AsyncStorage.removeItem(pushCoordinatesStorageKey);
+    }
     await registerPushDevice({
       expoPushToken: token,
       platform: Platform.OS as "ios" | "android",
       ...(coordinates || {}),
     });
+    if (previousToken && previousToken !== token) {
+      try {
+        await unregisterPushDevice(previousToken);
+      } catch {
+        // The new token is already active. A stale previous token can be
+        // disabled later by Expo receipts or removed on a future registration.
+      }
+    }
     return { enabled: true, token };
   } catch (error) {
     return {
@@ -136,4 +272,5 @@ export async function disableRecoveryPush(): Promise<void> {
   if (!token) return;
   await unregisterPushDevice(token);
   await AsyncStorage.removeItem(pushTokenStorageKey);
+  await AsyncStorage.removeItem(pushCoordinatesStorageKey);
 }

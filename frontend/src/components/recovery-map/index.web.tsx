@@ -1,47 +1,185 @@
-import { StyleSheet, Text, View } from "react-native";
+import "leaflet/dist/leaflet.css";
+
+import { useEffect, useRef } from "react";
+import { StyleSheet, View } from "react-native";
 
 import { Palette } from "@/constants/palette";
-import { Fonts, Spacing } from "@/constants/theme";
-import type { RecoveryMapProps } from "./types";
+import type { RecoveryMapPin, RecoveryMapProps } from "./types";
+
+const emptyTrail: NonNullable<RecoveryMapProps["trail"]> = [];
+
+function colorFor(pin: RecoveryMapPin): string {
+  if (pin.kind === "found") return Palette.warning;
+  if (pin.kind === "sighting" || pin.status === "SIGHTED") return Palette.gold;
+  if (pin.kind === "reunited" || pin.status === "REUNITED")
+    return Palette.success;
+  if (pin.kind === "nearby") return Palette.nearby;
+  return Palette.danger;
+}
+
+function popup(title: string, description?: string) {
+  const root = document.createElement("div");
+  root.style.maxWidth = "220px";
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  root.appendChild(heading);
+  if (description) {
+    const body = document.createElement("div");
+    body.textContent = description;
+    body.style.marginTop = "4px";
+    root.appendChild(body);
+  }
+  return root;
+}
 
 export function RecoveryMap({
   pins,
+  trail = emptyTrail,
   selected,
   onSelect,
   height = 250,
 }: RecoveryMapProps) {
-  const visible = selected
-    ? [
-        {
-          id: "selected",
-          latitude: selected.latitude,
-          longitude: selected.longitude,
-          title: "Selected location",
-        },
-        ...pins,
-      ]
-    : pins;
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const onSelectRef = useRef(onSelect);
+  const pinsRef = useRef(pins);
+  const trailRef = useRef(trail);
+  const selectedRef = useRef(selected);
+  const renderDataRef = useRef<(() => void) | null>(null);
+
+  onSelectRef.current = onSelect;
+  pinsRef.current = pins;
+  trailRef.current = trail;
+  selectedRef.current = selected;
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let cancelled = false;
+    let map: import("leaflet").Map | null = null;
+
+    void import("leaflet").then((leaflet) => {
+      if (cancelled || !container) return;
+      const L = leaflet.default ?? leaflet;
+      map = L.map(container, {
+        zoomControl: true,
+        attributionControl: true,
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(map);
+
+      const dynamicLayers = L.layerGroup().addTo(map);
+
+      const renderData = () => {
+        if (!map) return;
+        dynamicLayers.clearLayers();
+        const points: [number, number][] = [];
+
+        const trailPoints = trailRef.current
+          .filter(
+            (point) =>
+              Number.isFinite(point.latitude) &&
+              Number.isFinite(point.longitude),
+          )
+          .map(
+            (point) => [point.latitude, point.longitude] as [number, number],
+          );
+
+        if (trailPoints.length >= 2) {
+          L.polyline(trailPoints, {
+            color: Palette.forestDark,
+            weight: 4,
+            opacity: 0.85,
+          }).addTo(dynamicLayers);
+          points.push(...trailPoints);
+        }
+
+        for (const pin of pinsRef.current) {
+          if (
+            !Number.isFinite(pin.latitude) ||
+            !Number.isFinite(pin.longitude)
+          ) {
+            continue;
+          }
+          const coordinate: [number, number] = [pin.latitude, pin.longitude];
+          points.push(coordinate);
+          L.circleMarker(coordinate, {
+            radius: pin.kind === "found" ? 10 : 8,
+            color: "#FFFFFF",
+            weight: 2,
+            fillColor: colorFor(pin),
+            fillOpacity: 1,
+          })
+            .addTo(dynamicLayers)
+            .bindPopup(popup(pin.title, pin.description));
+        }
+
+        const selectedPoint = selectedRef.current;
+        if (selectedPoint) {
+          const coordinate: [number, number] = [
+            selectedPoint.latitude,
+            selectedPoint.longitude,
+          ];
+          points.push(coordinate);
+          L.circleMarker(coordinate, {
+            radius: 10,
+            color: "#FFFFFF",
+            weight: 3,
+            fillColor: Palette.forestDark,
+            fillOpacity: 1,
+          })
+            .addTo(dynamicLayers)
+            .bindPopup(popup("Selected location"));
+        }
+
+        if (points.length === 1) {
+          map.setView(points[0], 15, { animate: false });
+        } else if (points.length > 1) {
+          map.fitBounds(L.latLngBounds(points), {
+            padding: [28, 28],
+            maxZoom: 16,
+            animate: false,
+          });
+        } else {
+          map.setView([7.4478, 125.8078], 12, { animate: false });
+        }
+      };
+
+      renderDataRef.current = renderData;
+      renderData();
+
+      map.on("click", (event: import("leaflet").LeafletMouseEvent) => {
+        onSelectRef.current?.({
+          latitude: event.latlng.lat,
+          longitude: event.latlng.lng,
+        });
+      });
+
+      requestAnimationFrame(() => map?.invalidateSize());
+    });
+
+    return () => {
+      cancelled = true;
+      renderDataRef.current = null;
+      map?.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    renderDataRef.current?.();
+  }, [pins, selected, trail]);
 
   return (
-    <View style={[styles.wrap, { minHeight: height }]}>
-      <Text style={styles.title}>Recovery map</Text>
-      <Text style={styles.help}>
-        Interactive map selection is available in the iOS/Android app. GPS
-        coordinates and nearby-distance matching still work on web.
-      </Text>
-      {visible.slice(0, 5).map((pin) => (
-        <View key={pin.id} style={styles.pinRow}>
-          <Text style={styles.pinTitle}>{pin.title}</Text>
-          <Text style={styles.coords}>
-            {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
-          </Text>
-        </View>
-      ))}
-      {onSelect ? (
-        <Text style={styles.help}>
-          Use “Use my GPS” to set the report location on web.
-        </Text>
-      ) : null}
+    <View style={[styles.wrap, { height }]}>
+      <div
+        ref={containerRef}
+        aria-label="Interactive recovery map"
+        style={{ width: "100%", height: "100%" }}
+      />
     </View>
   );
 }
@@ -49,39 +187,10 @@ export function RecoveryMap({
 const styles = StyleSheet.create({
   wrap: {
     width: "100%",
+    overflow: "hidden",
     borderRadius: 16,
     borderWidth: 1,
     borderColor: Palette.borderSoft,
     backgroundColor: Palette.surface,
-    padding: Spacing.three,
-    gap: Spacing.two,
-  },
-  title: {
-    fontFamily: Fonts.sans,
-    fontSize: 15,
-    fontWeight: "800",
-    color: Palette.forestDark,
-  },
-  help: {
-    fontFamily: Fonts.sans,
-    fontSize: 12,
-    lineHeight: 18,
-    color: Palette.inkMuted,
-  },
-  pinRow: {
-    borderTopWidth: 1,
-    borderTopColor: Palette.borderSoft,
-    paddingTop: Spacing.two,
-  },
-  pinTitle: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: "700",
-    color: Palette.forestDark,
-  },
-  coords: {
-    fontFamily: Fonts.sans,
-    fontSize: 11,
-    color: Palette.inkMuted,
   },
 });

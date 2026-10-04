@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { Palette } from "@/constants/palette";
 import { Fonts } from "@/constants/theme";
 import {
   dateInputValue,
@@ -57,10 +58,10 @@ const inputStyle: CSSProperties = {
   padding: "0 12px",
   fontFamily: Fonts.sans,
   fontSize: 14,
-  color: "#242218",
-  border: "1px solid #E5DCCB",
+  color: Palette.ink,
+  border: `1px solid ${Palette.borderSoft}`,
   borderRadius: 12,
-  background: "#FCF9F1",
+  background: Palette.cream,
   colorScheme: "light",
 };
 const styles = StyleSheet.create({
@@ -69,7 +70,7 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: Fonts.sans,
     fontSize: 14,
-    color: "#242218",
+    color: Palette.ink,
     marginBottom: 7,
   },
 });

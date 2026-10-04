@@ -43,6 +43,7 @@ export interface PetInput {
   sex: "Male" | "Female" | "";
   ageLabel: string;
   identifyingDetails: string;
+  microchipNumber: string;
 }
 
 export interface Pet extends PetInput {
@@ -56,6 +57,45 @@ export interface RecoveryTokenState {
   active: boolean;
   token: string | null;
   recoveryUrl: string | null;
+}
+
+export type RecoveryTagStatus = "ACTIVE" | "LOST" | "REVOKED";
+export type RecoveryTagType =
+  "PRINT" | "COLLAR" | "HARNESS" | "STICKER" | "OTHER";
+
+export interface RecoveryTag {
+  id: string;
+  petId: string;
+  label: string;
+  tagType: RecoveryTagType;
+  status: RecoveryTagStatus;
+  shortCode: string;
+  token: string | null;
+  recoveryUrl: string | null;
+  lastScannedAt: string | null;
+  scanCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecoveryTagScan {
+  id: string;
+  tagId: string;
+  petId: string;
+  label: string;
+  shortCode: string;
+  source: "QR" | "CODE";
+  createdAt: string;
+}
+
+export interface RecoveryTimelineEvent {
+  id: string;
+  kind: "REPORTED_LOST" | "TAG_SCANNED" | "SIGHTING" | "FOUND" | "REUNITED";
+  title: string;
+  detail: string;
+  createdAt: string;
+  sightingId?: string;
+  tagId?: string;
 }
 
 export type RecoveryStatus = "LOST" | "SIGHTED" | "REUNITED";
@@ -109,6 +149,7 @@ export interface NearbyLostReport {
   lastSightedAt: string | null;
   distanceKm: number;
   sightingCount: number;
+  matchReasons: string[];
 }
 
 export interface PublicActiveReport {
@@ -123,20 +164,84 @@ export interface PublicActiveReport {
   sightingCount: number;
 }
 
-export interface FinderSightingInput extends Coordinates {
-  finderName?: string;
-  finderContact?: string;
-  notes?: string;
+export type FinderEncounterType = "SEEN" | "HAVE_PET";
+export type FinderRiskState = "ACCEPTED" | "REVIEW" | "BLOCKED";
+export type FinderLocationSource = "GPS" | "MAP" | "TEXT" | "NONE" | "LEGACY";
+
+export interface FinderSessionPublicState {
+  credential: string;
+  expiresAt: string;
+  phoneVerified: boolean;
+  verificationRequired: boolean;
 }
 
-export interface Sighting extends Coordinates {
+export interface SightingEvidence {
   id: string;
-  reportId: string;
-  finderName: string | null;
-  finderContact: string | null;
-  notes: string;
+  url: string;
+  mimeType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+  sha256?: string;
   createdAt: string;
 }
+
+export interface FinderSightingInput {
+  encounterType?: FinderEncounterType;
+  evidenceId?: string;
+  finderName?: string;
+  finderContact?: string;
+  shareContact?: boolean;
+  notes?: string;
+  locationText?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracyM?: number | null;
+  locationSource?: Exclude<FinderLocationSource, "LEGACY">;
+  idempotencyKey?: string;
+}
+
+export interface Sighting {
+  id: string;
+  reportId: string;
+  encounterType: FinderEncounterType;
+  finderName: string | null;
+  finderContact: string | null;
+  contactShared: boolean;
+  phoneVerified: boolean;
+  notes: string;
+  locationText: string;
+  latitude: number | null;
+  longitude: number | null;
+  accuracyM: number | null;
+  locationSource: FinderLocationSource;
+  riskState: FinderRiskState;
+  evidence: SightingEvidence[];
+  createdAt: string;
+}
+
+export interface RecoveryContactEvent {
+  id: string;
+  petName: string;
+  encounterType: FinderEncounterType;
+  finderName: string | null;
+  finderContact: string | null;
+  contactShared: boolean;
+  phoneVerified: boolean;
+  notes: string;
+  locationText: string;
+  latitude: number | null;
+  longitude: number | null;
+  accuracyM: number | null;
+  locationSource: Exclude<FinderLocationSource, "LEGACY">;
+  riskState: FinderRiskState;
+  evidence: SightingEvidence[];
+  createdAt: string;
+}
+
+export type FinderSubmissionResult =
+  | { kind: "SIGHTING"; sighting: Sighting }
+  | { kind: "RECOVERY_CONTACT"; event: RecoveryContactEvent };
 
 export interface RecoveryNotification {
   id: string;
@@ -303,6 +408,7 @@ export interface PublicRecoveryProfile {
     sex: "Male" | "Female" | "";
     ageLabel: string;
     identifyingDetails: string;
+    microchipped: boolean;
     photoUrl: string | null;
   };
   owner: {

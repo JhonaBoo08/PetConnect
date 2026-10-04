@@ -10,13 +10,14 @@ type PetRow = RowDataPacket & {
   sex: string | null;
   age_label: string | null;
   identifying_details: string | null;
+  microchip_number: string | null;
   photo_url: string | null;
   created_at: Date;
   updated_at: Date;
 };
 
 const columns =
-  "id, name, species, breed, sex, age_label, identifying_details, photo_url, created_at, updated_at";
+  "id, name, species, breed, sex, age_label, identifying_details, microchip_number, photo_url, created_at, updated_at";
 
 export class PetValidationError extends Error {}
 
@@ -58,6 +59,12 @@ function validate(input: unknown, partial: boolean): Partial<PetInput> {
       "identifying details",
       2000,
     );
+  if (data.microchipNumber !== undefined)
+    result.microchipNumber = textField(
+      data.microchipNumber,
+      "microchip number",
+      64,
+    );
   if (partial && Object.keys(result).length === 0)
     throw new PetValidationError("No pet details to update.");
   return result;
@@ -72,6 +79,7 @@ function toPet(row: PetRow): Pet {
     sex: (row.sex as Pet["sex"]) || "",
     ageLabel: row.age_label || "",
     identifyingDetails: row.identifying_details || "",
+    microchipNumber: row.microchip_number || "",
     photoUrl: row.photo_url,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
@@ -101,7 +109,7 @@ export class Pets {
     const data = validate(input, false);
     const id = `PC-${randomUUID().toUpperCase()}`;
     await this.pool.query(
-      "INSERT INTO pets (id, owner_id, name, species, breed, sex, age_label, identifying_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO pets (id, owner_id, name, species, breed, sex, age_label, identifying_details, microchip_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         id,
         ownerId,
@@ -111,6 +119,7 @@ export class Pets {
         data.sex || null,
         data.ageLabel || null,
         data.identifyingDetails || null,
+        data.microchipNumber || null,
       ],
     );
     return (await this.get(ownerId, id))!;
@@ -129,6 +138,7 @@ export class Pets {
       sex: "sex",
       ageLabel: "age_label",
       identifyingDetails: "identifying_details",
+      microchipNumber: "microchip_number",
     };
     const entries = Object.entries(data) as [keyof PetInput, string][];
     await this.pool.query(
@@ -151,10 +161,35 @@ export class Pets {
   }
 
   async delete(ownerId: string, id: string): Promise<boolean> {
-    const [result] = await this.pool.query<ResultSetHeader>(
-      "DELETE FROM pets WHERE id = ? AND owner_id = ?",
-      [id, ownerId],
-    );
-    return result.affectedRows > 0;
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [owned] = await connection.query<RowDataPacket[]>(
+        "SELECT id FROM pets WHERE id = ? AND owner_id = ? FOR UPDATE",
+        [id, ownerId],
+      );
+      if (!owned.length) {
+        await connection.rollback();
+        return false;
+      }
+      await connection.query(
+        `UPDATE scheduled_notifications sn
+          JOIN health_reminders r ON sn.dedupe_key = CONCAT('health-reminder:', r.id)
+          SET sn.status = 'CANCELLED', sn.claimed_at = NULL
+          WHERE r.pet_id = ? AND r.owner_id = ? AND sn.status IN ('PENDING', 'PROCESSING')`,
+        [id, ownerId],
+      );
+      const [result] = await connection.query<ResultSetHeader>(
+        "DELETE FROM pets WHERE id = ? AND owner_id = ?",
+        [id, ownerId],
+      );
+      await connection.commit();
+      return result.affectedRows > 0;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }

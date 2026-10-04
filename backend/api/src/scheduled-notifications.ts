@@ -1,5 +1,5 @@
-import type { Pool, RowDataPacket } from "mysql2/promise";
 import { randomUUID } from "node:crypto";
+import type { Pool, RowDataPacket } from "mysql2/promise";
 import { Notifications } from "./notifications.js";
 
 type ScheduledRow = RowDataPacket & {
@@ -27,6 +27,7 @@ function sqlDate(value: Date) {
 
 export class ScheduledNotifications {
   private timer: NodeJS.Timeout | null = null;
+  private running = false;
 
   constructor(
     private pool: Pool,
@@ -103,7 +104,8 @@ export class ScheduledNotifications {
         `UPDATE scheduled_notifications
             SET status = 'PENDING', claimed_at = NULL
           WHERE status = 'PROCESSING'
-            AND claimed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE)`,
+            AND claimed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE)
+          LIMIT 100`,
       );
       const [selected] = await connection.query<ScheduledRow[]>(
         `SELECT id, user_id, type, title, body, data
@@ -112,7 +114,7 @@ export class ScheduledNotifications {
             AND scheduled_at <= UTC_TIMESTAMP()
           ORDER BY scheduled_at ASC
           LIMIT ?
-          FOR UPDATE`,
+          FOR UPDATE SKIP LOCKED`,
         [Math.max(1, Math.min(100, limit))],
       );
       rows = selected;
@@ -136,6 +138,29 @@ export class ScheduledNotifications {
     let failed = 0;
     for (const row of rows) {
       try {
+        const [current] = await this.pool.query<ScheduledRow[]>(
+          `SELECT s.id, s.user_id, s.type, s.title, s.body, s.data
+             FROM scheduled_notifications s
+            WHERE s.id = ? AND s.status = 'PROCESSING'
+              AND (
+                JSON_EXTRACT(s.data, '$.reminderId') IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM health_reminders r
+                   WHERE r.id = JSON_UNQUOTE(JSON_EXTRACT(s.data, '$.reminderId'))
+                     AND r.owner_id = s.user_id
+                )
+              )`,
+          [row.id],
+        );
+        if (!current.length) {
+          await this.pool.query(
+            `UPDATE scheduled_notifications
+                SET status = 'CANCELLED', claimed_at = NULL
+              WHERE id = ? AND status = 'PROCESSING'`,
+            [row.id],
+          );
+          continue;
+        }
         const data =
           typeof row.data === "string"
             ? (JSON.parse(row.data) as Record<string, unknown>)
@@ -146,6 +171,7 @@ export class ScheduledNotifications {
           row.title,
           row.body,
           data,
+          `NT-${row.id}`,
         );
         await this.pool.query(
           `UPDATE scheduled_notifications
@@ -171,9 +197,20 @@ export class ScheduledNotifications {
   start(intervalMs = 60_000): void {
     if (this.timer) return;
     const run = () => {
-      void this.processDue().catch((error) =>
-        console.error("Scheduled notification worker failed:", error),
-      );
+      if (this.running) return;
+      this.running = true;
+      void (async () => {
+        await this.processDue();
+        await this.notifications.processPushReceipts();
+      })()
+        .catch(() =>
+          console.error(
+            "Scheduled notification worker temporarily unavailable.",
+          ),
+        )
+        .finally(() => {
+          this.running = false;
+        });
     };
     run();
     this.timer = setInterval(run, Math.max(10_000, intervalMs));
