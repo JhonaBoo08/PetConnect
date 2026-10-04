@@ -48,15 +48,22 @@ function publicEvidence(row: EvidenceRow): SightingEvidence {
 
 export class FinderEvidence {
   private retentionHours: number;
+  private incidentRetentionDays: number;
+  private timer: NodeJS.Timeout | null = null;
 
   constructor(
     private pool: Pool,
     private uploadDir: string,
     retentionHours = 24,
+    incidentRetentionDays = 30,
   ) {
     this.retentionHours = Math.max(
       1,
       Math.min(72, Math.floor(retentionHours || 24)),
+    );
+    this.incidentRetentionDays = Math.max(
+      1,
+      Math.min(365, Math.floor(incidentRetentionDays || 30)),
     );
   }
 
@@ -204,7 +211,7 @@ export class FinderEvidence {
   }
 
   async cleanupExpired(): Promise<void> {
-    const [rows] = await this.pool.query<EvidenceRow[]>(
+    const [staged] = await this.pool.query<EvidenceRow[]>(
       `SELECT *
          FROM sighting_evidence
         WHERE status = 'STAGED'
@@ -212,14 +219,134 @@ export class FinderEvidence {
           AND expires_at <= UTC_TIMESTAMP()
         LIMIT 100`,
     );
-    for (const row of rows) {
-      await fs.unlink(this.absolutePath(row.storage_url)).catch(() => {});
-      await this.pool.query(
-        `UPDATE sighting_evidence
-            SET status = 'DELETED', deleted_at = CURRENT_TIMESTAMP
-          WHERE id = ? AND status = 'STAGED'`,
-        [row.id],
-      );
+    for (const row of staged) {
+      await this.deleteStoredEvidence(row);
     }
+
+    const retentionDays = this.incidentRetentionDays;
+    const [retained] = await this.pool.query<EvidenceRow[]>(
+      `SELECT se.*
+         FROM sighting_evidence se
+         LEFT JOIN sightings s ON s.id = se.sighting_id
+         LEFT JOIN lost_reports lr ON lr.id = s.report_id
+         LEFT JOIN recovery_contact_events rce
+           ON rce.id = se.recovery_contact_event_id
+        WHERE se.status = 'ATTACHED'
+          AND (
+            (
+              lr.status = 'REUNITED'
+              AND lr.reunited_at IS NOT NULL
+              AND lr.reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
+            )
+            OR
+            (
+              rce.id IS NOT NULL
+              AND rce.created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
+            )
+          )
+        LIMIT 100`,
+      [retentionDays, retentionDays],
+    );
+    for (const row of retained) {
+      await this.deleteStoredEvidence(row);
+    }
+
+    // Retain the minimal recovery event/audit trail, but remove finder contact
+    // and exact location after the documented recovery retention window.
+    await this.pool.query(
+      `UPDATE sightings s
+       JOIN lost_reports lr ON lr.id = s.report_id
+          SET s.finder_name = NULL,
+              s.finder_contact = NULL,
+              s.notes = NULL,
+              s.location_text = NULL,
+              s.latitude = NULL,
+              s.longitude = NULL,
+              s.accuracy_m = NULL
+        WHERE lr.status = 'REUNITED'
+          AND lr.reunited_at IS NOT NULL
+          AND lr.reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
+      [retentionDays],
+    );
+    await this.pool.query(
+      `UPDATE lost_reports
+          SET last_known_latitude = last_seen_latitude,
+              last_known_longitude = last_seen_longitude,
+              last_known_accuracy_m = last_seen_accuracy_m
+        WHERE status = 'REUNITED'
+          AND reunited_at IS NOT NULL
+          AND reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
+      [retentionDays],
+    );
+    await this.pool.query(
+      `UPDATE recovery_contact_events
+          SET finder_name = NULL,
+              finder_contact = NULL,
+              notes = NULL,
+              location_text = NULL,
+              latitude = NULL,
+              longitude = NULL,
+              accuracy_m = NULL
+        WHERE created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
+      [retentionDays],
+    );
+    await this.pool.query(
+      `UPDATE notifications n
+       JOIN lost_reports lr
+         ON lr.id = JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.reportId'))
+          SET n.body = 'Finder details removed after the retention period.'
+        WHERE n.type IN ('PET_SIGHTED', 'PET_FOUND')
+          AND n.user_id = lr.owner_id
+          AND lr.status = 'REUNITED'
+          AND lr.reunited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
+      [retentionDays],
+    );
+    await this.pool.query(
+      `UPDATE notifications n
+       JOIN recovery_contact_events rce
+         ON rce.id = JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.recoveryContactEventId'))
+          SET n.body = 'Finder details removed after the retention period.'
+        WHERE n.type = 'PET_QR_FOUND'
+          AND n.user_id = rce.owner_id
+          AND rce.created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)`,
+      [retentionDays],
+    );
+    await this.pool.query(
+      `DELETE FROM finder_otp_challenges
+        WHERE expires_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)
+        LIMIT 500`,
+    );
+  }
+
+  private async deleteStoredEvidence(row: EvidenceRow): Promise<void> {
+    await fs
+      .unlink(this.absolutePath(row.storage_url))
+      .catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    await this.pool.query(
+      `UPDATE sighting_evidence
+          SET status = 'DELETED', deleted_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status IN ('STAGED', 'ATTACHED')`,
+      [row.id],
+    );
+  }
+
+  start(intervalMs = 60 * 60 * 1000): void {
+    if (this.timer) return;
+    const run = () => {
+      void this.cleanupExpired().catch((error) =>
+        console.error("Finder evidence cleanup failed:", error),
+      );
+    };
+    run();
+    this.timer = setInterval(run, Math.max(60_000, intervalMs));
+    this.timer.unref();
+  }
+
+  stop(): void {
+    if (!this.timer) return;
+    clearInterval(this.timer);
+    this.timer = null;
   }
 }

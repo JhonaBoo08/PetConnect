@@ -58,6 +58,12 @@ export const reportFinderSightingAbuse = (
     { method: "POST" },
   );
 
+export const reportRecoveryContactAbuse = (id: string) =>
+  authenticatedFetch<void>(
+    `/v1/recovery-contacts/${encodeURIComponent(id)}/report-abuse`,
+    { method: "POST" },
+  );
+
 export const markPetReunited = (id: string) =>
   authenticatedFetch<LostReport>(
     `/v1/lost-reports/${encodeURIComponent(id)}/reunite`,

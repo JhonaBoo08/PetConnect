@@ -88,6 +88,7 @@ function AppNavigator() {
       allowedRoutes = [
         "/dashboard",
         "/alerts",
+        "/recovery-report",
         "/profile",
         "/privacy-settings",
         "/pet-id",
@@ -129,6 +130,7 @@ function AppNavigator() {
       <Stack.Protected guard={owner}>
         <Stack.Screen name="dashboard" />
         <Stack.Screen name="alerts" />
+        <Stack.Screen name="recovery-report" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="privacy-settings" />
         <Stack.Screen name="pet-id" />

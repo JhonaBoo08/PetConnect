@@ -49,8 +49,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Choose a photo for your pet profile.",
-          "cameraPermission": false,
+          "photosPermission": "Choose pet photos for profiles and recovery reports.",
+          "cameraPermission": "Allow PetConnect to take a current pet photo for profile and recovery evidence.",
           "microphonePermission": false
         }
       ],

@@ -15,6 +15,11 @@ const valid = {
   CORS_ALLOWED_ORIGINS: "https://pets.example.org",
   PUBLIC_APP_BASE_URL: "https://pets.example.org",
   RECOVERY_TOKEN_SECRET: "0123456789abcdef0123456789abcdef",
+  FINDER_SESSION_SECRET: "abcdef0123456789abcdef0123456789",
+  FINDER_IP_HASH_SECRET: "0123456789abcdef0123456789abcdef",
+  FINDER_OTP_SECRET: "fedcba9876543210fedcba9876543210",
+  FINDER_OTP_PROVIDER: "webhook",
+  FINDER_OTP_WEBHOOK_URL: "https://sms.example.org/send",
   UPLOAD_DIR: "/var/lib/petconnect/uploads",
 } satisfies NodeJS.ProcessEnv;
 
@@ -78,5 +83,29 @@ test("production configuration rejects development defaults", () => {
         RECOVERY_TOKEN_SECRET: "change-this-local-secret-32-bytes-minimum",
       }),
     /non-placeholder/,
+  );
+  assert.throws(
+    () =>
+      assertProductionEnvironment({
+        ...valid,
+        FINDER_SESSION_SECRET: "change-this-finder-session-secret-32-bytes",
+      }),
+    /FINDER_SESSION_SECRET.*non-placeholder/,
+  );
+  assert.throws(
+    () =>
+      assertProductionEnvironment({
+        ...valid,
+        FINDER_OTP_PROVIDER: "console",
+      }),
+    /webhook/,
+  );
+  assert.throws(
+    () =>
+      assertProductionEnvironment({
+        ...valid,
+        FINDER_OTP_WEBHOOK_URL: "http://localhost:9999/send",
+      }),
+    /HTTPS|localhost/,
   );
 });

@@ -4,7 +4,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { sanitizePetPhoto, UploadValidationError } from "../src/uploads.js";
+import {
+  sanitizeFinderPhoto,
+  sanitizePetPhoto,
+  UploadValidationError,
+} from "../src/uploads.js";
 
 const tempDirs: string[] = [];
 
@@ -125,5 +129,47 @@ test("sanitizePetPhoto rejects images that exceed the input pixel ceiling", asyn
     (error: unknown) =>
       error instanceof UploadValidationError &&
       /valid image/i.test(error.message),
+  );
+});
+
+test("sanitizeFinderPhoto stores normalized private recovery evidence and strips metadata", async () => {
+  const dir = await tempDir();
+  const input = await sharp({
+    create: {
+      width: 80,
+      height: 50,
+      channels: 3,
+      background: { r: 80, g: 120, b: 60 },
+    },
+  })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer();
+
+  const result = await sanitizeFinderPhoto(input, dir);
+  assert.match(result.relativeUrl, /^\/uploads\/recovery\/[0-9a-f-]+\.webp$/i);
+  assert.equal(path.dirname(result.absolutePath), path.join(dir, "recovery"));
+  assert.equal(result.mimeType, "image/webp");
+  assert.equal(result.byteSize, (await fs.stat(result.absolutePath)).size);
+  assert.match(result.sha256, /^[a-f0-9]{64}$/);
+
+  const metadata = await sharp(
+    await fs.readFile(result.absolutePath),
+  ).metadata();
+  assert.equal(metadata.format, "webp");
+  assert.equal(metadata.exif, undefined);
+  assert.equal(metadata.icc, undefined);
+});
+
+test("sanitizeFinderPhoto rejects SVG even though Sharp can decode it", async () => {
+  const dir = await tempDir();
+  const svg = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+  );
+  await assert.rejects(
+    () => sanitizeFinderPhoto(svg, dir),
+    (error: unknown) =>
+      error instanceof UploadValidationError &&
+      /JPEG, PNG, or WebP/i.test(error.message),
   );
 });

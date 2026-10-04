@@ -94,3 +94,50 @@ it.each([
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith(target));
   },
 );
+
+it.each([
+  [
+    "PET_SIGHTED",
+    { reportId: "LR-BANTAY", sightingId: "SG-BANTAY" },
+    {
+      pathname: "/recovery-report",
+      params: { reportId: "LR-BANTAY", sightingId: "SG-BANTAY" },
+    },
+  ],
+  [
+    "PET_FOUND",
+    { reportId: "LR-BANTAY", sightingId: "SG-FOUND" },
+    {
+      pathname: "/recovery-report",
+      params: { reportId: "LR-BANTAY", sightingId: "SG-FOUND" },
+    },
+  ],
+  [
+    "PET_QR_FOUND",
+    { recoveryContactEventId: "RC-BANTAY" },
+    {
+      pathname: "/recovery-report",
+      params: { eventId: "RC-BANTAY" },
+    },
+  ],
+])("opens finder evidence from a %s update", async (type, data, target) => {
+  mockNotifications.mockResolvedValue([
+    {
+      id: "N-FINDER",
+      type,
+      title: "Bantay recovery update",
+      body: "Review finder evidence",
+      data,
+      readAt: null,
+      createdAt: "2026-10-04T00:00:00Z",
+    },
+  ]);
+  const view = await render(<AlertsScreen />);
+  await waitFor(() =>
+    expect(view.getByText("Bantay recovery update")).toBeTruthy(),
+  );
+  await act(async () => {
+    fireEvent.press(view.getByText("Bantay recovery update"));
+  });
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith(target));
+});

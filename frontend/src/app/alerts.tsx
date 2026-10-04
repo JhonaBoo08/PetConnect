@@ -280,7 +280,28 @@ export default function AlertsScreen() {
         pathname: "/health-reminders",
         params: typeof data.petId === "string" ? { petId: data.petId } : {},
       });
+    } else if (
+      (item.type === "PET_SIGHTED" || item.type === "PET_FOUND") &&
+      typeof data.reportId === "string" &&
+      typeof data.sightingId === "string"
+    ) {
+      router.push({
+        pathname: "/recovery-report",
+        params: {
+          reportId: data.reportId,
+          sightingId: data.sightingId,
+        },
+      });
+    } else if (
+      item.type === "PET_QR_FOUND" &&
+      typeof data.recoveryContactEventId === "string"
+    ) {
+      router.push({
+        pathname: "/recovery-report",
+        params: { eventId: data.recoveryContactEventId },
+      });
     } else if (item.type === "PET_SIGHTED") {
+      // Backward-compatible fallback for pre-evidence notifications.
       const report = reports.find((row) => row.id === data.reportId);
       if (report) setSelectedPetId(report.petId);
       setMode("report");

@@ -104,6 +104,7 @@ export class FinderVerification {
       (RowDataPacket & {
         session_hour: number | string;
         phone_day: number | string;
+        ip_day: number | string;
         seconds_since_last: number | string | null;
       })[]
     >(
@@ -114,15 +115,28 @@ export class FinderVerification {
         (SELECT COUNT(*) FROM finder_otp_challenges
           WHERE phone_hash = ?
             AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)) AS phone_day,
+        (SELECT COUNT(*)
+           FROM finder_otp_challenges c
+           JOIN finder_sessions used_session
+             ON used_session.id = c.finder_session_id
+          WHERE used_session.ip_hash IS NOT NULL
+            AND used_session.ip_hash = (
+              SELECT current_session.ip_hash
+                FROM finder_sessions current_session
+               WHERE current_session.id = ?
+               LIMIT 1
+            )
+            AND c.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)) AS ip_day,
         (SELECT TIMESTAMPDIFF(SECOND, MAX(created_at), UTC_TIMESTAMP())
            FROM finder_otp_challenges
           WHERE finder_session_id = ?) AS seconds_since_last`,
-      [finderSessionId, phoneHash, finderSessionId],
+      [finderSessionId, phoneHash, finderSessionId, finderSessionId],
     );
     const limit = limits[0];
     if (
       Number(limit?.session_hour || 0) >= 3 ||
       Number(limit?.phone_day || 0) >= 5 ||
+      Number(limit?.ip_day || 0) >= 10 ||
       (limit?.seconds_since_last !== null &&
         Number(limit.seconds_since_last) < 60)
     ) {

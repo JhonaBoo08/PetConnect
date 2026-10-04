@@ -403,6 +403,7 @@ export const finderEvidence = new FinderEvidence(
   pool,
   uploadDir,
   Number(process.env.FINDER_EVIDENCE_RETENTION_HOURS) || 24,
+  Number(process.env.FINDER_INCIDENT_RETENTION_DAYS) || 30,
 );
 export const recoveryAbuse = new RecoveryAbuse(pool);
 export const finderVerification = new FinderVerification(pool, finderSessions);
@@ -628,6 +629,18 @@ app.post(
         error: "finder-session-required",
         message: "Start a new PetConnect finder session and try again.",
       });
+      return;
+    }
+
+    // A retry must still succeed after its evidence has been attached and must
+    // not consume another submission or trigger a new verification challenge.
+    const previous = await recoveryNetwork.findFinderSubmission(
+      petId,
+      finder.id,
+      req.body?.idempotencyKey,
+    );
+    if (previous) {
+      res.status(201).json(previous);
       return;
     }
 
@@ -900,6 +913,34 @@ app.post(
         req.user!.uid,
         JSON.stringify({ reportId: req.params.reportId }),
       ],
+    );
+    res.status(204).end();
+  }),
+);
+
+app.post(
+  "/v1/recovery-contacts/:id/report-abuse",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const [result] = await pool.query<import("mysql2/promise").ResultSetHeader>(
+      `UPDATE recovery_contact_events
+          SET risk_state = 'REVIEW'
+        WHERE id = ? AND owner_id = ?`,
+      [req.params.id, req.user!.uid],
+    );
+    if (result.affectedRows === 0) {
+      res.status(404).json({
+        error: "not-found",
+        message: "Recovery contact not found.",
+      });
+      return;
+    }
+    await pool.query(
+      `INSERT INTO audit_logs
+        (entity_type, entity_id, action, performed_by, details)
+       VALUES ('recovery_contact', ?, 'report_abuse', ?, '{}')`,
+      [req.params.id, req.user!.uid],
     );
     res.status(204).end();
   }),
@@ -1445,6 +1486,9 @@ if (process.env.NODE_ENV !== "test") {
   scheduledNotifications.start(
     Number(process.env.NOTIFICATION_WORKER_INTERVAL_MS) || 60_000,
   );
+  finderEvidence.start(
+    Number(process.env.FINDER_CLEANUP_INTERVAL_MS) || 60 * 60 * 1000,
+  );
   const port = Number(process.env.PORT) || 3000;
   const server = app.listen(port, "0.0.0.0", () => {
     process.stdout.write(
@@ -1462,6 +1506,7 @@ if (process.env.NODE_ENV !== "test") {
     if (shuttingDown) return;
     shuttingDown = true;
     scheduledNotifications.stop();
+    finderEvidence.stop();
     process.stdout.write(
       JSON.stringify({
         ts: new Date().toISOString(),

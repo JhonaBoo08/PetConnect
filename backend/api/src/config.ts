@@ -115,6 +115,38 @@ export function assertProductionEnvironment(
     );
   }
 
+  for (const key of [
+    "FINDER_SESSION_SECRET",
+    "FINDER_IP_HASH_SECRET",
+    "FINDER_OTP_SECRET",
+  ]) {
+    const secret = required(env, key);
+    if (
+      Buffer.byteLength(secret, "utf8") < 32 ||
+      placeholderPattern.test(secret)
+    ) {
+      throw new Error(
+        `${key} must be a non-placeholder secret of at least 32 bytes.`,
+      );
+    }
+  }
+
+  const otpProvider = required(env, "FINDER_OTP_PROVIDER").toLowerCase();
+  if (otpProvider !== "webhook") {
+    throw new Error(
+      "FINDER_OTP_PROVIDER must be webhook in production so progressive finder verification remains available.",
+    );
+  }
+  productionUrl(
+    required(env, "FINDER_OTP_WEBHOOK_URL"),
+    "FINDER_OTP_WEBHOOK_URL",
+  );
+  if (env.FINDER_OTP_EXPOSE_CODE === "true") {
+    throw new Error(
+      "FINDER_OTP_EXPOSE_CODE must not be enabled in production.",
+    );
+  }
+
   const uploadDir = required(env, "UPLOAD_DIR");
   if (!path.isAbsolute(uploadDir)) {
     throw new Error(

@@ -516,6 +516,85 @@ export class RecoveryNetwork {
     return result?.kind === "SIGHTING" ? result.sighting : null;
   }
 
+  async findFinderSubmission(
+    petId: string,
+    finderSessionId: string,
+    idempotencyKeyInput: unknown,
+  ): Promise<FinderSubmissionResult | null> {
+    const idempotencyKey = text(idempotencyKeyInput, 64);
+    if (!idempotencyKey) return null;
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(idempotencyKey)) {
+      throw new RecoveryNetworkValidationError(
+        "Invalid submission idempotency key.",
+      );
+    }
+    const [existingSightings] = await this.pool.query<
+      (SightingRow & { pet_id: string })[]
+    >(
+      `SELECT s.id, s.report_id, s.finder_name, s.finder_contact,
+              s.encounter_type, s.notes, s.location_text, s.latitude,
+              s.longitude, s.accuracy_m, s.location_source,
+              s.contact_share_consent, s.phone_verified_snapshot,
+              s.risk_state, s.created_at, lr.pet_id
+         FROM sightings s
+         JOIN lost_reports lr ON lr.id = s.report_id
+        WHERE s.finder_session_id = ? AND s.idempotency_key = ?
+        LIMIT 1`,
+      [finderSessionId, idempotencyKey],
+    );
+    if (existingSightings[0]) {
+      if (existingSightings[0].pet_id !== petId) {
+        throw new RecoveryNetworkConflictError(
+          "This submission key was already used for another pet.",
+        );
+      }
+      return {
+        kind: "SIGHTING",
+        sighting: await this.toSighting(existingSightings[0]),
+      };
+    }
+    const [existingContacts] = await this.pool.query<RecoveryContactRow[]>(
+      `SELECT rce.*, p.name AS pet_name
+         FROM recovery_contact_events rce
+         JOIN pets p ON p.id = rce.pet_id
+        WHERE rce.finder_session_id = ? AND rce.idempotency_key = ?
+        LIMIT 1`,
+      [finderSessionId, idempotencyKey],
+    );
+    if (existingContacts[0]) {
+      if (existingContacts[0].pet_id !== petId) {
+        throw new RecoveryNetworkConflictError(
+          "This submission key was already used for another pet.",
+        );
+      }
+      const row = existingContacts[0];
+      return {
+        kind: "RECOVERY_CONTACT",
+        event: {
+          id: row.id,
+          petName: row.pet_name,
+          encounterType: row.encounter_type,
+          finderName: row.finder_name,
+          finderContact: row.contact_share_consent ? row.finder_contact : null,
+          contactShared: Boolean(row.contact_share_consent),
+          phoneVerified: Boolean(row.phone_verified_snapshot),
+          notes: row.notes || "",
+          locationText: row.location_text || "",
+          latitude: row.latitude === null ? null : Number(row.latitude),
+          longitude: row.longitude === null ? null : Number(row.longitude),
+          accuracyM: row.accuracy_m === null ? null : Number(row.accuracy_m),
+          locationSource: row.location_source,
+          riskState: row.risk_state,
+          evidence: this.finderEvidence
+            ? await this.finderEvidence.listForContact(row.id)
+            : [],
+          createdAt: row.created_at.toISOString(),
+        },
+      };
+    }
+    return null;
+  }
+
   async submitFinderReport(
     petId: string,
     input: FinderSightingInput,
@@ -543,7 +622,12 @@ export class RecoveryNetwork {
         : locationText
           ? "TEXT"
           : "NONE";
-    const contactShared = Boolean(input.shareContact && finderContact);
+    // Legacy clients historically submitted finderContact directly. Preserve
+    // that behavior only for the backward-compatible legacy path; new finder
+    // sessions require explicit shareContact consent.
+    const contactShared = Boolean(
+      finderContact && (context.legacy || input.shareContact),
+    );
     const idempotencyKey = text(input.idempotencyKey, 64);
     if (idempotencyKey && !/^[A-Za-z0-9_-]{8,64}$/.test(idempotencyKey)) {
       throw new RecoveryNetworkValidationError(
@@ -562,72 +646,12 @@ export class RecoveryNetwork {
     }
 
     if (context.finderSessionId && idempotencyKey) {
-      const [existingSightings] = await this.pool.query<
-        (SightingRow & { pet_id: string })[]
-      >(
-        `SELECT s.id, s.report_id, s.finder_name, s.finder_contact,
-                s.encounter_type, s.notes, s.location_text, s.latitude,
-                s.longitude, s.accuracy_m, s.location_source,
-                s.contact_share_consent, s.phone_verified_snapshot,
-                s.risk_state, s.created_at, lr.pet_id
-           FROM sightings s
-           JOIN lost_reports lr ON lr.id = s.report_id
-          WHERE s.finder_session_id = ? AND s.idempotency_key = ?
-          LIMIT 1`,
-        [context.finderSessionId, idempotencyKey],
+      const existing = await this.findFinderSubmission(
+        petId,
+        context.finderSessionId,
+        idempotencyKey,
       );
-      if (existingSightings[0]) {
-        if (existingSightings[0].pet_id !== petId) {
-          throw new RecoveryNetworkConflictError(
-            "This submission key was already used for another pet.",
-          );
-        }
-        return {
-          kind: "SIGHTING",
-          sighting: await this.toSighting(existingSightings[0]),
-        };
-      }
-      const [existingContacts] = await this.pool.query<RecoveryContactRow[]>(
-        `SELECT rce.*, p.name AS pet_name
-           FROM recovery_contact_events rce
-           JOIN pets p ON p.id = rce.pet_id
-          WHERE rce.finder_session_id = ? AND rce.idempotency_key = ?
-          LIMIT 1`,
-        [context.finderSessionId, idempotencyKey],
-      );
-      if (existingContacts[0]) {
-        if (existingContacts[0].pet_id !== petId) {
-          throw new RecoveryNetworkConflictError(
-            "This submission key was already used for another pet.",
-          );
-        }
-        const row = existingContacts[0];
-        return {
-          kind: "RECOVERY_CONTACT",
-          event: {
-            id: row.id,
-            petName: row.pet_name,
-            encounterType: row.encounter_type,
-            finderName: row.finder_name,
-            finderContact: row.contact_share_consent
-              ? row.finder_contact
-              : null,
-            contactShared: Boolean(row.contact_share_consent),
-            phoneVerified: Boolean(row.phone_verified_snapshot),
-            notes: row.notes || "",
-            locationText: row.location_text || "",
-            latitude: row.latitude === null ? null : Number(row.latitude),
-            longitude: row.longitude === null ? null : Number(row.longitude),
-            accuracyM: row.accuracy_m === null ? null : Number(row.accuracy_m),
-            locationSource: row.location_source,
-            riskState: row.risk_state,
-            evidence: this.finderEvidence
-              ? await this.finderEvidence.listForContact(row.id)
-              : [],
-            createdAt: row.created_at.toISOString(),
-          },
-        };
-      }
+      if (existing) return existing;
     }
 
     const connection = await this.pool.getConnection();
@@ -809,10 +833,9 @@ export class RecoveryNetwork {
         encounterType === "HAVE_PET"
           ? `A finder says they have ${petName}`
           : `${petName} was sighted`,
-        notes ||
-          (encounterType === "HAVE_PET"
-            ? "A finder submitted a found-pet report with PetConnect."
-            : "A finder submitted a new PetConnect sighting."),
+        encounterType === "HAVE_PET"
+          ? "A finder submitted a found-pet report with PetConnect."
+          : "A finder submitted a new PetConnect sighting.",
         {
           reportId,
           sightingId,
@@ -841,7 +864,7 @@ export class RecoveryNetwork {
       ownerId,
       "PET_QR_FOUND",
       `Someone says they found ${petName}`,
-      notes || "A finder used the PetConnect recovery QR to contact you.",
+      "A finder used the PetConnect recovery QR to contact you.",
       {
         recoveryContactEventId: contactEventId,
         petName,

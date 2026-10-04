@@ -50,6 +50,18 @@ import type {
 
 type Flow = "PROFILE" | "HAVE_PET" | "SEEN" | "VERIFY" | "SUCCESS";
 
+function recoveryErrorMessage(cause: unknown): string {
+  if (cause instanceof ApiError) {
+    return cause.status >= 500
+      ? "Pet recovery is temporarily unavailable. Please try again."
+      : cause.message;
+  }
+  if (cause instanceof TypeError && cause.message.includes("fetch")) {
+    return "Could not connect to PetConnect. Check your connection and try again.";
+  }
+  return authErrorMessage(cause);
+}
+
 function encounterCopy(encounter: FinderEncounterType, petName: string) {
   return encounter === "HAVE_PET"
     ? {
@@ -80,6 +92,7 @@ export default function RecoverScreen() {
   const [evidenceId, setEvidenceId] = useState("");
   const [location, setLocation] = useState<Coordinates | null>(null);
   const [locationText, setLocationText] = useState("");
+  const [locationError, setLocationError] = useState("");
   const [finderName, setFinderName] = useState("");
   const [finderContact, setFinderContact] = useState("");
   const [shareContact, setShareContact] = useState(false);
@@ -99,8 +112,9 @@ export default function RecoverScreen() {
   const [otpBusy, setOtpBusy] = useState(false);
   const [developmentCode, setDevelopmentCode] = useState("");
 
-  const [submission, setSubmission] =
-    useState<FinderSubmissionResult | null>(null);
+  const [submission, setSubmission] = useState<FinderSubmissionResult | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     if (!token) {
@@ -120,7 +134,7 @@ export default function RecoverScreen() {
       .catch((cause) => {
         if (active) {
           setProfile(null);
-          setError(authErrorMessage(cause));
+          setError(recoveryErrorMessage(cause));
         }
       })
       .finally(() => {
@@ -135,6 +149,7 @@ export default function RecoverScreen() {
     setEncounterType(next);
     setFlow(next === "HAVE_PET" ? "HAVE_PET" : "SEEN");
     setError("");
+    setLocationError("");
     setSubmission(null);
     setIdempotencyKey(newFinderIdempotencyKey());
   }
@@ -144,6 +159,7 @@ export default function RecoverScreen() {
     setEvidenceId("");
     setLocation(null);
     setLocationText("");
+    setLocationError("");
     setNotes("");
     setOtpChallengeId("");
     setOtpCode("");
@@ -189,7 +205,7 @@ export default function RecoverScreen() {
       // any, is intentionally left to the server's short retention cleanup.
       setEvidenceId("");
     } catch (cause) {
-      setError(authErrorMessage(cause));
+      setError(recoveryErrorMessage(cause));
     } finally {
       setPhotoBusy(false);
     }
@@ -198,12 +214,13 @@ export default function RecoverScreen() {
   async function locate() {
     setLocationBusy(true);
     setError("");
+    setLocationError("");
     try {
       const next = await requestCurrentCoordinates();
       setLocation(next);
     } catch {
       setLocation(null);
-      setError(
+      setLocationError(
         "PetConnect could not read your location. You can still type a nearby street, landmark, or area below.",
       );
     } finally {
@@ -221,6 +238,7 @@ export default function RecoverScreen() {
 
   async function sendReport() {
     if (!token || !profile) return;
+    setLocationError("");
     if (encounterType === "HAVE_PET" && !photoUri) {
       setError(
         `Add a current photo of ${profile.pet.name} before sending a found-pet report.`,
@@ -262,7 +280,7 @@ export default function RecoverScreen() {
         setFlow("VERIFY");
         setError("");
       } else {
-        setError(authErrorMessage(cause));
+        setError(recoveryErrorMessage(cause));
       }
     } finally {
       setSubmitting(false);
@@ -281,7 +299,7 @@ export default function RecoverScreen() {
       setOtpChallengeId(result.challengeId);
       setDevelopmentCode(result.developmentCode || "");
     } catch (cause) {
-      setError(authErrorMessage(cause));
+      setError(recoveryErrorMessage(cause));
     } finally {
       setOtpBusy(false);
     }
@@ -300,7 +318,7 @@ export default function RecoverScreen() {
       setOtpCode("");
       await sendReport();
     } catch (cause) {
-      setError(authErrorMessage(cause));
+      setError(recoveryErrorMessage(cause));
     } finally {
       setOtpBusy(false);
     }
@@ -346,7 +364,9 @@ export default function RecoverScreen() {
 
           {!loading && !profile ? (
             <View style={styles.errorCard}>
-              <Text style={styles.errorTitle}>Recovery profile unavailable</Text>
+              <Text style={styles.errorTitle}>
+                Recovery profile unavailable
+              </Text>
               <Text accessibilityRole="alert" style={styles.errorText}>
                 {error || "This recovery link is unavailable."}
               </Text>
@@ -380,7 +400,10 @@ export default function RecoverScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.petName}>{profile.pet.name}</Text>
                       <Text style={styles.petMeta}>
-                        {[profile.pet.breed || profile.pet.species, profile.pet.sex]
+                        {[
+                          profile.pet.breed || profile.pet.species,
+                          profile.pet.sex,
+                        ]
                           .filter(Boolean)
                           .join(" · ")}
                       </Text>
@@ -444,7 +467,9 @@ export default function RecoverScreen() {
                     </View>
                   ) : (
                     <View style={styles.infoCard}>
-                      <Text style={styles.infoTitle}>This Pet ID is active</Text>
+                      <Text style={styles.infoTitle}>
+                        This Pet ID is active
+                      </Text>
                       <Text style={styles.muted}>
                         The owner has not marked {profile.pet.name} as lost. If
                         you found this pet away from the owner, you can still
@@ -463,6 +488,7 @@ export default function RecoverScreen() {
                       <>
                         <Pressable
                           accessibilityRole="button"
+                          accessibilityLabel="I have this pet"
                           onPress={() => begin("HAVE_PET")}
                           style={styles.primaryChoice}
                         >
@@ -478,6 +504,7 @@ export default function RecoverScreen() {
                         </Pressable>
                         <Pressable
                           accessibilityRole="button"
+                          accessibilityLabel="I saw this pet"
                           onPress={() => begin("SEEN")}
                           style={styles.secondaryChoice}
                         >
@@ -495,6 +522,7 @@ export default function RecoverScreen() {
                     ) : (
                       <Pressable
                         accessibilityRole="button"
+                        accessibilityLabel="I found this pet"
                         onPress={() => begin("HAVE_PET")}
                         style={styles.primaryChoice}
                       >
@@ -571,6 +599,11 @@ export default function RecoverScreen() {
                   ) : (
                     <Pressable
                       accessibilityRole="button"
+                      accessibilityLabel={
+                        encounterType === "HAVE_PET"
+                          ? "Take a current photo"
+                          : "Add a photo"
+                      }
                       disabled={photoBusy}
                       onPress={() => void choosePhoto(true)}
                       style={styles.cameraButton}
@@ -579,10 +612,7 @@ export default function RecoverScreen() {
                         <ActivityIndicator color={Palette.forestDark} />
                       ) : (
                         <>
-                          <CameraIcon
-                            size={30}
-                            color={Palette.forestDark}
-                          />
+                          <CameraIcon size={30} color={Palette.forestDark} />
                           <Text style={styles.cameraTitle}>
                             {encounterType === "HAVE_PET"
                               ? "Take a current photo"
@@ -604,6 +634,9 @@ export default function RecoverScreen() {
                   </Text>
                   <Pressable
                     accessibilityRole="button"
+                    accessibilityLabel={
+                      location ? "Refresh current GPS" : "Use my current GPS"
+                    }
                     disabled={locationBusy}
                     onPress={() => void locate()}
                     style={styles.locationButton}
@@ -632,13 +665,21 @@ export default function RecoverScreen() {
                       </Text>
                     </View>
                   ) : null}
+                  {locationError ? (
+                    <Text accessibilityRole="alert" style={styles.inlineError}>
+                      {locationError}
+                    </Text>
+                  ) : null}
                   <Text style={styles.fieldLabel}>
                     Nearby street, landmark, or area
                   </Text>
                   <TextInput
                     accessibilityLabel="Finder location description"
                     value={locationText}
-                    onChangeText={setLocationText}
+                    onChangeText={(value) => {
+                      setLocationText(value);
+                      setLocationError("");
+                    }}
                     placeholder="e.g. Near Freedom Park, Tagum"
                     placeholderTextColor={Palette.placeholder}
                     style={styles.input}
@@ -673,6 +714,7 @@ export default function RecoverScreen() {
                   />
                   <Pressable
                     accessibilityRole="checkbox"
+                    accessibilityLabel="Share my contact details with the pet owner"
                     accessibilityState={{ checked: shareContact }}
                     onPress={() => setShareContact((value) => !value)}
                     style={styles.checkRow}
@@ -713,6 +755,7 @@ export default function RecoverScreen() {
 
                   <Pressable
                     accessibilityRole="button"
+                    accessibilityLabel={copy?.submit || "Send finder report"}
                     disabled={submitting || photoBusy}
                     onPress={() => void sendReport()}
                     style={styles.submitButton}
@@ -763,6 +806,7 @@ export default function RecoverScreen() {
                   {!otpChallengeId ? (
                     <Pressable
                       accessibilityRole="button"
+                      accessibilityLabel="Send verification code"
                       disabled={otpBusy}
                       onPress={() => void requestOtp()}
                       style={styles.submitButton}
@@ -795,6 +839,7 @@ export default function RecoverScreen() {
                       ) : null}
                       <Pressable
                         accessibilityRole="button"
+                        accessibilityLabel="Verify and send report"
                         disabled={otpBusy}
                         onPress={() => void confirmOtp()}
                         style={styles.submitButton}
@@ -839,9 +884,9 @@ export default function RecoverScreen() {
                       : "Sighting sent"}
                   </Text>
                   <Text style={styles.successText}>
-                    Your report was saved in PetConnect and added to the
-                    owner's recovery updates. Push delivery depends on the
-                    owner's notification settings and device connectivity.
+                    Your report was saved in PetConnect and added to the owner's
+                    recovery updates. Push delivery depends on the owner's
+                    notification settings and device connectivity.
                   </Text>
                   <View style={styles.receipt}>
                     <Text style={styles.receiptLabel}>REPORT REFERENCE</Text>

@@ -39,10 +39,14 @@ Important API variables:
 - `CORS_ALLOWED_ORIGINS`
 - `PUBLIC_APP_BASE_URL`
 - `RECOVERY_TOKEN_SECRET`
+- `FINDER_SESSION_SECRET`, `FINDER_IP_HASH_SECRET`
+- `FINDER_OTP_PROVIDER`, `FINDER_OTP_SECRET`
+- `FINDER_OTP_WEBHOOK_URL` in production
+- finder session/evidence/retention/rate-limit settings from `.env.example`
 - `UPLOAD_DIR`
 - optional `EXPO_ACCESS_TOKEN` when Expo push enhanced security is enabled
 
-When `NODE_ENV=production`, startup requires explicit safe values, HTTPS public origins, a non-root database user/password, real Firebase Admin credentials, a stable non-placeholder recovery secret of at least 32 bytes, and an absolute durable upload path.
+When `NODE_ENV=production`, startup requires explicit safe values, HTTPS public origins, a non-root database user/password, real Firebase Admin credentials, stable non-placeholder recovery/finder secrets of at least 32 bytes, an HTTPS finder OTP webhook provider, and an absolute durable upload path. The development console OTP provider and exposed OTP codes are rejected in production.
 
 ## Authentication and roles
 
@@ -85,6 +89,16 @@ Rotation invalidates the previous token and revocation disables the current toke
 ## Recovery network and notifications
 
 Owner recovery routes create/read/reunite lost reports. Public finder routes accept sightings and the nearby feed returns recovery-safe information. Location is foreground-only; PetConnect does not implement continuous background tracking.
+
+The public `/recover?token=...` page is also the app-less finder workflow. A finder does not need a PetConnect account or Expo Go. PetConnect issues a random opaque finder-session credential; it is not derived from IMEI, MAC address, Android ID, advertising identifiers, canvas/font fingerprinting, or other hardware/browser fingerprinting. The server stores keyed hashes for session/IP/phone abuse controls instead of persisting raw IP addresses.
+
+Finder reports distinguish `SEEN` from `HAVE_PET`. `HAVE_PET` requires a finder photo; `SEEN` keeps the photo optional for speed. Photos are decoded, rotated, bounded, re-encoded as WebP and stripped of original metadata/EXIF/GPS. Raw finder evidence is not served from `/uploads`; owners obtain it only through the authenticated evidence endpoint.
+
+If a valid QR is scanned while no active lost report exists, PetConnect creates a private recovery-contact event and notifies the owner. It does **not** manufacture a lost report or mark the pet lost. Exact finder GPS remains owner-only; public lost-pet coordinates continue to obey the owner's recovery-location privacy setting.
+
+Abuse controls are progressive. Normal recovery viewing is challenge-free. Submission velocity, distinct-pet activity and duplicate evidence can require phone verification or flag a report for owner review. Phone verification is separate from finder consent to share a contact number. Owner views show concrete evidence badges such as photo/GPS/phone verification, not an invented aggregate trust percentage.
+
+Finder-session lifetime is at most 30 days. Unused staged evidence defaults to 24 hours. Attached evidence and private finder contact/location are cleaned after the configured incident-retention window (30 days by default after reunion, or after a non-lost recovery contact). Retention also removes free-form finder notes, copied finder coordinates in reunited reports, and historical finder notification bodies that could contain contact/location details. New notification bodies use generic copy; private details are read from the authenticated report. OTP challenges are short-lived and old challenges are periodically deleted. The cleanup worker is bounded and runs alongside the notification worker. File deletion failures remain retryable and are logged instead of marking retained bytes as deleted.
 
 In-app notifications are durable MySQL rows. Native Expo push is optional. Successful Expo push tickets are recorded for receipt checks; `DeviceNotRegistered` disables the affected token so later notifications do not repeatedly target it.
 

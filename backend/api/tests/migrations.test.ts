@@ -91,11 +91,37 @@ test("empty bootstrap is repeatable and rejects altered migration history", asyn
 
 test("legacy bootstrap applies new migrations instead of baselining absent tables", async () => {
   await isolatedDatabase(async (connection, database) => {
+    const previousSightings = `CREATE TABLE IF NOT EXISTS sightings (
+  id VARCHAR(64) NOT NULL,
+  report_id VARCHAR(64) NOT NULL,
+  finder_user_id VARCHAR(128) NULL,
+  finder_name VARCHAR(80) NULL,
+  finder_contact VARCHAR(120) NULL,
+  notes TEXT NULL,
+  latitude DECIMAL(10,7) NOT NULL,
+  longitude DECIMAL(10,7) NOT NULL,
+  accuracy_m DECIMAL(10,2) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY sightings_report_created_index (report_id, created_at),
+  KEY sightings_finder_index (finder_user_id),
+  CONSTRAINT sightings_report_fk
+    FOREIGN KEY (report_id) REFERENCES lost_reports(id) ON DELETE CASCADE,
+  CONSTRAINT sightings_finder_user_fk
+    FOREIGN KEY (finder_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`;
     const previousSchema = schema
       .split(/;\s*(?:\r?\n|$)/)
+      .map((statement) =>
+        /CREATE TABLE IF NOT EXISTS sightings\b/.test(statement)
+          ? previousSightings
+          : statement,
+      )
       .filter(
         (statement) =>
-          !/CREATE TABLE IF NOT EXISTS expo_push_receipts\b/.test(statement),
+          !/CREATE TABLE IF NOT EXISTS (?:expo_push_receipts|finder_sessions|finder_otp_challenges|recovery_contact_events|sighting_evidence)\b/.test(
+            statement,
+          ),
       )
       .join(";\n");
     await connection.query(previousSchema);
@@ -108,6 +134,18 @@ test("legacy bootstrap applies new migrations instead of baselining absent table
       1,
       "the newly added receipts migration must execute",
     );
+    const [finderTables] = await connection.query<RowDataPacket[]>(
+      "SHOW TABLES LIKE 'finder_sessions'",
+    );
+    assert.equal(
+      finderTables.length,
+      1,
+      "the finder recovery migration must execute on a pre-finder database",
+    );
+    const [finderColumns] = await connection.query<RowDataPacket[]>(
+      "SHOW COLUMNS FROM sightings LIKE 'encounter_type'",
+    );
+    assert.equal(finderColumns.length, 1);
     const status = command(database, ["status", "--json"]);
     succeeds(status);
     assert.deepEqual(JSON.parse(status.stdout).pending, []);

@@ -76,6 +76,23 @@ GOOGLE_APPLICATION_CREDENTIALS=/etc/petconnect/firebase-admin.json
 CORS_ALLOWED_ORIGINS=https://pets.example.com
 PUBLIC_APP_BASE_URL=https://pets.example.com
 RECOVERY_TOKEN_SECRET=<AT_LEAST_32_RANDOM_BYTES>
+FINDER_SESSION_SECRET=<AT_LEAST_32_RANDOM_BYTES>
+FINDER_IP_HASH_SECRET=<AT_LEAST_32_RANDOM_BYTES>
+FINDER_SESSION_TTL_DAYS=30
+FINDER_EVIDENCE_MAX_BYTES=8388608
+FINDER_EVIDENCE_RETENTION_HOURS=24
+FINDER_INCIDENT_RETENTION_DAYS=30
+FINDER_CLEANUP_INTERVAL_MS=3600000
+FINDER_SESSION_RATE_LIMIT_HOURLY=20
+FINDER_EVIDENCE_RATE_LIMIT_HOURLY=12
+FINDER_SUBMISSION_RATE_LIMIT_15M=12
+FINDER_OTP_RATE_LIMIT_HOURLY=10
+FINDER_OTP_PROVIDER=webhook
+FINDER_OTP_SECRET=<AT_LEAST_32_RANDOM_BYTES>
+FINDER_OTP_TTL_SECONDS=600
+FINDER_OTP_EXPOSE_CODE=false
+FINDER_OTP_WEBHOOK_URL=https://your-sms-gateway.example/send
+# FINDER_OTP_WEBHOOK_TOKEN=<SERVER_SIDE_PROVIDER_TOKEN>
 UPLOAD_DIR=/var/lib/petconnect/uploads
 
 TRUST_PROXY_HOPS=1
@@ -88,7 +105,9 @@ NOTIFICATION_WORKER_INTERVAL_MS=60000
 
 Do not set `FIREBASE_AUTH_EMULATOR_HOST` in production.
 
-The API validates production configuration during startup and refuses unsafe defaults such as root/blank database credentials, emulator/demo Firebase configuration, localhost/non-HTTPS public URLs, placeholder recovery secrets, or a relative upload path.
+The API validates production configuration during startup and refuses unsafe defaults such as root/blank database credentials, emulator/demo Firebase configuration, localhost/non-HTTPS public URLs, placeholder recovery/finder secrets, the development console OTP provider, exposed development OTP codes, a non-HTTPS OTP webhook, or a relative upload path.
+
+Finder recovery intentionally works in an ordinary mobile browser with no app/account requirement. Production QR URLs must use the public HTTPS `PUBLIC_APP_BASE_URL`; never print an `exp://`, localhost, or LAN recovery URL on a physical PetConnect tag. The finder OTP webhook is an adapter boundary: connect it to the SMS provider selected by the operator and keep provider credentials server-side. PetConnect sends an HTTPS JSON POST containing `to` (normalized E.164 phone), `message` (the SMS text), and `purpose: "petconnect_finder_verification"`. When `FINDER_OTP_WEBHOOK_TOKEN` is set, the request includes `Authorization: Bearer <token>`. Return a successful HTTP status only after accepting the delivery request. Verify real SMS delivery before launch.
 
 After creating the configuration and Admin credential files, apply their permissions:
 

@@ -2,6 +2,7 @@ import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import { readFileSync } from "node:fs";
+import fs from "node:fs/promises";
 import { RowDataPacket } from "mysql2/promise";
 import sharp from "sharp";
 import { initializeApp, deleteApp } from "firebase/app";
@@ -11,7 +12,13 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from "firebase/auth";
-import { app, pool, accounts, scheduledNotifications } from "../src/server.js";
+import {
+  app,
+  pool,
+  accounts,
+  finderEvidence,
+  scheduledNotifications,
+} from "../src/server.js";
 import { Notifications } from "../src/notifications.js";
 import { createPool } from "../src/db.js";
 import {
@@ -19,7 +26,7 @@ import {
   HealthClinicValidationError,
 } from "../src/health-clinic.js";
 
-const projectId = "demo-petconnect";
+const projectId = process.env.FIREBASE_PROJECT_ID || "demo-petconnect";
 const apps: ReturnType<typeof initializeApp>[] = [];
 
 function client(name: string) {
@@ -33,7 +40,11 @@ function client(name: string) {
   );
   apps.push(clientApp);
   const a = getAuth(clientApp);
-  connectAuthEmulator(a, "http://127.0.0.1:9099", { disableWarnings: true });
+  connectAuthEmulator(
+    a,
+    `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST || "127.0.0.1:9099"}`,
+    { disableWarnings: true },
+  );
   return a;
 }
 
@@ -47,8 +58,12 @@ async function resetTestDb() {
   await pool.query("TRUNCATE TABLE notifications");
   await pool.query("TRUNCATE TABLE expo_push_receipts");
   await pool.query("TRUNCATE TABLE push_devices");
+  await pool.query("TRUNCATE TABLE sighting_evidence");
+  await pool.query("TRUNCATE TABLE recovery_contact_events");
+  await pool.query("TRUNCATE TABLE finder_otp_challenges");
   await pool.query("TRUNCATE TABLE sightings");
   await pool.query("TRUNCATE TABLE lost_reports");
+  await pool.query("TRUNCATE TABLE finder_sessions");
   await pool.query("TRUNCATE TABLE pet_recovery_tokens");
   await pool.query("TRUNCATE TABLE pets");
   await pool.query("TRUNCATE TABLE clinic_members");
@@ -1001,6 +1016,519 @@ test("recovery network transitions LOST to SIGHTED to REUNITED with privacy boun
     .set("Authorization", ownerHeader)
     .expect(200);
   assert.equal(historical.body.reports[0].status, "REUNITED");
+});
+
+test("anonymous finder recovery supports evidence, privacy, idempotency and non-lost contact", async () => {
+  const owner = await ownerToken(
+    "Finder Recovery Owner",
+    "finder-recovery-owner@example.test",
+  );
+  const ownerHeader = `Bearer ${owner.token}`;
+  const created = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", ownerHeader)
+    .send({
+      name: "Bantay",
+      species: "Dog",
+      breed: "Aspin",
+      sex: "Male",
+      ageLabel: "3 years",
+      identifyingDetails: "Brown coat, white chest, green collar",
+    })
+    .expect(201);
+  const petId = created.body.id as string;
+  const recoveryState = await request(app)
+    .get(`/v1/pets/${petId}/recovery`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  const token = recoveryState.body.token as string;
+
+  const session = await request(app)
+    .post("/v1/recovery/finder-session")
+    .expect(201);
+  assert.match(session.body.credential, /^FS-[0-9A-F-]{36}\.[A-Za-z0-9_-]+$/);
+  assert.equal(session.body.phoneVerified, false);
+  const finderHeader = session.body.credential as string;
+
+  await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(token)}/sightings`)
+    .set("X-Finder-Session", finderHeader)
+    .send({
+      encounterType: "HAVE_PET",
+      locationText: "Near Freedom Park",
+      idempotencyKey: "have-without-photo",
+    })
+    .expect(400);
+
+  const png = await sharp({
+    create: {
+      width: 64,
+      height: 48,
+      channels: 3,
+      background: { r: 90, g: 70, b: 40 },
+    },
+  })
+    .png()
+    .toBuffer();
+  const staged = await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(token)}/evidence/photo`)
+    .set("X-Finder-Session", finderHeader)
+    .attach("file", png, {
+      filename: "bantay.png",
+      contentType: "image/png",
+    })
+    .expect(201);
+  assert.match(staged.body.id, /^EV-/);
+  assert.equal(staged.body.mimeType, "image/webp");
+
+  const [storedEvidence] = await pool.query<
+    (RowDataPacket & { storage_url: string })[]
+  >("SELECT storage_url FROM sighting_evidence WHERE id = ?", [staged.body.id]);
+  assert.equal(storedEvidence.length, 1);
+  await request(app).get(storedEvidence[0].storage_url).expect(404);
+
+  const otherSession = await request(app)
+    .post("/v1/recovery/finder-session")
+    .expect(201);
+  await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(token)}/sightings`)
+    .set("X-Finder-Session", otherSession.body.credential)
+    .send({
+      encounterType: "HAVE_PET",
+      evidenceId: staged.body.id,
+      locationText: "Wrong session",
+      idempotencyKey: "wrong-session-photo",
+    })
+    .expect(409);
+
+  const foundPayload = {
+    encounterType: "HAVE_PET",
+    evidenceId: staged.body.id,
+    finderName: "Helpful Finder",
+    finderContact: "09171234567",
+    shareContact: false,
+    notes: "Bantay is safe with me.",
+    latitude: 7.4479,
+    longitude: 125.8079,
+    accuracyM: 7,
+    locationSource: "GPS",
+    idempotencyKey: "non-lost-have-pet-001",
+  };
+  const found = await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(token)}/sightings`)
+    .set("X-Finder-Session", finderHeader)
+    .send(foundPayload)
+    .expect(201);
+  assert.equal(found.body.kind, "RECOVERY_CONTACT");
+  assert.equal(found.body.event.encounterType, "HAVE_PET");
+  assert.equal(found.body.event.finderContact, null);
+  assert.equal(found.body.event.contactShared, false);
+  assert.equal(found.body.event.evidence.length, 1);
+  const eventId = found.body.event.id as string;
+  const evidenceId = found.body.event.evidence[0].id as string;
+
+  const duplicate = await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(token)}/sightings`)
+    .set("X-Finder-Session", finderHeader)
+    .send(foundPayload)
+    .expect(201);
+  assert.equal(duplicate.body.event.id, eventId);
+  const [contactCount] = await pool.query<
+    (RowDataPacket & { count: number | string })[]
+  >("SELECT COUNT(*) AS count FROM recovery_contact_events");
+  assert.equal(Number(contactCount[0].count), 1);
+  const [lostCount] = await pool.query<
+    (RowDataPacket & { count: number | string })[]
+  >("SELECT COUNT(*) AS count FROM lost_reports");
+  assert.equal(Number(lostCount[0].count), 0);
+
+  const privateContact = await request(app)
+    .get(`/v1/recovery-contacts/${eventId}`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  assert.equal(privateContact.body.finderContact, null);
+  assert.equal(privateContact.body.latitude, 7.4479);
+  assert.equal(privateContact.body.longitude, 125.8079);
+  assert.equal(privateContact.body.evidence.length, 1);
+
+  await request(app).get(`/v1/finder-evidence/${evidenceId}/file`).expect(401);
+  const evidenceFile = await request(app)
+    .get(`/v1/finder-evidence/${evidenceId}/file`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  assert.equal(evidenceFile.headers["content-type"], "image/webp");
+  assert.match(evidenceFile.headers["cache-control"], /no-store/);
+
+  const foundAlerts = await request(app)
+    .get("/v1/notifications")
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  const foundNotice = foundAlerts.body.notifications.find(
+    (item: { type: string }) => item.type === "PET_QR_FOUND",
+  );
+  assert.equal(foundNotice.data.recoveryContactEventId, eventId);
+  assert.equal(foundNotice.data.finderContact, undefined);
+  assert.equal(foundNotice.data.latitude, undefined);
+
+  const report = await request(app)
+    .post("/v1/lost-reports")
+    .set("Authorization", ownerHeader)
+    .send({
+      petId,
+      lastSeenText: "Madaum road",
+      latitude: 7.45,
+      longitude: 125.8,
+      accuracyM: 12,
+    })
+    .expect(201);
+  const reportId = report.body.id as string;
+
+  const seen = await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(token)}/sightings`)
+    .set("X-Finder-Session", finderHeader)
+    .send({
+      encounterType: "SEEN",
+      finderContact: "private@example.test",
+      shareContact: false,
+      notes: "Running toward the market",
+      locationText: "Outside the barangay hall",
+      idempotencyKey: "text-only-sighting-001",
+    })
+    .expect(201);
+  assert.equal(seen.body.kind, "SIGHTING");
+  assert.equal(seen.body.sighting.encounterType, "SEEN");
+  assert.equal(seen.body.sighting.latitude, null);
+  assert.equal(seen.body.sighting.finderContact, null);
+  assert.equal(seen.body.sighting.locationText, "Outside the barangay hall");
+
+  const reportAfterTextSighting = await request(app)
+    .get(`/v1/lost-reports/${reportId}`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  assert.equal(reportAfterTextSighting.body.report.status, "SIGHTED");
+  assert.equal(
+    Number(reportAfterTextSighting.body.report.lastKnownLatitude),
+    7.45,
+  );
+  assert.equal(
+    Number(reportAfterTextSighting.body.report.lastKnownLongitude),
+    125.8,
+  );
+
+  const secondPhoto = await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(token)}/evidence/photo`)
+    .set("X-Finder-Session", finderHeader)
+    .attach("file", png, {
+      filename: "bantay-again.png",
+      contentType: "image/png",
+    })
+    .expect(201);
+  const haveLost = await request(app)
+    .post(`/v1/recovery/${encodeURIComponent(token)}/sightings`)
+    .set("X-Finder-Session", finderHeader)
+    .send({
+      encounterType: "HAVE_PET",
+      evidenceId: secondPhoto.body.id,
+      finderName: "Finder Two",
+      finderContact: "+639171234567",
+      shareContact: true,
+      notes: "Waiting by the guardhouse.",
+      latitude: 7.451,
+      longitude: 125.801,
+      accuracyM: 5,
+      idempotencyKey: "active-have-pet-001",
+    })
+    .expect(201);
+  assert.equal(haveLost.body.kind, "SIGHTING");
+  assert.equal(haveLost.body.sighting.encounterType, "HAVE_PET");
+  assert.equal(haveLost.body.sighting.finderContact, "+639171234567");
+  assert.equal(haveLost.body.sighting.contactShared, true);
+  assert.equal(haveLost.body.sighting.evidence.length, 1);
+
+  const previousExpose = process.env.FINDER_OTP_EXPOSE_CODE;
+  process.env.FINDER_OTP_EXPOSE_CODE = "true";
+  try {
+    const otp = await request(app)
+      .post("/v1/recovery/finder-session/otp/send")
+      .set("X-Finder-Session", finderHeader)
+      .send({ phone: "09171234567" })
+      .expect(201);
+    assert.match(otp.body.developmentCode, /^\d{6}$/);
+    await request(app)
+      .post("/v1/recovery/finder-session/otp/verify")
+      .set("X-Finder-Session", finderHeader)
+      .send({
+        challengeId: otp.body.challengeId,
+        code: otp.body.developmentCode,
+      })
+      .expect(200);
+    const resumed = await request(app)
+      .post("/v1/recovery/finder-session")
+      .set("X-Finder-Session", finderHeader)
+      .expect(200);
+    assert.equal(resumed.body.phoneVerified, true);
+  } finally {
+    if (previousExpose === undefined) delete process.env.FINDER_OTP_EXPOSE_CODE;
+    else process.env.FINDER_OTP_EXPOSE_CODE = previousExpose;
+  }
+
+  await request(app)
+    .post(`/v1/lost-reports/${reportId}/reunite`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  await pool.query(
+    "UPDATE lost_reports SET reunited_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 31 DAY) WHERE id = ?",
+    [reportId],
+  );
+  await pool.query(
+    "UPDATE recovery_contact_events SET created_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 31 DAY) WHERE id = ?",
+    [eventId],
+  );
+  // Simulate notifications written by the previous version with finder text.
+  await pool.query("UPDATE notifications SET body = ? WHERE id = ?", [
+    "Legacy finder contact 09171234567 at the guardhouse",
+    foundNotice.id,
+  ]);
+  await finderEvidence.cleanupExpired();
+
+  const [retainedSightings] = await pool.query<
+    (RowDataPacket & {
+      finder_contact: string | null;
+      latitude: number | string | null;
+    })[]
+  >("SELECT finder_contact, latitude FROM sightings WHERE id = ?", [
+    haveLost.body.sighting.id,
+  ]);
+  assert.equal(retainedSightings[0].finder_contact, null);
+  assert.equal(retainedSightings[0].latitude, null);
+  const retainedReport = await request(app)
+    .get(`/v1/lost-reports/${reportId}`)
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  assert.equal(retainedReport.body.report.lastKnownLatitude, 7.45);
+  assert.equal(retainedReport.body.report.lastKnownLongitude, 125.8);
+  assert.equal(retainedReport.body.sightings[0].notes, "");
+  const [retainedContact] = await pool.query<
+    (RowDataPacket & {
+      finder_name: string | null;
+      longitude: number | string | null;
+    })[]
+  >("SELECT finder_name, longitude FROM recovery_contact_events WHERE id = ?", [
+    eventId,
+  ]);
+  assert.equal(retainedContact[0].finder_name, null);
+  assert.equal(retainedContact[0].longitude, null);
+  const retainedAlerts = await request(app)
+    .get("/v1/notifications")
+    .set("Authorization", ownerHeader)
+    .expect(200);
+  const retainedNotice = retainedAlerts.body.notifications.find(
+    (notice: { id: string }) => notice.id === foundNotice.id,
+  );
+  assert.equal(retainedNotice.body.includes("09171234567"), false);
+  await request(app)
+    .get(`/v1/finder-evidence/${evidenceId}/file`)
+    .set("Authorization", ownerHeader)
+    .expect(404);
+});
+
+test("finder cleanup keeps failed deletions eligible for retry", async () => {
+  const owner = await ownerToken("Cleanup Owner", "cleanup-owner@example.test");
+  const pet = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", `Bearer ${owner.token}`)
+    .send({ name: "Retry", species: "Dog" })
+    .expect(201);
+  const recoveryState = await request(app)
+    .get(`/v1/pets/${pet.body.id}/recovery`)
+    .set("Authorization", `Bearer ${owner.token}`)
+    .expect(200);
+  const session = await request(app)
+    .post("/v1/recovery/finder-session")
+    .expect(201);
+  const png = await sharp({
+    create: { width: 16, height: 16, channels: 3, background: "#abcdef" },
+  })
+    .png()
+    .toBuffer();
+  const staged = await request(app)
+    .post(
+      `/v1/recovery/${encodeURIComponent(recoveryState.body.token)}/evidence/photo`,
+    )
+    .set("X-Finder-Session", session.body.credential)
+    .attach("file", png, { filename: "retry.png", contentType: "image/png" })
+    .expect(201);
+  const [rows] = await pool.query<(RowDataPacket & { storage_url: string })[]>(
+    "SELECT storage_url FROM sighting_evidence WHERE id = ?",
+    [staged.body.id],
+  );
+  const file = finderEvidence.absolutePath(rows[0].storage_url);
+  const normalized = await fs.readFile(file);
+  try {
+    await fs.unlink(file);
+    await fs.mkdir(file);
+    await pool.query(
+      "UPDATE sighting_evidence SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 HOUR) WHERE id = ?",
+      [staged.body.id],
+    );
+    await assert.rejects(finderEvidence.cleanupExpired());
+    const [failed] = await pool.query<(RowDataPacket & { status: string })[]>(
+      "SELECT status FROM sighting_evidence WHERE id = ?",
+      [staged.body.id],
+    );
+    assert.equal(failed[0].status, "STAGED");
+    await fs.rm(file, { recursive: true });
+    await fs.writeFile(file, normalized);
+    await finderEvidence.cleanupExpired();
+    const [retried] = await pool.query<(RowDataPacket & { status: string })[]>(
+      "SELECT status FROM sighting_evidence WHERE id = ?",
+      [staged.body.id],
+    );
+    assert.equal(retried[0].status, "DELETED");
+    await assert.rejects(fs.stat(file), { code: "ENOENT" });
+  } finally {
+    await fs.rm(file, { recursive: true, force: true });
+  }
+});
+
+test("finder sessions resume safely and reject expired or blocked credentials", async () => {
+  const first = await request(app)
+    .post("/v1/recovery/finder-session")
+    .expect(201);
+  const credential = first.body.credential as string;
+  const id = credential.split(".")[0];
+  const resumed = await request(app)
+    .post("/v1/recovery/finder-session")
+    .set("X-Finder-Session", credential)
+    .expect(200);
+  assert.equal(resumed.body.credential, credential);
+  assert.ok(
+    Math.abs(
+      Date.parse(resumed.body.expiresAt) - Date.parse(first.body.expiresAt),
+    ) < 1000,
+  );
+  assert.ok(
+    Date.parse(first.body.expiresAt) - Date.now() <= 30 * 86400000 + 1000,
+  );
+  const [rows] = await pool.query<
+    (RowDataPacket & { secret_hash: string; ip_hash: string })[]
+  >("SELECT secret_hash, ip_hash FROM finder_sessions WHERE id = ?", [id]);
+  assert.match(rows[0].secret_hash, /^[a-f0-9]{64}$/);
+  assert.match(rows[0].ip_hash, /^[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify(first.body).includes(rows[0].ip_hash), false);
+  await pool.query(
+    "UPDATE finder_sessions SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE id = ?",
+    [id],
+  );
+  await request(app)
+    .post("/v1/recovery/finder-session/otp/send")
+    .set("X-Finder-Session", credential)
+    .send({ phone: "09171234567" })
+    .expect(401);
+  const second = await request(app)
+    .post("/v1/recovery/finder-session")
+    .expect(201);
+  await pool.query(
+    "UPDATE finder_sessions SET status = 'BLOCKED' WHERE id = ?",
+    [second.body.credential.split(".")[0]],
+  );
+  await request(app)
+    .post("/v1/recovery/finder-session/otp/send")
+    .set("X-Finder-Session", second.body.credential)
+    .send({ phone: "09171234567" })
+    .expect(401);
+});
+
+test("finder OTP enforces expiry, attempts, cooldown and IP limits", async () => {
+  const saved = process.env.FINDER_OTP_EXPOSE_CODE;
+  process.env.FINDER_OTP_EXPOSE_CODE = "true";
+  try {
+    const first = await request(app)
+      .post("/v1/recovery/finder-session")
+      .expect(201);
+    const otp = await request(app)
+      .post("/v1/recovery/finder-session/otp/send")
+      .set("X-Finder-Session", first.body.credential)
+      .send({ phone: "09171234567" })
+      .expect(201);
+    const [stored] = await pool.query<
+      (RowDataPacket & { code_hash: string; phone_hash: string })[]
+    >("SELECT code_hash, phone_hash FROM finder_otp_challenges WHERE id = ?", [
+      otp.body.challengeId,
+    ]);
+    assert.match(stored[0].code_hash, /^[a-f0-9]{64}$/);
+    assert.notEqual(stored[0].code_hash, otp.body.developmentCode);
+    assert.equal(JSON.stringify(stored[0]).includes("09171234567"), false);
+    await request(app)
+      .post("/v1/recovery/finder-session/otp/send")
+      .set("X-Finder-Session", first.body.credential)
+      .send({ phone: "09171234567" })
+      .expect(429);
+    const wrong = otp.body.developmentCode === "000000" ? "999999" : "000000";
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await request(app)
+        .post("/v1/recovery/finder-session/otp/verify")
+        .set("X-Finder-Session", first.body.credential)
+        .send({ challengeId: otp.body.challengeId, code: wrong })
+        .expect(400);
+    }
+    await request(app)
+      .post("/v1/recovery/finder-session/otp/verify")
+      .set("X-Finder-Session", first.body.credential)
+      .send({
+        challengeId: otp.body.challengeId,
+        code: otp.body.developmentCode,
+      })
+      .expect(400);
+    const second = await request(app)
+      .post("/v1/recovery/finder-session")
+      .expect(201);
+    const expiring = await request(app)
+      .post("/v1/recovery/finder-session/otp/send")
+      .set("X-Finder-Session", second.body.credential)
+      .send({ phone: "+639181234567" })
+      .expect(201);
+    await pool.query(
+      "UPDATE finder_otp_challenges SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE id = ?",
+      [expiring.body.challengeId],
+    );
+    await request(app)
+      .post("/v1/recovery/finder-session/otp/verify")
+      .set("X-Finder-Session", second.body.credential)
+      .send({
+        challengeId: expiring.body.challengeId,
+        code: expiring.body.developmentCode,
+      })
+      .expect(400);
+    process.env.FINDER_OTP_EXPOSE_CODE = "false";
+    const third = await request(app)
+      .post("/v1/recovery/finder-session")
+      .expect(201);
+    const privateOtp = await request(app)
+      .post("/v1/recovery/finder-session/otp/send")
+      .set("X-Finder-Session", third.body.credential)
+      .send({ phone: "+639191234567" })
+      .expect(201);
+    assert.equal(privateOtp.body.developmentCode, undefined);
+    for (let index = 0; index < 7; index++) {
+      await pool.query(
+        `INSERT INTO finder_otp_challenges (id, finder_session_id, phone_hash, code_hash, expires_at)
+         SELECT ?, finder_session_id, ?, code_hash, expires_at FROM finder_otp_challenges WHERE id = ?`,
+        [`OTP-IP-LIMIT-${index}`, "0".repeat(64), otp.body.challengeId],
+      );
+    }
+    const fourth = await request(app)
+      .post("/v1/recovery/finder-session")
+      .expect(201);
+    await request(app)
+      .post("/v1/recovery/finder-session/otp/send")
+      .set("X-Finder-Session", fourth.body.credential)
+      .send({ phone: "+639201234567" })
+      .expect(429);
+  } finally {
+    if (saved === undefined) delete process.env.FINDER_OTP_EXPOSE_CODE;
+    else process.env.FINDER_OTP_EXPOSE_CODE = saved;
+  }
 });
 
 test("each pooled database connection uses UTC for server timestamps", async () => {
