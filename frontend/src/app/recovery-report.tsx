@@ -317,22 +317,50 @@ export default function RecoveryReportScreen() {
                   <>
                     <RecoveryMap
                       pins={[
+                        ...(detail.kind === "SIGHTING"
+                          ? [
+                              {
+                                id: `${detail.report.id}-lost`,
+                                latitude: detail.report.lastSeenLatitude,
+                                longitude: detail.report.lastSeenLongitude,
+                                title: `${detail.report.petName} · last seen`,
+                                description: `Original lost report · ${detail.report.lastSeenText}`,
+                                status: "LOST" as const,
+                                kind: "lost" as const,
+                              },
+                            ]
+                          : []),
                         {
                           id: item.id,
                           latitude,
                           longitude,
                           title:
                             item.encounterType === "HAVE_PET"
-                              ? "Finder has pet"
+                              ? "Finder reported having the pet"
                               : "Finder sighting",
                           description:
                             item.locationText ||
                             "Exact finder-submitted location",
                           status: "SIGHTED",
+                          kind:
+                            item.encounterType === "HAVE_PET"
+                              ? "found"
+                              : "sighting",
                         },
                       ]}
+                      trail={
+                        detail.kind === "SIGHTING"
+                          ? [
+                              {
+                                latitude: detail.report.lastSeenLatitude,
+                                longitude: detail.report.lastSeenLongitude,
+                              },
+                              { latitude, longitude },
+                            ]
+                          : []
+                      }
                       selected={null}
-                      height={245}
+                      height={265}
                     />
                     <View style={styles.locationRow}>
                       <PinIcon size={17} />
