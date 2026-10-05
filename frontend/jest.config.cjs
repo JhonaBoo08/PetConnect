@@ -1,8 +1,25 @@
+const expoPreset = require("jest-expo/jest-preset");
+const babelOptions = expoPreset.transform["\\.[jt]sx?$"][1];
+
 module.exports = {
   preset: "jest-expo",
+  transform: {
+    ".*device-recovery\\.ts$": [
+      "babel-jest",
+      {
+        ...babelOptions,
+        plugins: [
+          "@babel/plugin-transform-modules-commonjs",
+          "@babel/plugin-transform-dynamic-import",
+        ],
+      },
+    ],
+    ...expoPreset.transform,
+  },
   testMatch: ["**/__tests__/**/*.[jt]s?(x)"],
   moduleNameMapper: {
     "\\.css$": "<rootDir>/test/style-mock.cjs",
+    "^@/assets/(.*)$": "<rootDir>/assets/$1",
     "^@/(.*)$": "<rootDir>/src/$1",
   },
   transformIgnorePatterns: [

@@ -1,10 +1,13 @@
-import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -16,39 +19,45 @@ import {
   BackArrow,
   BellIcon,
   CheckIcon,
+  ChevronRightIcon,
   PawIcon,
   PinIcon,
   SendIcon,
 } from "@/components/app-icons";
 import { BottomNav } from "@/components/bottom-nav";
+import { ListSkeleton } from "@/components/loading-skeleton";
 import { RecoveryMap } from "@/components/recovery-map";
+import type { RecoveryMapPin } from "@/components/recovery-map/types";
 import { Palette } from "@/constants/palette";
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
-import { goBack } from "@/lib/navigation";
+import { getApiBaseUrl } from "@/services/auth";
 import { authErrorMessage } from "@/services/auth-context";
-import {
-  enableRecoveryPush,
-  requestCurrentCoordinates,
-} from "@/services/device-recovery";
-import { listPets } from "@/services/pets";
+import { showFeedback } from "@/services/feedback";
+import { requestCurrentCoordinates } from "@/services/device-recovery";
+import { listPets, peekPets } from "@/services/pets";
 import {
   createLostReport,
   getNearbyLostReports,
-  listMyLostReports,
+  getOwnerRecoveryOverview,
   listRecoveryNotifications,
   markPetReunited,
-  markRecoveryNotificationRead,
+  peekOwnerRecoveryOverview,
+  peekRecoveryNotifications,
 } from "@/services/recovery-network";
 import type {
   Coordinates,
   LostReport,
   NearbyLostReport,
   Pet,
-  RecoveryNotification,
+  Sighting,
 } from "../../../shared/contracts";
 
-type Mode = "report" | "feed" | "updates";
+type Mode = "nearby" | "reports";
+const emptyMapPins: RecoveryMapPin[] = [];
 
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
 function statusLabel(
   status: LostReport["status"] | NearbyLostReport["status"],
 ) {
@@ -56,59 +65,142 @@ function statusLabel(
   if (status === "REUNITED") return "Reunited";
   return "Lost";
 }
-
 function when(value: string) {
   return new Date(value).toLocaleString();
 }
+function orderedMapSightings(sightings: Sighting[]) {
+  return [...sightings]
+    .filter(
+      (s) =>
+        s.riskState !== "BLOCKED" &&
+        s.latitude !== null &&
+        s.longitude !== null,
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+}
 
-export default function AlertsScreen() {
-  const [mode, setMode] = useState<Mode>("report");
-  const [pets, setPets] = useState<Pet[]>([]);
-  const [reports, setReports] = useState<LostReport[]>([]);
+function htmlText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+export default function RecoveryScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{
+    mode?: string;
+    petId?: string;
+    reportId?: string;
+  }>();
+  const routeMode = firstParam(params.mode);
+  const routePetId = firstParam(params.petId);
+  const routeReportId = firstParam(params.reportId);
+  const [mode, setMode] = useState<Mode>(
+    routeReportId || routeMode === "report" || routeMode === "reports"
+      ? "reports"
+      : "nearby",
+  );
+  const [showReportForm, setShowReportForm] = useState(
+    (routeMode === "report" || Boolean(routePetId)) && !routeReportId,
+  );
+  const cachedOverview = peekOwnerRecoveryOverview();
+  const [pets, setPets] = useState<Pet[]>(peekPets);
+  const [reports, setReports] = useState<LostReport[]>(
+    () => cachedOverview?.reports ?? [],
+  );
+  const [sightingsByReport, setSightingsByReport] = useState<
+    Record<string, Sighting[]>
+  >(() => cachedOverview?.sightingsByReport ?? {});
+  const [failedDetails, setFailedDetails] = useState<string[]>([]);
   const [nearby, setNearby] = useState<NearbyLostReport[]>([]);
-  const [notifications, setNotifications] = useState<RecoveryNotification[]>(
-    [],
+  const [unreadCount, setUnreadCount] = useState(
+    () => peekRecoveryNotifications().filter((notice) => !notice.readAt).length,
   );
   const [selectedPetId, setSelectedPetId] = useState("");
   const [lastSeenText, setLastSeenText] = useState("");
   const [details, setDetails] = useState("");
   const [location, setLocation] = useState<Coordinates | null>(null);
+  const [reportLocation, setReportLocation] = useState<Coordinates | null>(
+    null,
+  );
   const [loadingLocation, setLoadingLocation] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(
+    () => peekOwnerRecoveryOverview() === undefined,
+  );
+  const [coreError, setCoreError] = useState("");
+  const [nearbyError, setNearbyError] = useState("");
   const [publishing, setPublishing] = useState(false);
+  const [reuniting, setReuniting] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [pushMessage, setPushMessage] = useState("");
+  const scrollRef = useRef<ScrollView>(null);
+  const automaticModeChosen = useRef(false);
 
-  const loadCore = useCallback(async () => {
-    const [petRows, reportRows, notificationRows] = await Promise.all([
-      listPets(),
-      listMyLostReports(),
-      listRecoveryNotifications(),
-    ]);
-    setPets(petRows);
-    setReports(reportRows);
-    setNotifications(notificationRows);
-    setSelectedPetId((current) => current || petRows[0]?.id || "");
-  }, []);
+  const loadCore = useCallback(
+    async (isActive: () => boolean = () => true, force = false) => {
+      const [petRows, overview, notificationRows] = await Promise.all([
+        listPets({ force }),
+        getOwnerRecoveryOverview({ force }),
+        listRecoveryNotifications({ force }).catch(() => []),
+      ]);
+      if (!isActive()) return;
+      setPets(petRows);
+      setReports(overview.reports);
+      if (
+        !automaticModeChosen.current &&
+        !routeMode &&
+        !routeReportId &&
+        !routePetId
+      ) {
+        setMode(
+          overview.reports.some((report) => report.status !== "REUNITED")
+            ? "reports"
+            : "nearby",
+        );
+        automaticModeChosen.current = true;
+      }
+      setUnreadCount(notificationRows.filter((n) => !n.readAt).length);
+      setSightingsByReport(overview.sightingsByReport);
+      setFailedDetails([]);
+      setCoreError("");
+      setSelectedPetId((current) => {
+        if (routePetId && petRows.some((p) => p.id === routePetId))
+          return routePetId;
+        if (current && petRows.some((p) => p.id === current)) return current;
+        return petRows.length === 1 ? petRows[0].id : "";
+      });
+    },
+    [routeMode, routePetId, routeReportId],
+  );
 
-  const loadNearby = useCallback(async (coordinates: Coordinates) => {
-    const rows = await getNearbyLostReports(
-      coordinates.latitude,
-      coordinates.longitude,
-      10,
+  useEffect(() => {
+    if (routeMode === "updates") {
+      router.replace("/notifications");
+      return;
+    }
+    setMode(
+      routeReportId || routeMode === "report" || routeMode === "reports"
+        ? "reports"
+        : "nearby",
     );
-    setNearby(rows);
-  }, []);
+    setShowReportForm(
+      (routeMode === "report" || Boolean(routePetId)) && !routeReportId,
+    );
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [routeMode, routePetId, routeReportId, router]);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
-      loadCore()
+      loadCore(() => active)
         .catch((cause) => {
-          if (active) setError(authErrorMessage(cause));
+          if (active) setCoreError(authErrorMessage(cause));
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -119,38 +211,76 @@ export default function AlertsScreen() {
     }, [loadCore]),
   );
 
+  const loadNearby = useCallback(async (coordinates: Coordinates) => {
+    try {
+      const rows = await getNearbyLostReports(
+        coordinates.latitude,
+        coordinates.longitude,
+        10,
+      );
+      setNearby(rows);
+      setNearbyError("");
+    } catch (cause) {
+      setNearbyError(authErrorMessage(cause));
+    }
+  }, []);
+
   async function useGps(loadFeed = false) {
     setLoadingLocation(true);
     setError("");
+    if (loadFeed) setNearbyError("");
     try {
-      const next = await requestCurrentCoordinates();
-      setLocation(next);
-      if (loadFeed || mode === "feed") await loadNearby(next);
+      const next = await requestCurrentCoordinates({
+        preferFast: loadFeed,
+      });
+      if (loadFeed) {
+        setLocation(next);
+        await loadNearby(next);
+      } else {
+        setReportLocation(next);
+      }
       return next;
     } catch (cause) {
-      setError(authErrorMessage(cause));
+      if (loadFeed) setNearbyError(authErrorMessage(cause));
+      else setError(authErrorMessage(cause));
       return null;
     } finally {
       setLoadingLocation(false);
     }
   }
 
+  function closeReport(nextMode = mode) {
+    setShowReportForm(false);
+    setMode(nextMode);
+    setError("");
+    router.setParams({
+      mode: nextMode === "reports" ? "reports" : "feed",
+      petId: undefined,
+      reportId: undefined,
+    });
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
+
   async function publish() {
+    if (publishing) return;
     if (!selectedPetId) {
-      setError("Add a pet before publishing a lost report.");
+      setError(
+        pets.length
+          ? "Choose the pet you want to report lost."
+          : "Add a pet before publishing a lost report.",
+      );
       return;
     }
     if (!lastSeenText.trim()) {
       setError("Describe where your pet was last seen.");
       return;
     }
-    const pin = location || (await useGps());
-    if (!pin) return;
-
     setPublishing(true);
     setError("");
     setMessage("");
     try {
+      const pin = reportLocation || (await useGps());
+      if (!pin) return;
       const report = await createLostReport({
         petId: selectedPetId,
         lastSeenText,
@@ -159,14 +289,17 @@ export default function AlertsScreen() {
         longitude: pin.longitude,
         accuracyM: pin.accuracyM,
       });
-      setReports(await listMyLostReports());
       setLastSeenText("");
       setDetails("");
-      setMessage(
-        `${report.petName} is now in the recovery network. Nearby members with recovery alerts enabled can be notified.`,
-      );
-      setMode("feed");
-      await loadNearby(pin);
+      setReportLocation(null);
+      closeReport("reports");
+      const recoveryMessage =
+        report.petName +
+        " is now in Recovery. Follow finder sightings in My Reports.";
+      setMessage(recoveryMessage);
+      showFeedback(report.petName + " is now in Recovery.");
+      // Publication succeeded even if a subsequent refresh temporarily fails.
+      await loadCore().catch((cause) => setCoreError(authErrorMessage(cause)));
     } catch (cause) {
       setError(authErrorMessage(cause));
     } finally {
@@ -175,262 +308,288 @@ export default function AlertsScreen() {
   }
 
   async function reunite(report: LostReport) {
+    if (reuniting) return;
+    setReuniting(report.id);
     setError("");
     try {
       await markPetReunited(report.id);
-      setReports(await listMyLostReports());
+      setMessage(report.petName + " has been marked Reunited.");
+      showFeedback(report.petName + " has been marked Reunited.");
+      await loadCore();
       if (location) await loadNearby(location);
-      setMessage(`${report.petName} has been marked reunited.`);
     } catch (cause) {
       setError(authErrorMessage(cause));
+    } finally {
+      setReuniting("");
     }
   }
 
-  async function enablePush() {
-    setPushMessage("");
-    setError("");
-    try {
-      const coordinates = location || (await useGps());
-      const result = await enableRecoveryPush(coordinates || undefined);
-      setPushMessage(
-        result.enabled
-          ? "Recovery push alerts are enabled on this device."
-          : result.reason,
-      );
-    } catch (cause) {
-      setError(authErrorMessage(cause));
+  async function sharePoster(report: LostReport) {
+    const publicUrl =
+      Platform.OS === "web"
+        ? `${window.location.origin}/recover?reportId=${encodeURIComponent(report.id)}`
+        : `PetConnect recovery report ${report.id}`;
+
+    if (Platform.OS !== "web") {
+      await Share.share({
+        title: `Missing pet: ${report.petName}`,
+        message: [
+          `MISSING: ${report.petName}`,
+          report.petBreed || report.petSpecies,
+          `Last seen: ${report.lastSeenText}`,
+          report.details || "",
+          publicUrl,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
+      return;
     }
+
+    const popup = window.open("", "_blank", "width=760,height=980");
+    if (!popup) {
+      setError("Pop-ups are blocked. Allow pop-ups to print the poster.");
+      return;
+    }
+    const photo = report.petPhotoUrl
+      ? `${getApiBaseUrl()}${report.petPhotoUrl}`
+      : "";
+    popup.document.write(`<!doctype html>
+<html><head><title>Missing - ${htmlText(report.petName)}</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#fff;color:#173f35}
+main{max-width:720px;margin:0 auto;padding:42px;text-align:center}
+h1{font-size:62px;margin:0 0 8px}h2{font-size:38px;margin:0 0 24px}
+img{width:360px;height:360px;object-fit:cover;border-radius:24px;margin:10px auto 28px}
+.card{border:4px solid #173f35;border-radius:24px;padding:28px}
+p{font-size:24px;line-height:1.35;margin:12px 0}.small{font-size:18px}
+.url{font-family:monospace;word-break:break-all;font-size:17px;margin-top:24px}
+@media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+</style></head><body><main><div class="card">
+<h1>MISSING</h1><h2>${htmlText(report.petName)}</h2>
+${photo ? `<img src="${htmlText(photo)}" alt="${htmlText(report.petName)}">` : ""}
+<p><strong>${htmlText(report.petBreed || report.petSpecies)}</strong></p>
+<p>Last seen: ${htmlText(report.lastSeenText)}</p>
+${report.details ? `<p class="small">${htmlText(report.details)}</p>` : ""}
+<p><strong>If seen, please report it through PetConnect.</strong></p>
+<p class="url">${htmlText(publicUrl)}</p>
+</div></main><script>window.onload=()=>window.print()</script></body></html>`);
+    popup.document.close();
   }
 
   async function refresh() {
     setRefreshing(true);
     setError("");
     try {
-      await loadCore();
-      if (mode === "feed") {
-        const coordinates = location || (await useGps());
-        if (coordinates) await loadNearby(coordinates);
-      }
+      await loadCore(() => true, true);
+      if (!showReportForm && mode === "nearby" && location)
+        await loadNearby(location);
     } catch (cause) {
-      setError(authErrorMessage(cause));
+      setCoreError(authErrorMessage(cause));
     } finally {
       setRefreshing(false);
     }
   }
 
-  async function openUpdate(item: RecoveryNotification) {
-    if (!item.readAt) {
-      try {
-        await markRecoveryNotificationRead(item.id);
-        setNotifications((rows) =>
-          rows.map((row) =>
-            row.id === item.id
-              ? { ...row, readAt: new Date().toISOString() }
-              : row,
-          ),
-        );
-      } catch {
-        // The notification content is still safe to show if read-state sync fails.
-      }
-    }
-  }
-
-  const activeCases = reports.filter((report) => report.status !== "REUNITED");
-  const unreadCount = notifications.filter((item) => !item.readAt).length;
+  const activeCases = reports
+    .filter((r) => r.status !== "REUNITED")
+    .sort(
+      (a, b) => Number(b.id === routeReportId) - Number(a.id === routeReportId),
+    );
+  const reunitedCases = reports.filter((r) => r.status === "REUNITED");
+  const reporting = showReportForm && pets.length > 0 && !coreError;
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => void refresh()}
-            />
-          }
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.topBar}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={() => goBack("/dashboard")}
-              style={styles.iconButton}
-            >
-              <BackArrow />
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Recovery notifications"
-              onPress={() => setMode("updates")}
-              style={styles.iconButton}
-            >
-              <BellIcon />
-              {unreadCount ? <View style={styles.bellDot} /> : null}
-            </Pressable>
-          </View>
-
-          <Text style={styles.category}>RECOVERY NETWORK</Text>
-          <Text style={styles.heading}>Lost, sighted, reunited.</Text>
-          <Text style={styles.supporting}>
-            Publish a GPS-backed lost report, see nearby cases, and receive
-            finder sightings without exposing private account data.
-          </Text>
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void enablePush()}
-            style={styles.alertButton}
+          <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            refreshControl={
+              <RefreshControl
+                accessibilityLabel="Refresh recovery"
+                refreshing={refreshing}
+                onRefresh={() => void refresh()}
+              />
+            }
           >
-            <BellIcon size={18} />
-            <Text style={styles.alertButtonText}>Enable recovery alerts</Text>
-          </Pressable>
-          {pushMessage ? (
-            <Text style={styles.helper}>{pushMessage}</Text>
-          ) : null}
-          {message ? <Text style={styles.success}>{message}</Text> : null}
-          {error ? (
-            <Text accessibilityRole="alert" style={styles.error}>
-              {error}
-            </Text>
-          ) : null}
-
-          <View style={styles.segment}>
-            {(["report", "feed", "updates"] as Mode[]).map((key) => (
-              <Pressable
-                key={key}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: mode === key }}
-                onPress={() => {
-                  setMode(key);
-                  if (key === "feed" && location) void loadNearby(location);
-                }}
-                style={[
-                  styles.segmentItem,
-                  mode === key && styles.segmentItemActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.segmentLabel,
-                    mode === key && styles.segmentLabelActive,
-                  ]}
-                >
-                  {key === "report"
-                    ? "Report lost"
-                    : key === "feed"
-                      ? "Nearby"
-                      : `Updates${unreadCount ? ` (${unreadCount})` : ""}`}
+            <View style={styles.topBar}>
+              <View style={styles.titleRow}>
+                {showReportForm ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Back to Recovery"
+                    disabled={publishing}
+                    onPress={() => closeReport()}
+                    style={styles.iconButton}
+                  >
+                    <BackArrow />
+                  </Pressable>
+                ) : null}
+                <Text style={styles.screenTitle}>
+                  {showReportForm ? "Report Lost Pet" : "Recovery"}
                 </Text>
-              </Pressable>
-            ))}
-          </View>
+              </View>
+              {!showReportForm ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Notifications"
+                  onPress={() => router.push("/notifications")}
+                  style={styles.iconButton}
+                >
+                  <BellIcon />
+                  {unreadCount > 0 ? <View style={styles.bellDot} /> : null}
+                </Pressable>
+              ) : null}
+            </View>
 
-          {loading ? (
-            <ActivityIndicator
-              color={Palette.forestDark}
-              style={styles.loader}
-            />
-          ) : null}
-
-          {!loading && mode === "report" ? (
-            <>
-              {activeCases.length ? (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>
-                    Your active recovery cases
-                  </Text>
-                  {activeCases.map((report) => (
-                    <View key={report.id} style={styles.caseCard}>
-                      <View style={styles.caseTop}>
-                        <View>
-                          <Text style={styles.caseName}>{report.petName}</Text>
-                          <Text style={styles.caseMeta}>
-                            {statusLabel(report.status)} ·{" "}
-                            {report.sightingCount} sighting
-                            {report.sightingCount === 1 ? "" : "s"}
-                          </Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.statusPill,
-                            report.status === "SIGHTED" && styles.statusSighted,
-                          ]}
-                        >
-                          <Text style={styles.statusText}>
-                            {statusLabel(report.status).toUpperCase()}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.caseLocation}>
-                        {report.lastSeenText}
-                      </Text>
-                      {report.lastSightedAt ? (
-                        <Text style={styles.helper}>
-                          Latest sighting: {when(report.lastSightedAt)}
-                        </Text>
-                      ) : null}
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() => void reunite(report)}
-                        style={styles.reuniteButton}
+            {!showReportForm ? (
+              <>
+                <View
+                  accessibilityRole="tablist"
+                  accessibilityLabel="Recovery views"
+                  style={styles.segment}
+                >
+                  {(["nearby", "reports"] as Mode[]).map((key) => (
+                    <Pressable
+                      key={key}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: mode === key }}
+                      aria-selected={mode === key}
+                      onPress={() => {
+                        setMode(key);
+                        setError("");
+                        if (key === "nearby" && location)
+                          void loadNearby(location);
+                        router.setParams({
+                          mode: key === "nearby" ? "feed" : "reports",
+                          petId: undefined,
+                          reportId: undefined,
+                        });
+                      }}
+                      style={[
+                        styles.segmentItem,
+                        mode === key && styles.segmentItemActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.segmentLabel,
+                          mode === key && styles.segmentLabelActive,
+                        ]}
                       >
-                        <CheckIcon size={15} color={Palette.white} />
-                        <Text style={styles.reuniteText}>Mark reunited</Text>
-                      </Pressable>
-                    </View>
+                        {key === "nearby" ? "Nearby" : "My cases"}
+                      </Text>
+                    </Pressable>
                   ))}
                 </View>
-              ) : null}
+                {!loading && !coreError && pets.length > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Report Lost Pet"
+                    onPress={() => {
+                      setShowReportForm(true);
+                      setMessage("");
+                      setError("");
+                      scrollRef.current?.scrollTo({ y: 0, animated: false });
+                    }}
+                    style={styles.reportCta}
+                  >
+                    <PinIcon size={18} />
+                    <Text style={styles.reportCtaText}>Report Lost Pet</Text>
+                  </Pressable>
+                ) : null}
+              </>
+            ) : null}
 
+            {message ? (
+              <Text accessibilityLiveRegion="polite" style={styles.success}>
+                {message}
+              </Text>
+            ) : null}
+            {error ? (
+              <Text accessibilityRole="alert" style={styles.error}>
+                {error}
+              </Text>
+            ) : null}
+            {coreError ? (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Publish lost report</Text>
-                <Text style={styles.label}>Pet</Text>
+                <Text accessibilityRole="alert" style={styles.error}>
+                  {coreError}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry recovery"
+                  onPress={() => void refresh()}
+                  style={styles.smallButton}
+                >
+                  <Text style={styles.smallButtonText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {loading ? (
+              <View style={styles.loader}>
+                <ListSkeleton rows={2} rowHeight={92} />
+              </View>
+            ) : null}
+
+            {!loading && reporting ? (
+              <View style={styles.form}>
+                <Text style={styles.sectionStep}>1. Pet</Text>
                 <View style={styles.petChoices}>
                   {pets.map((pet) => (
                     <Pressable
                       key={pet.id}
                       accessibilityRole="button"
+                      accessibilityLabel={
+                        "Select " + pet.name + " for lost report"
+                      }
                       accessibilityState={{
                         selected: selectedPetId === pet.id,
                       }}
+                      disabled={publishing}
                       onPress={() => setSelectedPetId(pet.id)}
                       style={[
                         styles.petChoice,
                         selectedPetId === pet.id && styles.petChoiceActive,
                       ]}
                     >
-                      <PawIcon size={17} color={Palette.forestDark} />
+                      <PawIcon size={17} />
                       <Text style={styles.petChoiceText}>{pet.name}</Text>
                     </Pressable>
                   ))}
                 </View>
-
-                <Text style={styles.label}>Last seen</Text>
+                <Text style={styles.sectionStep}>2. Last seen</Text>
                 <TextInput
+                  accessibilityLabel="Last seen"
                   value={lastSeenText}
                   onChangeText={setLastSeenText}
+                  editable={!publishing}
                   placeholder="e.g. Freedom Park, Tagum"
                   placeholderTextColor={Palette.placeholder}
                   style={styles.input}
                 />
 
-                <Text style={styles.label}>Details</Text>
-                <TextInput
-                  value={details}
-                  onChangeText={setDetails}
-                  placeholder="Collar, behavior, direction of travel..."
-                  placeholderTextColor={Palette.placeholder}
-                  multiline
-                  style={[styles.input, styles.textArea]}
-                />
-
-                <Text style={styles.label}>Last known GPS pin</Text>
+                <Text style={styles.sectionStep}>3. Location</Text>
+                <Text style={styles.helper}>
+                  Use GPS or tap the map at the last known place.
+                </Text>
                 <Pressable
                   accessibilityRole="button"
-                  disabled={loadingLocation}
+                  accessibilityLabel={
+                    reportLocation ? "Refresh my GPS" : "Use my GPS"
+                  }
+                  accessibilityState={{
+                    disabled: loadingLocation || publishing,
+                  }}
+                  disabled={loadingLocation || publishing}
                   onPress={() => void useGps()}
                   style={styles.gpsButton}
                 >
@@ -440,50 +599,58 @@ export default function AlertsScreen() {
                     <>
                       <PinIcon size={19} />
                       <Text style={styles.gpsText}>
-                        {location ? "Refresh my GPS" : "Use my GPS"}
+                        {reportLocation ? "Refresh my GPS" : "Use my GPS"}
                       </Text>
                     </>
                   )}
                 </Pressable>
-
                 <RecoveryMap
-                  selected={
-                    location
-                      ? {
-                          latitude: location.latitude,
-                          longitude: location.longitude,
-                        }
-                      : null
-                  }
-                  pins={[]}
-                  onSelect={(coordinate) =>
-                    setLocation((current) => ({
-                      ...coordinate,
-                      accuracyM: current?.accuracyM ?? null,
-                    }))
+                  selected={reportLocation}
+                  pins={emptyMapPins}
+                  onSelect={
+                    publishing
+                      ? undefined
+                      : (coordinate) =>
+                          setReportLocation({ ...coordinate, accuracyM: null })
                   }
                   height={230}
                 />
-                {location ? (
+                {reportLocation ? (
                   <Text style={styles.helper}>
-                    Pin: {location.latitude.toFixed(5)},{" "}
-                    {location.longitude.toFixed(5)}
-                    {location.accuracyM
-                      ? ` · ±${Math.round(location.accuracyM)} m`
+                    Pin: {reportLocation.latitude.toFixed(5)},{" "}
+                    {reportLocation.longitude.toFixed(5)}
+                    {reportLocation.accuracyM
+                      ? " · ±" + Math.round(reportLocation.accuracyM) + " m"
                       : ""}
                   </Text>
                 ) : null}
-
                 <Text style={styles.publicWarning}>
-                  This location becomes public while the report is active so
-                  finders can search around the last known area.
+                  This location becomes public while the report is active.
+                  Choose the last known area you are comfortable sharing.
                 </Text>
 
+                <Text style={styles.sectionStep}>4. Extra details</Text>
+                <TextInput
+                  accessibilityLabel="Lost pet details"
+                  value={details}
+                  onChangeText={setDetails}
+                  editable={!publishing}
+                  placeholder="Collar, behavior, direction of travel…"
+                  placeholderTextColor={Palette.placeholder}
+                  multiline
+                  style={[styles.input, styles.textArea]}
+                />
+                <Text style={styles.sectionStep}>5. Publish</Text>
                 <Pressable
                   accessibilityRole="button"
-                  disabled={publishing}
+                  accessibilityLabel="Publish lost report"
+                  accessibilityState={{
+                    disabled: publishing || loadingLocation,
+                    busy: publishing,
+                  }}
+                  disabled={publishing || loadingLocation}
                   onPress={() => void publish()}
-                  style={styles.publishButton}
+                  style={[styles.publishButton, publishing && styles.disabled]}
                 >
                   {publishing ? (
                     <ActivityIndicator color={Palette.forestDark} />
@@ -497,64 +664,193 @@ export default function AlertsScreen() {
                   )}
                 </Pressable>
               </View>
-            </>
-          ) : null}
+            ) : null}
 
-          {!loading && mode === "feed" ? (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.sectionTitle}>Nearby recovery feed</Text>
-                  <Text style={styles.helper}>Active cases within 10 km.</Text>
-                </View>
+            {!loading && !coreError && showReportForm && pets.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <PawIcon size={26} />
+                <Text style={styles.emptyTitle}>Add a pet first</Text>
+                <Text style={styles.helper}>
+                  Create a Pet ID before starting a lost report.
+                </Text>
                 <Pressable
                   accessibilityRole="button"
-                  disabled={loadingLocation}
-                  onPress={() => void useGps(true)}
-                  style={styles.smallButton}
+                  accessibilityLabel="Add a pet"
+                  onPress={() => router.push("/add-pet")}
+                  style={styles.reportCta}
                 >
-                  <PinIcon size={16} />
-                  <Text style={styles.smallButtonText}>Locate</Text>
+                  <Text style={styles.reportCtaText}>Add a pet</Text>
                 </Pressable>
               </View>
+            ) : null}
 
-              {location ? (
-                <RecoveryMap
-                  pins={nearby.map((report) => ({
-                    id: report.id,
-                    latitude: report.latitude,
-                    longitude: report.longitude,
-                    title: report.petName,
-                    description: `${statusLabel(report.status)} · ${report.distanceKm.toFixed(1)} km`,
-                    status: report.status,
-                  }))}
-                  selected={null}
-                  height={270}
-                />
-              ) : (
-                <View style={styles.emptyCard}>
-                  <PinIcon size={24} />
-                  <Text style={styles.emptyTitle}>Location needed</Text>
-                  <Text style={styles.helper}>
-                    Use your GPS to load reports around you.
-                  </Text>
+            {!loading && !showReportForm && mode === "nearby" ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sectionTitle}>Within 10 km</Text>
+                    <Text style={styles.helper}>
+                      Lost pets and recent sightings near you.
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Use my location"
+                    accessibilityState={{ disabled: loadingLocation }}
+                    disabled={loadingLocation}
+                    onPress={() => void useGps(true)}
+                    style={styles.smallButton}
+                  >
+                    {loadingLocation ? (
+                      <ActivityIndicator
+                        color={Palette.forestDark}
+                        size="small"
+                      />
+                    ) : (
+                      <>
+                        <PinIcon size={16} />
+                        <Text style={styles.smallButtonText}>
+                          {location ? "Refresh" : "Locate"}
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
                 </View>
-              )}
-
-              <View style={styles.feedList}>
-                {nearby.map((report) => (
-                  <View key={report.id} style={styles.feedCard}>
-                    <View style={styles.feedTop}>
-                      <View style={styles.feedIdentity}>
-                        <View style={styles.feedPhoto}>
-                          <PawIcon size={24} color={Palette.forestDark} />
+                {nearbyError ? (
+                  <Text accessibilityRole="alert" style={styles.error}>
+                    {nearbyError}
+                  </Text>
+                ) : null}
+                {location ? (
+                  <RecoveryMap
+                    pins={nearby.map((report) => ({
+                      id: report.id,
+                      latitude: report.latitude,
+                      longitude: report.longitude,
+                      title: report.petName,
+                      description:
+                        statusLabel(report.status) +
+                        " · " +
+                        report.distanceKm.toFixed(1) +
+                        " km",
+                      status: report.status,
+                    }))}
+                    selected={nearby.length ? null : location}
+                    height={270}
+                  />
+                ) : (
+                  <View style={styles.emptyCard}>
+                    <PinIcon size={24} />
+                    <Text style={styles.emptyTitle}>Location needed</Text>
+                    <Text style={styles.helper}>
+                      Tap Locate to see cases around you.
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.feedList}>
+                  {nearby.map((report) => (
+                    <View key={report.id} style={styles.feedCard}>
+                      <View style={styles.feedTop}>
+                        <View style={styles.feedIdentity}>
+                          <View style={styles.feedPhoto}>
+                            <PawIcon size={24} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.caseName}>
+                              {report.petName}
+                            </Text>
+                            <Text style={styles.caseMeta}>
+                              {report.petBreed || report.petSpecies}
+                            </Text>
+                          </View>
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.caseName}>{report.petName}</Text>
-                          <Text style={styles.caseMeta}>
-                            {report.petBreed || report.petSpecies}
+                        <View
+                          style={[
+                            styles.statusPill,
+                            report.status === "SIGHTED" && styles.statusSighted,
+                          ]}
+                        >
+                          <Text style={styles.statusText}>
+                            {statusLabel(report.status).toUpperCase()}
                           </Text>
                         </View>
+                      </View>
+                      <Text style={styles.caseLocation}>
+                        {report.lastSeenText} · {report.distanceKm.toFixed(1)}{" "}
+                        km away
+                      </Text>
+                      {report.details ? (
+                        <Text style={styles.feedDetails}>{report.details}</Text>
+                      ) : null}
+                      <Text style={styles.helper}>
+                        {report.lastSightedAt
+                          ? "Latest sighting " + when(report.lastSightedAt)
+                          : "Reported " + when(report.reportedAt)}
+                      </Text>
+                    </View>
+                  ))}
+                  {location &&
+                  !loadingLocation &&
+                  !nearbyError &&
+                  nearby.length === 0 ? (
+                    <View style={styles.emptyCard}>
+                      <CheckIcon size={22} />
+                      <Text style={styles.emptyTitle}>
+                        No active cases nearby
+                      </Text>
+                      <Text style={styles.helper}>
+                        No Lost or Sighted reports within 10 km.
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
+            {!loading && !coreError && !showReportForm && mode === "reports" ? (
+              <View style={styles.section}>
+                {activeCases.length > 0 ? (
+                  <Text style={styles.sectionTitle}>Active cases</Text>
+                ) : (
+                  <View style={styles.emptyCard}>
+                    <CheckIcon size={22} />
+                    <Text style={styles.emptyTitle}>
+                      No active recovery cases
+                    </Text>
+                    <Text style={styles.helper}>
+                      {pets.length
+                        ? "Start a report if a pet goes missing."
+                        : "Add a pet to create a Pet ID and report a loss."}
+                    </Text>
+                    {pets.length === 0 ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Add a pet"
+                        onPress={() => router.push("/add-pet")}
+                        style={styles.reportCta}
+                      >
+                        <Text style={styles.reportCtaText}>Add a pet</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                )}
+                {activeCases.map((report) => (
+                  <View
+                    key={report.id}
+                    style={[
+                      styles.caseCard,
+                      report.id === routeReportId && styles.focusedCase,
+                    ]}
+                  >
+                    <View style={styles.caseTop}>
+                      <View style={styles.caseBody}>
+                        <Text style={styles.caseName}>{report.petName}</Text>
+                        <Text style={styles.caseMeta}>
+                          {report.sightingCount}{" "}
+                          {report.sightingCount === 1
+                            ? "sighting"
+                            : "sightings"}
+                        </Text>
                       </View>
                       <View
                         style={[
@@ -568,70 +864,211 @@ export default function AlertsScreen() {
                       </View>
                     </View>
                     <Text style={styles.caseLocation}>
-                      {report.lastSeenText} · {report.distanceKm.toFixed(1)} km
-                      away
+                      {report.lastSeenText}
                     </Text>
-                    {report.details ? (
-                      <Text style={styles.feedDetails}>{report.details}</Text>
+                    {report.lastSightedAt ? (
+                      <Text style={styles.helper}>
+                        Latest sighting: {when(report.lastSightedAt)}
+                      </Text>
                     ) : null}
-                    <Text style={styles.helper}>
-                      {report.status === "SIGHTED" && report.lastSightedAt
-                        ? `Latest sighting ${when(report.lastSightedAt)}`
-                        : `Reported ${when(report.reportedAt)}`}
-                    </Text>
+                    <View style={styles.caseMapBlock}>
+                      <Text style={styles.caseMapTitle}>Recovery trail</Text>
+                      <Text style={styles.helper}>
+                        Original lost location plus finder-reported sightings.
+                      </Text>
+                      <RecoveryMap
+                        pins={[
+                          {
+                            id: `${report.id}-lost`,
+                            latitude: report.lastSeenLatitude,
+                            longitude: report.lastSeenLongitude,
+                            title: `${report.petName} · last seen`,
+                            description: `Original lost report · ${report.lastSeenText}`,
+                            status: "LOST",
+                            kind: "lost",
+                          },
+                          ...orderedMapSightings(
+                            sightingsByReport[report.id] || [],
+                          ).map((sighting) => ({
+                            id: sighting.id,
+                            latitude: sighting.latitude!,
+                            longitude: sighting.longitude!,
+                            title:
+                              sighting.encounterType === "HAVE_PET"
+                                ? "Finder reported having the pet"
+                                : "Finder sighting",
+                            description: `${when(sighting.createdAt)}${
+                              sighting.locationText
+                                ? ` · ${sighting.locationText}`
+                                : ""
+                            }${
+                              sighting.riskState === "REVIEW"
+                                ? " · Needs review"
+                                : ""
+                            }`,
+                            status: "SIGHTED" as const,
+                            kind:
+                              sighting.encounterType === "HAVE_PET"
+                                ? ("found" as const)
+                                : ("sighting" as const),
+                          })),
+                        ]}
+                        trail={[
+                          {
+                            latitude: report.lastSeenLatitude,
+                            longitude: report.lastSeenLongitude,
+                          },
+                          ...orderedMapSightings(
+                            sightingsByReport[report.id] || [],
+                          ).map((sighting) => ({
+                            latitude: sighting.latitude!,
+                            longitude: sighting.longitude!,
+                          })),
+                        ]}
+                        selected={null}
+                        height={230}
+                      />
+                      <Text style={styles.caseMapLegend}>
+                        Green line: lost → first → latest · Red: last seen ·
+                        Gold: sighting · Dark gold: finder has pet
+                      </Text>
+                    </View>
+
+                    {failedDetails.includes(report.id) ? (
+                      <Text accessibilityRole="alert" style={styles.error}>
+                        Finder sightings could not load. Pull to refresh and try
+                        again.
+                      </Text>
+                    ) : null}
+                    {[...(sightingsByReport[report.id] || [])]
+                      .filter((s) => s.riskState !== "BLOCKED")
+                      .sort(
+                        (a, b) =>
+                          new Date(b.createdAt).getTime() -
+                          new Date(a.createdAt).getTime(),
+                      )
+                      .map((sighting) => (
+                        <Pressable
+                          key={sighting.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            "Review " +
+                            report.petName +
+                            " sighting " +
+                            sighting.id
+                          }
+                          onPress={() =>
+                            router.push({
+                              pathname: "/recovery-report",
+                              params: {
+                                reportId: report.id,
+                                sightingId: sighting.id,
+                              },
+                            })
+                          }
+                          style={styles.sightingLink}
+                        >
+                          <View style={styles.caseBody}>
+                            <Text style={styles.sightingTitle}>
+                              {sighting.encounterType === "HAVE_PET"
+                                ? "Finder has pet"
+                                : "Finder sighting"}
+                              {sighting.riskState === "REVIEW"
+                                ? " · Needs review"
+                                : ""}
+                            </Text>
+                            {sighting.locationText ? (
+                              <Text style={styles.helper}>
+                                {sighting.locationText}
+                              </Text>
+                            ) : null}
+                            <Text style={styles.helper}>
+                              {when(sighting.createdAt)}
+                            </Text>
+                          </View>
+                          <ChevronRightIcon size={18} />
+                        </Pressable>
+                      ))}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        (Platform.OS === "web" ? "Print " : "Share ") +
+                        report.petName +
+                        " lost poster"
+                      }
+                      onPress={() => void sharePoster(report)}
+                      style={styles.posterButton}
+                    >
+                      <Text style={styles.posterButtonText}>
+                        {Platform.OS === "web"
+                          ? "Print poster"
+                          : "Share poster"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        "Mark " + report.petName + " Reunited"
+                      }
+                      accessibilityState={{
+                        disabled: Boolean(reuniting),
+                        busy: reuniting === report.id,
+                      }}
+                      disabled={Boolean(reuniting)}
+                      onPress={() => void reunite(report)}
+                      style={[
+                        styles.reuniteButton,
+                        reuniting && styles.disabled,
+                      ]}
+                    >
+                      {reuniting === report.id ? (
+                        <ActivityIndicator color={Palette.white} />
+                      ) : (
+                        <>
+                          <CheckIcon size={15} color={Palette.white} />
+                          <Text style={styles.reuniteText}>Mark Reunited</Text>
+                        </>
+                      )}
+                    </Pressable>
                   </View>
                 ))}
-                {location && nearby.length === 0 ? (
-                  <View style={styles.emptyCard}>
-                    <CheckIcon size={22} color={Palette.forestDark} />
-                    <Text style={styles.emptyTitle}>
-                      No active cases nearby
-                    </Text>
-                    <Text style={styles.helper}>
-                      No LOST or SIGHTED reports were found within 10 km.
-                    </Text>
-                  </View>
+                {reunitedCases.length > 0 ? (
+                  <Text style={styles.sectionTitle}>Reunited</Text>
                 ) : null}
-              </View>
-            </View>
-          ) : null}
-
-          {!loading && mode === "updates" ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Recovery updates</Text>
-              <Text style={styles.helper}>
-                Finder sightings and nearby lost-pet alerts are stored here even
-                when remote push delivery is unavailable.
-              </Text>
-              <View style={styles.feedList}>
-                {notifications.map((item) => (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="button"
-                    onPress={() => void openUpdate(item)}
+                {reunitedCases.map((report) => (
+                  <View
+                    key={report.id}
                     style={[
-                      styles.updateCard,
-                      !item.readAt && styles.updateUnread,
+                      styles.caseCard,
+                      report.id === routeReportId && styles.focusedCase,
                     ]}
                   >
-                    <Text style={styles.updateTitle}>{item.title}</Text>
-                    <Text style={styles.feedDetails}>{item.body}</Text>
-                    <Text style={styles.helper}>{when(item.createdAt)}</Text>
-                  </Pressable>
-                ))}
-                {notifications.length === 0 ? (
-                  <View style={styles.emptyCard}>
-                    <BellIcon size={22} />
-                    <Text style={styles.emptyTitle}>
-                      No recovery updates yet
+                    <View style={styles.caseTop}>
+                      <View style={styles.caseBody}>
+                        <Text style={styles.caseName}>{report.petName}</Text>
+                        <Text style={styles.caseMeta}>
+                          {report.sightingCount} sightings
+                        </Text>
+                      </View>
+                      <View style={[styles.statusPill, styles.statusSighted]}>
+                        <Text style={styles.statusText}>REUNITED</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.caseLocation}>
+                      {report.lastSeenText}
                     </Text>
+                    {report.reunitedAt ? (
+                      <Text style={styles.helper}>
+                        {when(report.reunitedAt)}
+                      </Text>
+                    ) : null}
                   </View>
-                ) : null}
+                ))}
               </View>
-            </View>
-          ) : null}
-        </ScrollView>
-        <BottomNav active="alerts" />
+            ) : null}
+          </ScrollView>
+        </KeyboardAvoidingView>
+        {!showReportForm ? <BottomNav active="recovery" /> : null}
       </SafeAreaView>
     </View>
   );
@@ -649,13 +1086,23 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
   },
   content: {
+    flexGrow: 1,
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.five,
   },
   topBar: {
+    minHeight: 48,
+    gap: Spacing.three,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
     marginTop: Spacing.two,
+  },
+  screenTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 19,
+    fontWeight: "800",
+    color: Palette.forestDark,
   },
   iconButton: {
     width: 42,
@@ -676,44 +1123,6 @@ const styles = StyleSheet.create({
     right: 8,
     backgroundColor: Palette.gold,
   },
-  category: {
-    fontFamily: Fonts.sans,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.5,
-    color: Palette.forestDark,
-    marginTop: Spacing.four,
-  },
-  heading: {
-    fontFamily: Fonts.sans,
-    fontSize: 28,
-    fontWeight: "800",
-    color: Palette.forestDark,
-    marginTop: Spacing.one,
-  },
-  supporting: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    lineHeight: 20,
-    color: Palette.inkMuted,
-    marginTop: Spacing.two,
-  },
-  alertButton: {
-    marginTop: Spacing.three,
-    minHeight: 44,
-    borderRadius: 12,
-    backgroundColor: Palette.sage,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.two,
-  },
-  alertButtonText: {
-    fontFamily: Fonts.sans,
-    fontWeight: "800",
-    fontSize: 13,
-    color: Palette.forestDark,
-  },
   segment: {
     flexDirection: "row",
     marginTop: Spacing.four,
@@ -725,7 +1134,7 @@ const styles = StyleSheet.create({
   },
   segmentItem: {
     flex: 1,
-    minHeight: 38,
+    minHeight: 44,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
@@ -809,8 +1218,40 @@ const styles = StyleSheet.create({
     color: Palette.forestDark,
     letterSpacing: 0.6,
   },
-  reuniteButton: {
+  caseMapBlock: {
     marginTop: Spacing.three,
+    gap: Spacing.two,
+  },
+  caseMapTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 13.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  caseMapLegend: {
+    fontFamily: Fonts.sans,
+    fontSize: 10.5,
+    lineHeight: 15,
+    color: Palette.inkMuted,
+  },
+  posterButton: {
+    marginTop: Spacing.three,
+    minHeight: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.sage,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  posterButtonText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  reuniteButton: {
+    marginTop: Spacing.two,
     minHeight: 38,
     borderRadius: 10,
     backgroundColor: Palette.forestDark,
@@ -847,6 +1288,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
+    minHeight: 44,
   },
   petChoiceActive: {
     backgroundColor: Palette.sage,
@@ -937,7 +1379,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
   },
   smallButton: {
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: Spacing.three,
     borderRadius: 18,
     backgroundColor: Palette.sage,
@@ -988,6 +1430,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
   },
   emptyCard: {
+    marginTop: Spacing.three,
     minHeight: 110,
     borderRadius: 16,
     backgroundColor: Palette.surface,
@@ -999,26 +1442,59 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
   },
   emptyTitle: {
+    textAlign: "center",
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: "800",
     color: Palette.forestDark,
   },
-  updateCard: {
-    padding: Spacing.three,
+  titleRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.three,
+  },
+  reportCta: {
+    paddingHorizontal: Spacing.four,
+    marginTop: Spacing.three,
+    minHeight: 48,
     borderRadius: 14,
-    backgroundColor: Palette.surface,
-    borderWidth: 1,
-    borderColor: Palette.borderSoft,
+    backgroundColor: Palette.gold,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
   },
-  updateUnread: {
-    borderColor: Palette.forestDark,
-    backgroundColor: Palette.sage,
-  },
-  updateTitle: {
+  reportCtaText: {
     fontFamily: Fonts.sans,
     fontSize: 14,
     fontWeight: "800",
     color: Palette.forestDark,
   },
+  form: { marginTop: Spacing.four, gap: Spacing.three },
+  sectionStep: {
+    marginTop: Spacing.two,
+    fontFamily: Fonts.sans,
+    fontSize: 15,
+    fontWeight: "800",
+    color: Palette.forestDark,
+  },
+  caseBody: { flex: 1 },
+  focusedCase: { borderColor: Palette.forestDark, borderWidth: 2 },
+  sightingLink: {
+    minHeight: 48,
+    borderTopWidth: 1,
+    borderTopColor: Palette.borderSoft,
+    paddingVertical: Spacing.three,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
+  sightingTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "700",
+    color: Palette.forestDark,
+  },
+  disabled: { opacity: 0.55 },
 });

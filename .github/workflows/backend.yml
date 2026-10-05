@@ -45,10 +45,10 @@ jobs:
       - run: npm --prefix frontend ci
 
       - name: Production dependency audit
-        run: |
-          npm audit --omit=dev --audit-level=high
-          npm --prefix backend/api audit --omit=dev --audit-level=high
-          npm --prefix frontend audit --omit=dev --audit-level=high
+        run: npm run audit:prod
+
+      - name: Production deployment source safety
+        run: npm run test:production-readiness
 
       - name: Compile, lint and format
         run: npm run check:backend
@@ -103,10 +103,69 @@ jobs:
         env:
           CI: "1"
 
+      - name: Native source exports
+        run: |
+          npm run release:android
+          npm run release:ios
+
       - name: Upload E2E traces on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore
+
+  integration-e2e:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: petconnect_e2e
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/api/package-lock.json
+            frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - run: npm ci
+      - run: npm --prefix backend/api ci
+      - run: npm --prefix frontend ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Emulator-backed browser workflows
+        run: npm run test:e2e:integration
+        env:
+          CI: "1"
+          MYSQL_HOST: "127.0.0.1"
+          MYSQL_USER: "root"
+          MYSQL_PASSWORD: "root"
+          MYSQL_DATABASE: "petconnect_e2e"
+          MYSQL_PORT: "3306"
+
+      - name: Upload integration E2E traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-integration-test-results
           path: test-results/
           if-no-files-found: ignore

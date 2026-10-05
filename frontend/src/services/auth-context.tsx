@@ -24,6 +24,7 @@ import {
   registerOwner,
 } from "@/services/auth";
 import { firebaseClient } from "@/services/firebase/client";
+import { clearCached } from "@/services/resource-cache";
 
 export type AuthState =
   | { status: "loading" }
@@ -35,6 +36,7 @@ export type AuthState =
 
 type AuthContextValue = {
   state: AuthState;
+  refreshing: boolean;
   signIn: (
     email: string,
     password: string,
@@ -54,24 +56,37 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function firebaseNetworkMessage(): string {
+  return "PetConnect is temporarily unavailable. Please try again in a moment.";
+}
+
 export function authErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === "account-not-found") {
       return "Your account setup is unfinished. Complete your profile to continue.";
     }
+    if (error.code === "development-service-unavailable") {
+      return "PetConnect is temporarily unavailable. Please try again in a moment.";
+    }
     if (error.status === 401 || error.status === 403) {
       return "This account cannot access Pet-Connect. Contact support if you think this is a mistake.";
     }
     return error.status >= 500
-      ? "The account service is unavailable. Please try again."
+      ? "PetConnect is temporarily unavailable. Please try again in a moment."
       : error.message;
   }
   const code = (error as { code?: string } | null)?.code;
   switch (code) {
+    // Credentials. Firebase 11+ folds wrong-password and user-not-found into
+    // invalid-credential so the client cannot enumerate accounts; all three
+    // still reach older emulator/production responses.
     case "auth/invalid-credential":
+    case "auth/invalid-login-credentials":
     case "auth/wrong-password":
     case "auth/user-not-found":
       return "Incorrect email or password.";
+    case "auth/missing-password":
+      return "Enter your password.";
     case "auth/email-already-in-use":
       return "That email is already registered. Sign in to continue.";
     case "auth/invalid-email":
@@ -82,15 +97,42 @@ export function authErrorMessage(error: unknown): string {
       return "Too many attempts. Wait a while and try again.";
     case "auth/user-disabled":
       return "This account has been disabled. Contact support.";
+    case "auth/requires-recent-login":
+      return "Sign in again to confirm this change.";
+    case "auth/unverified-email":
+      return "Verify your email address before signing in.";
+
+    case "auth/invalid-api-key":
+    case "auth/api-key-not-supported":
+    case "auth/app-not-found":
+    case "auth/configuration-not-found":
+    case "auth/operation-not-allowed":
+    case "auth/unauthorized-domain":
+    case "auth/project-not-found":
+    case "auth/unsupported-first-argument":
+    case "auth/emulator-config-failed":
+      return "PetConnect sign-in is temporarily unavailable. Please try again later.";
+    case "auth/timeout":
     case "auth/network-request-failed":
-      return "Cannot reach Firebase Auth. Check your connection or local emulator.";
+      return firebaseNetworkMessage();
   }
   if (error instanceof TypeError && error.message.includes("fetch")) {
-    return "Cannot reach the Pet-Connect API. Check the API address and try again.";
+    return "PetConnect is temporarily unavailable. Please try again in a moment.";
   }
-  return error instanceof Error
-    ? error.message
-    : "Something went wrong. Please try again.";
+  if (code && code.startsWith("auth/")) {
+    return "We could not complete that request. Please try again.";
+  }
+  if (error instanceof Error) {
+    if (
+      /firebase|expo_public|localhost|127\.0\.0\.1|backend\/api|npm run|https?:\/\//i.test(
+        error.message,
+      )
+    ) {
+      return "PetConnect is temporarily unavailable. Please try again in a moment.";
+    }
+    return error.message;
+  }
+  return "Something went wrong. Please try again.";
 }
 
 function failedSession(error: unknown, user: User): AuthState {
@@ -109,21 +151,38 @@ function failedSession(error: unknown, user: User): AuthState {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
+  const [refreshing, setRefreshing] = useState(false);
   const revision = useRef(0);
   const busy = useRef(false);
+  const resolvedOnce = useRef(false);
 
   const loadSession = useCallback(async (user: User | null) => {
     const turn = ++revision.current;
     if (!user) {
+      clearCached();
+      resolvedOnce.current = true;
+      setRefreshing(false);
       setState({ status: "guest" });
       return;
     }
-    setState({ status: "loading" });
+
+    const blocking = !resolvedOnce.current;
+    if (blocking) setState({ status: "loading" });
+    else setRefreshing(true);
+
     try {
       const session = await currentSession();
-      if (turn === revision.current) setState({ status: "ready", session });
+      if (turn === revision.current) {
+        resolvedOnce.current = true;
+        setState({ status: "ready", session });
+      }
     } catch (error) {
-      if (turn === revision.current) setState(failedSession(error, user));
+      if (turn === revision.current) {
+        resolvedOnce.current = true;
+        setState(failedSession(error, user));
+      }
+    } finally {
+      if (turn === revision.current) setRefreshing(false);
     }
   }, []);
 
@@ -161,8 +220,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     busy.current = true;
     ++revision.current;
     try {
+      clearCached();
       const result = await action();
       ++revision.current;
+      resolvedOnce.current = true;
+      setRefreshing(false);
       setState(success(result));
       return result;
     } catch (error) {
@@ -171,6 +233,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const canResume =
         resumeSetup &&
         !(error instanceof ApiError && [401, 403].includes(error.status));
+      resolvedOnce.current = true;
+      setRefreshing(false);
       setState(
         user
           ? canResume
@@ -186,6 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     state,
+    refreshing,
     signIn: (email, password, role) =>
       run(
         () => login(email, password, role),
@@ -208,10 +273,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       busy.current = true;
       ++revision.current;
       try {
-        const { disableRecoveryPush } = await import("./device-recovery");
-        await disableRecoveryPush();
+        try {
+          const { disableRecoveryPush } = await import("./device-recovery");
+          await disableRecoveryPush();
+        } catch {
+          // Push cleanup is best-effort and must never trap someone in an
+          // authenticated session when the notification service is unavailable.
+        }
         await logout();
+        clearCached();
         ++revision.current;
+        resolvedOnce.current = true;
+        setRefreshing(false);
         setState({ status: "guest" });
       } catch (error) {
         setState(previous);

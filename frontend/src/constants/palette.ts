@@ -1,16 +1,30 @@
 export const Palette = {
-  cream: '#F8F0DF',
-  surface: '#FFFDF7',
-  border: '#46584B',
-  borderSoft: '#C7CDC0',
-  forestDark: '#1B4332',
-  sage: '#DCE7DA',
-  segmentTrack: '#EDE6D5',
-  inkMuted: '#5C6356',
-  placeholder: '#9AA093',
-  gold: '#F2B632',
-  goldSoft: '#FBEBC4',
-  goldTrack: '#E7E0CE',
-  danger: '#B4552D',
-  white: '#FFFFFF',
+  // Core brand
+  cream: "#FAF8F2",
+  surface: "#FFFFFF",
+  forestDark: "#174A45",
+  primaryPressed: "#103B37",
+  sage: "#DCE8DF",
+
+  // Text
+  ink: "#202521",
+  inkMuted: "#66706A",
+  placeholder: "#949C97",
+
+  // Borders / tracks
+  border: "#BCC5C0",
+  borderSoft: "#E3E5DF",
+  segmentTrack: "#EDF1ED",
+  goldTrack: "#EFE6D4",
+
+  // Accent / semantic states
+  gold: "#E9A23B",
+  goldSoft: "#F9E7C2",
+  warning: "#C98218",
+  success: "#3F7A57",
+  danger: "#C75246",
+  dangerSoft: "#F6DEDA",
+  nearby: "#5F7D6A",
+
+  white: "#FFFFFF",
 } as const;

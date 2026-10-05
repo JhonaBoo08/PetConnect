@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import {
   cpSync,
+  closeSync,
+  mkdtempSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -10,6 +12,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { mysqlConnectionOptions, mysqlTlsOptions } from "../src/db-config.js";
 import { spawnSync } from "node:child_process";
 import mysql, { type Pool, type RowDataPacket } from "mysql2/promise";
 import dotenv from "dotenv";
@@ -20,7 +24,9 @@ dotenv.config({ path: path.join(apiDir, ".env") });
 
 const migrationDir = path.join(repoRoot, "sql", "migrations");
 const schemaPath = path.join(repoRoot, "sql", "schema.sql");
-const defaultBackupRoot = path.join(repoRoot, "backups");
+const defaultBackupRoot = path.resolve(
+  process.env.BACKUP_ROOT || path.join(repoRoot, "backups"),
+);
 
 type Migration = {
   filename: string;
@@ -58,14 +64,10 @@ function dbName(): string {
 
 function sqlConfig(database?: string) {
   return {
-    host: process.env.MYSQL_HOST || "127.0.0.1",
-    user: process.env.MYSQL_USER || "root",
-    password: process.env.MYSQL_PASSWORD || "",
-    port: Number(process.env.MYSQL_PORT) || 3306,
-    ...(database ? { database } : {}),
+    ...mysqlConnectionOptions(),
+    database,
     multipleStatements: true,
-    timezone: "Z",
-  } as const;
+  };
 }
 
 function sha256File(file: string): string {
@@ -123,18 +125,22 @@ async function withMigrationLock<T>(
   pool: Pool,
   action: () => Promise<T>,
 ): Promise<T> {
+  // Keep the namespaced lock within MySQL's 64-character limit.
+  const lockName = createHash("sha256")
+    .update(`petconnect:migrate:${dbName()}`)
+    .digest("hex");
   const connection = await pool.getConnection();
   try {
     const [lockRows] = await connection.query<
       (RowDataPacket & { acquired: number | null })[]
-    >("SELECT GET_LOCK(?, 30) AS acquired", [`petconnect:migrate:${dbName()}`]);
+    >("SELECT GET_LOCK(?, 30) AS acquired", [lockName]);
     if (Number(lockRows[0]?.acquired) !== 1) {
       throw new Error("Could not acquire the PetConnect migration lock.");
     }
     return await action();
   } finally {
     await connection
-      .query("SELECT RELEASE_LOCK(?)", [`petconnect:migrate:${dbName()}`])
+      .query("SELECT RELEASE_LOCK(?)", [lockName])
       .catch(() => {});
     connection.release();
   }
@@ -282,9 +288,21 @@ async function inferLegacyBaseline(pool: Pool): Promise<boolean> {
     "users",
     "share_recovery_phone",
   );
+  // Only migrations represented by this explicitly recognized legacy shape
+  // can be baselined. Later migrations must execute even on old installations.
+  const legacyFiles = new Set([
+    "20260928_pet_profile_fields.sql",
+    "20260929_health_clinic_ecosystem.sql",
+    "20260929_pet_recovery_tokens.sql",
+    "20260929_recovery_network.sql",
+    "20260929_release_hardening.sql",
+  ]);
+  const legacyMigrations = known.filter((item) =>
+    legacyFiles.has(item.filename),
+  );
   const baseline = privacyAlreadyPresent
-    ? known
-    : known.filter(
+    ? legacyMigrations
+    : legacyMigrations.filter(
         (item) => item.filename !== "20260929_release_hardening.sql",
       );
 
@@ -302,14 +320,18 @@ async function inferLegacyBaseline(pool: Pool): Promise<boolean> {
 
 async function bootstrap() {
   const database = dbName();
-  const admin = mysql.createPool(sqlConfig());
-  try {
-    await admin.query(
-      `CREATE DATABASE IF NOT EXISTS \`${database}\`
+  // Aiven may provision a database without granting CREATE DATABASE.
+  // Operators explicitly select --existing-database for that deployment.
+  if (!process.argv.includes("--existing-database")) {
+    const admin = mysql.createPool(sqlConfig());
+    try {
+      await admin.query(
+        `CREATE DATABASE IF NOT EXISTS \`${database}\`
        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
-    );
-  } finally {
-    await admin.end();
+      );
+    } finally {
+      await admin.end();
+    }
   }
 
   const pool = mysql.createPool(sqlConfig(database));
@@ -369,6 +391,21 @@ function backupFiles(
   return output.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+function mysqlCliConnectionArgs(): string[] {
+  const socketPath = process.env.MYSQL_SOCKET_PATH?.trim();
+  if (socketPath) {
+    return ["--socket", socketPath, "--user", process.env.MYSQL_USER || "root"];
+  }
+  return [
+    "--host",
+    process.env.MYSQL_HOST || "127.0.0.1",
+    "--port",
+    String(Number(process.env.MYSQL_PORT) || 3306),
+    "--user",
+    process.env.MYSQL_USER || "root",
+  ];
+}
+
 function runSqlBinary(
   binary: string,
   args: string[],
@@ -380,20 +417,32 @@ function runSqlBinary(
   const stdinFd = options.stdinFile
     ? openSync(options.stdinFile, "r")
     : "ignore";
-  const result = spawnSync(binary, args, {
-    env: {
-      ...process.env,
-      MYSQL_PWD: process.env.MYSQL_PASSWORD || "",
-    },
-    stdio: [stdinFd, stdoutFd, "inherit"],
-  });
-  if (typeof stdinFd === "number") {
-    // The process owns the duplicated descriptor on Windows/Linux; no explicit
-    // close is required after spawnSync returns.
-  }
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`${binary} exited with code ${result.status}.`);
+  const tls = mysqlTlsOptions();
+  let temporaryCaDir: string | undefined;
+  try {
+    let caPath = process.env.MYSQL_SSL_CA_PATH?.trim();
+    if (tls && !caPath) {
+      temporaryCaDir = mkdtempSync(
+        path.join(os.tmpdir(), "petconnect-mysql-ca-"),
+      );
+      caPath = path.join(temporaryCaDir, "ca.pem");
+      writeFileSync(caPath, tls.ca, { mode: 0o600 });
+    }
+    const tlsArgs = tls
+      ? ["--ssl-mode=VERIFY_IDENTITY", `--ssl-ca=${caPath}`]
+      : ["--ssl-mode=DISABLED"];
+    const result = spawnSync(binary, [...tlsArgs, ...args], {
+      env: { ...process.env, MYSQL_PWD: process.env.MYSQL_PASSWORD || "" },
+      stdio: [stdinFd, stdoutFd, "inherit"],
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0)
+      throw new Error(`${binary} exited with code ${result.status}.`);
+  } finally {
+    if (typeof stdinFd === "number") closeSync(stdinFd);
+    if (typeof stdoutFd === "number") closeSync(stdoutFd);
+    if (temporaryCaDir)
+      rmSync(temporaryCaDir, { recursive: true, force: true });
   }
 }
 
@@ -419,12 +468,7 @@ async function createBackup(outputRoot?: string): Promise<string> {
   runSqlBinary(
     mysqldump,
     [
-      "--host",
-      process.env.MYSQL_HOST || "127.0.0.1",
-      "--port",
-      String(Number(process.env.MYSQL_PORT) || 3306),
-      "--user",
-      process.env.MYSQL_USER || "root",
+      ...mysqlCliConnectionArgs(),
       "--single-transaction",
       "--routines",
       "--triggers",
@@ -555,16 +599,7 @@ async function restoreBackup() {
   const mysqlBin = process.env.MYSQL_BIN || "mysql";
   runSqlBinary(
     mysqlBin,
-    [
-      "--host",
-      process.env.MYSQL_HOST || "127.0.0.1",
-      "--port",
-      String(Number(process.env.MYSQL_PORT) || 3306),
-      "--user",
-      process.env.MYSQL_USER || "root",
-      "--default-character-set=utf8mb4",
-      dbName(),
-    ],
+    [...mysqlCliConnectionArgs(), "--default-character-set=utf8mb4", dbName()],
     { stdinFile: dumpPath },
   );
 

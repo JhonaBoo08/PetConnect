@@ -1,461 +1,431 @@
-# PetConnect: free web deployment and ZIP handoff
+# PetConnect production deployment
 
-This guide takes the **whole project** from a ZIP to a new GitHub repository and a public HTTPS website with real Firebase Authentication, MySQL data, the Express API, and persistent pet photos. Follow the steps in order. Replace every `YOUR_...` placeholder. Commands labelled **Windows PowerShell** run on the recipient's computer; commands labelled **VM Ubuntu shell** run after SSH into the server.
+PetConnect keeps local development and production deliberately separate. `npm run dev` continues to use the Firebase Auth emulator, local MySQL, Expo development routing, and local uploads. Production uses explicit HTTPS endpoints, a real Firebase project, production MySQL credentials, stable recovery secrets, durable media storage, and release checks.
 
-**Scope and cost:** This is a small web deployment on one Oracle Cloud **Always Free** Ampere VM (Ubuntu, MySQL 8, API, static Expo web, photos), Firebase **Spark** for email/password, a free DuckDNS subdomain, and Caddy HTTPS. The website, signed QR recovery pages, browser camera/GPS (with permission), owner/clinic workflows, and in-app alerts can be used without paying for hosting within these services' current free limits. **Native App Store/Play Store release and background phone push are separate and are not part of this free web route.** The web app explicitly disables Expo remote push; in-app alerts still work. Maps on web use the project's web recovery-map view.
+The tracked files under `deploy/` are templates only. Real credentials belong in ignored files or `/etc/petconnect`, never in Git.
 
-As checked on 2026-09-28, the Oracle Always Free A1 allowance is 2 OCPUs and 12 GB RAM in the home region; Firebase Spark email/password is limited to 3,000 daily active users, with 150 password-reset emails per day. Oracle may have no free Ampere capacity in the chosen home region, may reclaim an idle Always Free VM, and requires a payment card for most signups. A $0 deployment therefore **cannot be guaranteed** for every recipient or guaranteed to stay available. Do not choose a paid shape, database, load balancer, domain, or billing upgrade to complete this guide. If no free Ampere VM is available, pause and try another availability domain or later. Never use trial credits for a resource you expect to remain free.
+## 1. Supported deployment shapes
 
-## 1. Sender: make the ZIP
+### Single Ubuntu server
 
-From the current project root on Windows PowerShell:
+This is the simplest complete deployment:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\make-handoff.ps1
-```
+- Caddy serves the exported web app and terminates HTTPS.
+- The Node API listens only on port 3000 behind Caddy.
+- MySQL 8 runs on the same server and the API connects through the local Unix socket.
+- Pet/finder media uses `/var/lib/petconnect/uploads`.
+- systemd runs the API and a scheduled backup job.
 
-The command prints the ZIP path and file count. It includes the current tracked **and untracked source** (important because much of this project is not yet committed), but excludes dependencies, local `.env` files, service-account files, Git history, local databases, uploads, backups, test logs, and build output. It lists excluded paths. **Open `HANDOFF_MANIFEST.txt` inside the ZIP and review its files before sending.** Do not send a manual ZIP of the whole working folder.
+This avoids exposing MySQL to the network and keeps all current PetConnect functionality.
 
-Before sending, open a copy of the ZIP and confirm it contains `README.md`, `HANDOFF_SETUP.md`, `PRODUCTION_DEPLOYMENT.md`, `package-lock.json`, `backend/api/package-lock.json`, `frontend/package-lock.json`, `sql/schema.sql`, `sql/migrations/`, `.github/workflows/backend.yml`, and all `backend/api/src/` and `frontend/src/` source. Confirm it contains **no** `.env` except `.env.example`, `node_modules`, `uploads`, `backups`, `.git`, private key, or `.relai-*` test artifact. This ZIP is source code only; the recipient creates new accounts and new data.
+### Split / ephemeral application hosting
 
-## 2. Recipient: import into your own GitHub repository
+PetConnect also supports a separate static frontend, API host, managed MySQL, and Cloudinary media storage.
 
-Install Git and Node.js **22.13+** on your computer. Extract the ZIP to a folder named `PetConnect`. In that folder, open Windows PowerShell:
+For this shape:
 
-```powershell
-git init
-git branch -M main
-git status --short
-git check-ignore backend/api/.env frontend/.env.local
-```
+- remote MySQL must use verified TLS with a CA;
+- the API host must have stable production secrets;
+- `UPLOAD_STORAGE_PROVIDER=cloudinary` is required when application disk is ephemeral;
+- database backups do **not** by themselves back up Cloudinary assets, so configure a provider-side media backup/export policy as well.
 
-The two `git check-ignore` paths should print both paths. Create an **empty** GitHub repository (do not add a README, license, or `.gitignore` in the GitHub form). In the local folder:
+The application feature set is the same in both shapes.
 
-```powershell
-git add .
-git status --short
-git diff --cached --name-only
-git commit -m "Import PetConnect source"
-git remote add origin https://github.com/YOUR_GITHUB_USER/YOUR_REPO.git
-git push -u origin main
-```
+## 2. Server prerequisites
 
-Before `git commit`, inspect the staged paths: no real `.env`, account JSON, ZIP, uploads, backups, or local artifacts. If you see one, run `git restore --staged -- "PATH"` and remove it from the source folder; do not push it. GitHub login may open in your browser or require a credential manager. The recipient owns this new repository. Keep it **private** until the source ZIP has been reviewed; for the simplest VM clone, make the reviewed source repository public. A private repository can instead use a read-only deploy key as shown below. GitHub Actions in `.github/workflows/backend.yml` runs after the first push; check the **Actions** tab. CI failing means investigate before launch.
+For the single-server path provide:
 
-The backend must be deployed from the **whole repository**, since it imports `shared/` and `sql/`. Do not create a repo from only `frontend/` or `backend/api/`.
+- Ubuntu LTS
+- a public domain/subdomain
+- Node.js 22+
+- MySQL 8 plus the `mysql` and `mysqldump` CLIs
+- Caddy
+- Git
+- durable space for `/var/lib/petconnect/uploads`
+- durable space for `/var/lib/petconnect/backups`
+- a protected off-host backup destination
 
-## 3. Recipient: local check before hosting
+Do not expose MySQL port 3306 or API port 3000 publicly. Only ports 80/443 should be Internet-facing.
 
-Install MySQL 8 and Java 21 on the development computer if you want the complete integration test. Use a disposable local database. From the extracted repo:
+## 3. Create the service account and install source
 
-```powershell
+```bash
+sudo useradd --system --user-group --home-dir /var/lib/petconnect --shell /usr/sbin/nologin petconnect
+sudo install -d -m 0755 /opt/petconnect /var/lib/petconnect
+sudo install -d -o petconnect -g petconnect -m 0750 /var/lib/petconnect/uploads
+sudo install -d -o root -g root -m 0700 /var/lib/petconnect/backups
+sudo install -d -o root -g petconnect -m 0750 /etc/petconnect
+sudo chown "$USER":"$USER" /opt/petconnect
+
+git clone <YOUR_REPOSITORY_URL> /opt/petconnect
+cd /opt/petconnect
+
 npm ci
 npm --prefix backend/api ci
 npm --prefix frontend ci
-Copy-Item backend/api/.env.example backend/api/.env
-Copy-Item frontend/.env.example frontend/.env.local
+npm run build:backend
 ```
 
-Edit `backend/api/.env` for local MySQL. The template uses the local Firebase Auth emulator. Start MySQL, then run:
+Source may stay owned by the deploy user. The `petconnect` runtime user only needs read/execute access to the application plus write access to the durable upload directory.
 
-```powershell
-npm run db:bootstrap
-npm run db:status
-npm run release:static
+## 4. MySQL users and connection
+
+Create two database users:
+
+- `petconnect_app`: runtime privileges only, normally `SELECT, INSERT, UPDATE, DELETE`;
+- `petconnect_migrator`: schema/migration privileges, used only by deployment and backup/restore tooling.
+
+Use long random passwords and never place them in source control.
+
+For MySQL on the **same server**, use:
+
+```env
+MYSQL_SOCKET_PATH=/var/run/mysqld/mysqld.sock
+MYSQL_SSL=false
 ```
 
-For the full local backend suite, first create a **disposable** `petconnect_test` database, then run `npm run test:backend`. These tests truncate test tables; never aim them at production. To view the local app, run `npm run emulators`, `npm --prefix backend/api run dev`, and `npm run web` in three terminals. More local detail is in `HANDOFF_SETUP.md`.
+The socket stays local to the machine and is not a network connection.
 
-**Do not copy these local `.env` files to the server.** The production Firebase project, password, hostname, and secret are different.
+For **remote/managed MySQL**, do not configure `MYSQL_SOCKET_PATH`. Use:
 
-## 4. Create the four free accounts/resources
-
-1. **Oracle Cloud Free Tier:** choose the home region carefully. Create an Ubuntu **24.04 ARM64** instance in a public subnet with an internet gateway in that home region, with shape `VM.Standard.A1.Flex`, **2 OCPUs, 12 GB RAM**, and a **50 GB boot volume**. Check that the shape/image/volume are labelled **Always Free eligible** before creating. Assign a public IPv4 address; download and keep the SSH private key. Do not add a paid boot volume or load balancer.
-2. **DuckDNS:** sign in at [duckdns.org](https://www.duckdns.org/), add a free subdomain, and point its IPv4 address to the VM's public IPv4. Write down `YOUR_NAME.duckdns.org`. If the VM's public IP changes, update DuckDNS before testing. You do not need to put the DuckDNS account token on the server for this manual setup.
-3. **Firebase:** create a project on **Spark (no cost)**, enable **Authentication → Sign-in method → Email/Password**, and register a **Web app** under Project settings. Copy the Web SDK `apiKey`, `projectId`, `authDomain`, and `appId`. Under Authentication → Settings → Authorized domains, add `YOUR_NAME.duckdns.org`. Under Project settings → Service accounts, generate one Admin SDK private-key JSON and save it on your computer **outside this repo**. Keep Spark; do not enable SMS/phone authentication or paid Identity Platform features.
-4. **GitHub:** the repository from step 2 is the server's deployment source. A public source repo can be cloned over HTTPS without credentials. For a private repo, use a **dedicated read-only deploy key** as shown below; do not put a personal access token in a clone URL.
-
-Firebase Web SDK settings are **public configuration** embedded at build time. The **Admin SDK JSON is private** and must never be committed, pasted into AI, or put in `EXPO_PUBLIC_*`.
-
-## 5. VM network and software
-
-In OCI, on the VM's VCN security list/NSG, permit TCP **80 and 443** from `0.0.0.0/0` and TCP **22 only from your current public IP/32**. Do **not** expose 3000 (API) or 3306 (MySQL). From Windows PowerShell, SSH using the downloaded key (use the real key path and public IP):
-
-```powershell
-ssh -i C:\PATH\TO\YOUR_OCI_KEY.key ubuntu@YOUR_VM_PUBLIC_IP
+```env
+MYSQL_HOST=<DATABASE_HOSTNAME>
+MYSQL_PORT=3306
+MYSQL_SSL=true
+MYSQL_SSL_CA_PATH=/etc/petconnect/mysql-ca.pem
 ```
 
-All commands below run in this **VM Ubuntu shell**. Some OCI Ubuntu images also have an OS firewall; if the site times out even with ingress rules, permit 80/443 on the VM:
+Remote production MySQL is rejected unless peer-verified TLS is enabled. The CA can also be supplied with `MYSQL_SSL_CA`.
 
-```bash
-# These rules are for the default OCI iptables image.
-sudo apt-get update
-sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent
-sudo iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
-sudo iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
-sudo netfilter-persistent save
+Create the production database with `utf8mb4`.
+
+## 5. Firebase production project
+
+Create an operator-owned Firebase project and:
+
+1. enable Email/Password Authentication;
+2. create a Web app and record its public Web SDK configuration;
+3. provision Firebase Admin service-account credentials for the API;
+4. add the deployed web hostname to Firebase Authorized domains.
+
+Store the Admin JSON outside the repository:
+
+```text
+/etc/petconnect/firebase-admin.json
 ```
 
- Install MySQL, Git, and Node 22 from NodeSource's documented package repository:
+Never place Admin JSON/private keys in `EXPO_PUBLIC_*` variables.
 
-```bash
-sudo apt-get update
-sudo apt-get install -y mysql-server git curl ca-certificates gnupg
-curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh
-sudo bash /tmp/nodesource_setup.sh
-sudo apt-get install -y nodejs
-node --version
-npm --version
-mysql --version
-sudo systemctl enable --now mysql
-```
+## 6. Create deployment configuration
 
-`node --version` must be 22.13 or newer; `mysql --version` must be MySQL 8.x. If Ubuntu resolves a different database package, stop and install a real MySQL 8 server before proceeding.
-
-Install Caddy with its official Ubuntu package steps:
-
-```bash
-sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
-sudo apt-get update
-sudo apt-get install -y caddy
-```
-
-## 6. Database and source on the VM
-
-Generate three different random hex strings and save them privately: one runtime MySQL password, one migration/backup MySQL password, and one recovery signing secret. The recovery secret must stay the **same across future deployments**, or existing pet QR tags stop working.
-
-```bash
-openssl rand -hex 32
-openssl rand -hex 32
-openssl rand -hex 32
-```
-
-Replace the two database password placeholders below with the **first two** generated values. The SQL is run once in the VM shell; avoid copying passwords into screenshots or chat.
-
-```bash
-sudo mysql
-```
-
-At the `mysql>` prompt:
-
-```sql
-CREATE DATABASE IF NOT EXISTS petconnect_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'petconnect_app'@'127.0.0.1' IDENTIFIED BY 'YOUR_RUNTIME_MYSQL_HEX_PASSWORD';
-CREATE USER 'petconnect_migrate'@'127.0.0.1' IDENTIFIED BY 'YOUR_MIGRATION_MYSQL_HEX_PASSWORD';
-GRANT SELECT, INSERT, UPDATE, DELETE ON petconnect_db.* TO 'petconnect_app'@'127.0.0.1';
-GRANT ALL PRIVILEGES ON petconnect_db.* TO 'petconnect_migrate'@'127.0.0.1';
-EXIT;
-```
-
-The runtime API uses the restricted `petconnect_app` account. Schema migration, backup, and restore commands use the separate `petconnect_migrate` account whose credentials are kept in a root-only file and are never exposed to the systemd API process. Both use `127.0.0.1` over TCP; MySQL stays local to the VM. Prepare directories:
-
-```bash
-sudo useradd --system --home-dir /var/lib/petconnect --no-create-home --shell /usr/sbin/nologin petconnect
-sudo mkdir -p /opt/petconnect /var/lib/petconnect/uploads /var/lib/petconnect/backups /etc/petconnect
-sudo chown ubuntu:ubuntu /opt/petconnect
-sudo chown -R petconnect:petconnect /var/lib/petconnect
-sudo chmod 750 /var/lib/petconnect /var/lib/petconnect/uploads /var/lib/petconnect/backups
-```
-
-**Public repository:** clone the new GitHub repository:
-
-```bash
-git clone https://github.com/YOUR_GITHUB_USER/YOUR_REPO.git /opt/petconnect
-```
-
-**Private repository instead:** on the VM run `ssh-keygen -t ed25519 -f /home/ubuntu/.ssh/petconnect_deploy -N ""` and `cat /home/ubuntu/.ssh/petconnect_deploy.pub`. In the new GitHub repo, go to **Settings → Deploy keys → Add deploy key**, paste that public key, and leave write access **unchecked**. Then clone:
-
-```bash
-GIT_SSH_COMMAND='ssh -i /home/ubuntu/.ssh/petconnect_deploy -o IdentitiesOnly=yes' git clone git@github.com:YOUR_GITHUB_USER/YOUR_REPO.git /opt/petconnect
-git -C /opt/petconnect config core.sshCommand 'ssh -i /home/ubuntu/.ssh/petconnect_deploy -o IdentitiesOnly=yes'
-```
-
-Check [GitHub's published SSH host fingerprint](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints) before accepting the first host-key prompt. Use **one** of the two clone paths, then install and build:
+Use the tracked templates as starting points:
 
 ```bash
 cd /opt/petconnect
-npm ci
-npm --prefix backend/api ci
-npm --prefix frontend ci
-npm --prefix backend/api run build
+sudo cp deploy/api.env.example /etc/petconnect/api.env
+sudo cp deploy/db-maintenance.env.example /etc/petconnect/db-maintenance.env
+sudo cp deploy/frontend.env.example /etc/petconnect/frontend.env
 ```
 
-If `git clone` says the directory is not empty, check `/opt/petconnect` and remove only accidental files you just made there; do not delete a prior deployment or user data.
-
-## 7. Production environment and Firebase Admin credential
-
-On **Windows PowerShell**, transfer the Admin JSON outside Git:
-
-```powershell
-scp -i C:\PATH\TO\YOUR_OCI_KEY.key C:\PATH\TO\FIREBASE_ADMIN.json ubuntu@YOUR_VM_PUBLIC_IP:/home/ubuntu/firebase-admin.json
-```
-
-On the **VM Ubuntu shell**:
+Edit every placeholder. Generate independent random values for the recovery/finder secrets; for example:
 
 ```bash
-sudo install -o root -g petconnect -m 0640 /home/ubuntu/firebase-admin.json /etc/petconnect/firebase-admin.json
-rm /home/ubuntu/firebase-admin.json
-sudo install -o root -g petconnect -m 0640 /dev/null /etc/petconnect/api.env
-sudo install -o root -g root -m 0600 /dev/null /etc/petconnect/db-maintenance.env
-sudo nano /etc/petconnect/api.env
+openssl rand -base64 48
 ```
 
-Paste this into `/etc/petconnect/api.env`, replacing placeholders. Use the **first** random string for `MYSQL_PASSWORD` and the **third** for `RECOVERY_TOKEN_SECRET`. Use the Web SDK project ID for `FIREBASE_PROJECT_ID`. This file is read by systemd and is **not** in Git.
+Do not reuse the same secret for multiple settings.
+
+### API requirements
+
+The API configuration must include:
+
+- `NODE_ENV=production`;
+- production MySQL runtime credentials;
+- either a local `MYSQL_SOCKET_PATH` or verified TLS for remote MySQL;
+- the real Firebase project and Admin credentials;
+- exact HTTPS `CORS_ALLOWED_ORIGINS`;
+- an HTTPS `PUBLIC_APP_BASE_URL` that is also present in `CORS_ALLOWED_ORIGINS`;
+- stable recovery/finder secrets;
+- a real finder OTP provider;
+- durable upload configuration;
+- correct proxy-hop configuration.
+
+For the tracked single-server template, local durable media is:
 
 ```env
-NODE_ENV=production
-PORT=3000
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
-MYSQL_USER=petconnect_app
-MYSQL_PASSWORD=YOUR_RUNTIME_MYSQL_HEX_PASSWORD
-MYSQL_DATABASE=petconnect_db
-FIREBASE_PROJECT_ID=YOUR_FIREBASE_PROJECT_ID
-GOOGLE_APPLICATION_CREDENTIALS=/etc/petconnect/firebase-admin.json
-CORS_ALLOWED_ORIGINS=https://YOUR_NAME.duckdns.org
-PUBLIC_APP_BASE_URL=https://YOUR_NAME.duckdns.org
-RECOVERY_TOKEN_SECRET=YOUR_OTHER_LONG_HEX_SECRET
-UPLOAD_DIR=/var/lib/petconnect/uploads
-TRUST_PROXY_HOPS=1
-JSON_BODY_LIMIT=256kb
-NOTIFICATION_WORKER_INTERVAL_MS=60000
-```
-
-Now put the migration credentials in the root-only maintenance file:
-
-```bash
-sudo nano /etc/petconnect/db-maintenance.env
-```
-
-```env
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
-MYSQL_USER=petconnect_migrate
-MYSQL_PASSWORD=YOUR_MIGRATION_MYSQL_HEX_PASSWORD
-MYSQL_DATABASE=petconnect_db
-NODE_ENV=production
+UPLOAD_STORAGE_PROVIDER=local
+UPLOAD_LOCAL_DURABLE=true
 UPLOAD_DIR=/var/lib/petconnect/uploads
 ```
 
-**Do not set** `FIREBASE_AUTH_EMULATOR_HOST` or `FIREBASE_SERVICE_ACCOUNT_JSON` on this VM. Keep the env syntax plain `KEY=value` without spaces or comments on the same line. Check permissions:
+For an ephemeral application server, use the Cloudinary block in `deploy/api.env.example` instead.
+
+Do not set `FIREBASE_AUTH_EMULATOR_HOST` in production.
+
+### Finder SMS verification
+
+Production supports either:
+
+- `FINDER_OTP_PROVIDER=webhook` with an HTTPS webhook; or
+- `FINDER_OTP_PROVIDER=smsgate` with SMS Gateway credentials.
+
+The console provider and exposed OTP codes are rejected in production.
+
+### File permissions
 
 ```bash
-sudo chmod 640 /etc/petconnect/api.env /etc/petconnect/firebase-admin.json
-sudo chmod 600 /etc/petconnect/db-maintenance.env
-sudo -u petconnect test -r /etc/petconnect/api.env
+sudo chown root:petconnect   /etc/petconnect/api.env   /etc/petconnect/firebase-admin.json
+sudo chmod 0640   /etc/petconnect/api.env   /etc/petconnect/firebase-admin.json
+
+sudo chown root:root /etc/petconnect/db-maintenance.env
+sudo chmod 0600 /etc/petconnect/db-maintenance.env
+
+# Frontend values are public bundle configuration, not server secrets.
+sudo chown root:root /etc/petconnect/frontend.env
+sudo chmod 0644 /etc/petconnect/frontend.env
+
 sudo -u petconnect test -r /etc/petconnect/firebase-admin.json
-test "$(stat -c %a /etc/petconnect/db-maintenance.env)" = "600"
-if sudo -u petconnect test -r /etc/petconnect/db-maintenance.env; then
-  echo "ERROR: runtime service can read database maintenance credentials" >&2
-  exit 1
-fi
+sudo -u petconnect test -w /var/lib/petconnect/uploads
 ```
 
-Create the frontend build env. It contains **only the public Web SDK config**, never MySQL or Admin keys:
+If remote MySQL uses `MYSQL_SSL_CA_PATH`, make that CA file readable by the API runtime and migration process without making any private client key public.
 
-```bash
-nano /opt/petconnect/frontend/.env.local
-```
+## 7. Run deployment preflight
 
-Paste and fill:
-
-```env
-EXPO_PUBLIC_FIREBASE_ENV=production
-EXPO_PUBLIC_API_BASE_URL=https://YOUR_NAME.duckdns.org
-EXPO_PUBLIC_FIREBASE_PROJECT_ID=YOUR_FIREBASE_PROJECT_ID
-EXPO_PUBLIC_FIREBASE_API_KEY=YOUR_WEB_API_KEY
-EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=YOUR_PROJECT.firebaseapp.com
-EXPO_PUBLIC_FIREBASE_APP_ID=YOUR_WEB_APP_ID
-```
-
-Use Firebase's **exact** `authDomain` from Web app settings; it need not equal your DuckDNS hostname. The frontend file is ignored by Git. Export the website:
+First run the source-only deployment safety check:
 
 ```bash
 cd /opt/petconnect
-npm run web:export
+npm run test:production-readiness
+```
+
+Then validate the real production configuration **without printing secret values**:
+
+```bash
+sudo -u petconnect /usr/bin/npm run production:preflight --   --api-env /etc/petconnect/api.env   --frontend-env /etc/petconnect/frontend.env
+```
+
+After the database schema exists, run the connectivity probe:
+
+```bash
+sudo -u petconnect /usr/bin/npm run production:probe --   --api-env /etc/petconnect/api.env   --frontend-env /etc/petconnect/frontend.env
+```
+
+The probe checks production configuration, Firebase project consistency between frontend/backend, local media permissions when applicable, MySQL connectivity, and critical schema tables.
+
+## 8. Bootstrap or migrate the database
+
+First deployment:
+
+```bash
+cd /opt/petconnect
+sudo bash -c 'set -a; . /etc/petconnect/db-maintenance.env; set +a; npm run db:bootstrap; npm run db:status'
+```
+
+Existing production database:
+
+```bash
+cd /opt/petconnect
+sudo bash -c 'set -a; . /etc/petconnect/db-maintenance.env; set +a; npm run db:backup; npm run db:migrate; npm run db:status'
+```
+
+Migrations are checksum tracked. Never edit a migration that may already have run in production.
+
+## 9. Build the production web app
+
+Do not use the development Expo environment for a production export.
+
+```bash
+cd /opt/petconnect
+npm run web:export:production -- /etc/petconnect/frontend.env
 test -f frontend/dist/index.html
-test -f frontend/dist/recover.html
 ```
 
-If `recover.html` has another generated form under `frontend/dist`, inspect that folder and update the Caddy rewrite in the next step accordingly. Do not launch a missing recovery page.
+The production exporter rejects emulator values, localhost/private API addresses, incomplete Firebase configuration, and server-side secrets.
 
-## 8. Start the API and public HTTPS website
+Rebuild whenever an `EXPO_PUBLIC_*` value changes.
 
-On the VM, create the API's systemd unit:
+## 10. Install the API systemd service
+
+Use the tracked hardened unit:
 
 ```bash
-sudo nano /etc/systemd/system/petconnect.service
-```
-
-Paste:
-
-```ini
-[Unit]
-Description=PetConnect API
-Wants=network-online.target
-After=network-online.target mysql.service
-Requires=mysql.service
-
-[Service]
-Type=simple
-User=petconnect
-Group=petconnect
-WorkingDirectory=/opt/petconnect/backend/api
-EnvironmentFile=/etc/petconnect/api.env
-ExecStart=/usr/bin/npm start
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Before the first start, bootstrap/migrate the database using the root-only maintenance credentials. The runtime service itself never receives DDL credentials:
-
-```bash
-sudo bash -c 'set -a; . /etc/petconnect/db-maintenance.env; set +a; cd /opt/petconnect; npm run db:bootstrap; npm run db:status'
-```
-
-Then enable and test the API. `npm start` now starts Express only; it does **not** perform schema changes:
-
-```bash
+sudo cp /opt/petconnect/deploy/petconnect.service /etc/systemd/system/petconnect.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now petconnect
-sudo systemctl status petconnect --no-pager
+sudo systemctl enable --now petconnect.service
+```
+
+Check it locally:
+
+```bash
+sudo systemctl status petconnect.service
+curl -fsS http://127.0.0.1:3000/v1/health
 curl -fsS http://127.0.0.1:3000/v1/ready
 ```
 
-If the service fails, run `sudo journalctl -u petconnect -n 100 --no-pager`. Correct the first actual error; do not create a second database or replace the signing secret to mask it.
+`/v1/ready` checks the database and, when local media storage is selected, read/write access to the durable upload directory.
 
-Put this in `/etc/caddy/Caddyfile` with your actual DuckDNS domain:
+## 11. Install HTTPS/static hosting
 
-```bash
-sudo nano /etc/caddy/Caddyfile
-```
-
-```caddyfile
-YOUR_NAME.duckdns.org {
-    encode gzip
-    @api path /v1/* /uploads/*
-    handle @api {
-        reverse_proxy 127.0.0.1:3000
-    }
-    handle {
-        root * /opt/petconnect/frontend/dist
-        try_files {path} {path}.html {path}/index.html /index.html
-        file_server
-    }
-}
-```
-
-Apply and verify HTTPS (Caddy gets a public certificate when DNS and ports 80/443 work):
+For the single-server path, start from `deploy/Caddyfile.example`:
 
 ```bash
+sudo cp /opt/petconnect/deploy/Caddyfile.example /etc/caddy/Caddyfile
+sudo editor /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy
-sudo systemctl status caddy --no-pager
-curl -fsS https://YOUR_NAME.duckdns.org/v1/health
-curl -fsS https://YOUR_NAME.duckdns.org/v1/ready
-curl -I https://YOUR_NAME.duckdns.org/
-curl -I https://YOUR_NAME.duckdns.org/recover
 ```
 
-Both API endpoints must be HTTP 200; `/` and `/recover` must serve a real page over valid HTTPS. If HTTPS fails, check the DuckDNS IP, OCI 80/443 ingress, VM firewall, and `sudo journalctl -u caddy -n 100 --no-pager`. If you get a 502, check the API service and local `/v1/ready`. Never expose 3000 or 3306 just to solve a 502.
+Replace `pets.example.com` first.
 
-## 9. Real user acceptance test — do not skip
+The template preserves camera/location-capable web behavior while adding HTTPS, HSTS, safe referrer/content-type headers, immutable Expo asset caching, API proxying, and SPA route fallback.
 
-Use a real browser at `https://YOUR_NAME.duckdns.org`. Use **test accounts and a test pet** first.
+## 12. Backups
 
-- Create an owner account; sign out, sign in, refresh the browser, and request a password-reset email. Complete the reset using Firebase's email link and sign in with the new password.
-- Add a pet, edit it, upload a JPEG/PNG/WebP photo, verify dashboard/profile count and pet profile, then refresh and verify MySQL persistence. Test delete on a **separate** pet.
-- Generate a Pet ID QR. Open its link in a private browser/second phone **without signing in**. Check it opens `/recover?token=...`, hides private health data, and follows privacy settings. Rotate the QR and confirm the old link fails and the new one works. Do this **before printing tags**.
-- Mark a pet lost with location permission, check the nearby/public view, submit a finder sighting from an unsigned browser, check the owner's Updates feed, and mark it reunited. Browser camera/GPS require HTTPS and user permission; test on the actual intended phone/browser.
-- Provision a **test clinic** if clinics are part of this launch. In Firebase Console → Authentication → Users, add a clinic user with email and a temporary password and copy its UID. On the VM create `/home/ubuntu/clinic-input.json` with that same UID/email and `clinicId`, `name`, `address`, `phone`. Do not store it in Git. Install the file for the service user and run:
-  ```bash
-  sudo install -o root -g petconnect -m 0640 /home/ubuntu/clinic-input.json /etc/petconnect/clinic-input.json
-  sudo -u petconnect bash -c 'set -a; . /etc/petconnect/api.env; set +a; cd /opt/petconnect/backend/api; npm run operator -- provision-clinic YOUR_FIREBASE_PROJECT_ID setup-admin /etc/petconnect/clinic-input.json'
-  sudo rm /etc/petconnect/clinic-input.json /home/ubuntu/clinic-input.json
-  ```
-  Sign in as the clinic user and scan the QR **before** the owner creates an appointment: the clinic may identify the pet, but clinical history/actions must be locked. Then request the appointment from the owner account, refresh the clinic patient view, add a health record/vaccination, schedule the requested appointment, and check the owner sees the record/reminder. The operator command sets the clinic role; ordinary Create Account remains owner-only.
+### Local media storage
 
-Stop the rollout if any applicable check fails. Web **in-app** alerts are supported; background **Expo push** on an installed mobile binary is outside this route. A browser can be used on a phone without publishing a store app.
+`db:backup` creates one integrity-manifested backup set containing:
 
-## 10. Backups, updates, and ownership
+- a MySQL dump;
+- local uploaded media;
+- migration checksums;
+- hashes/sizes for backed-up files.
 
-The app stores pet rows in MySQL and photo bytes under `/var/lib/petconnect/uploads`; **both** must be backed up as one set. At least weekly and **before each update**, briefly stop API writes on the VM, back up, then start it again **even if backup failed**:
+The tracked timer uses `BACKUP_ROOT=/var/lib/petconnect/backups`, briefly stops the API for an application-consistent database/media backup, and restarts it even if the backup command fails.
+
+Install it:
 
 ```bash
-sudo systemctl stop petconnect
-sudo bash -c 'umask 077; set -a; . /etc/petconnect/db-maintenance.env; set +a; cd /opt/petconnect; npm run db:backup -- --output "/var/lib/petconnect/backups/$(date -u +%Y%m%dT%H%M%SZ)"'
-sudo systemctl start petconnect
-curl -fsS http://127.0.0.1:3000/v1/ready
+sudo cp deploy/petconnect-backup.service /etc/systemd/system/
+sudo cp deploy/petconnect-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now petconnect-backup.timer
+sudo systemctl list-timers petconnect-backup.timer
 ```
 
-If the backup command failed, do not treat that folder as a valid backup or continue the release. Resolve the failure and repeat.
-
-The command prints the exact backup directory. Make a transfer archive, replacing `YOUR_BACKUP_FOLDER` with that directory's final name:
+Test one backup before relying on the timer:
 
 ```bash
-sudo tar -czf /home/ubuntu/petconnect-backup.tar.gz -C /var/lib/petconnect/backups YOUR_BACKUP_FOLDER
-sudo chown ubuntu:ubuntu /home/ubuntu/petconnect-backup.tar.gz
-chmod 600 /home/ubuntu/petconnect-backup.tar.gz
+sudo systemctl start petconnect-backup.service
+sudo journalctl -u petconnect-backup.service --since "10 minutes ago"
+sudo systemctl status petconnect.service
 ```
 
-On **Windows PowerShell**, copy it to a computer or other storage **outside the VM**:
+Copy completed backup sets to protected storage **outside this server**. A backup on the same VM is not disaster recovery.
 
-```powershell
-scp -i C:\PATH\TO\YOUR_OCI_KEY.key ubuntu@YOUR_VM_PUBLIC_IP:/home/ubuntu/petconnect-backup.tar.gz C:\PATH\TO\PRIVATE_BACKUPS\
+Periodically restore into a disposable database and separate upload directory.
+
+### Cloudinary media storage
+
+The PetConnect database backup preserves Cloudinary references, but `db:backup` does not download every remote Cloudinary asset. When Cloudinary is used, configure a Cloudinary/provider-side asset backup/export/retention strategy in addition to PetConnect database backups.
+
+## 13. CI and release gate
+
+Before production rollout, the target commit should pass:
+
+```bash
+npm run release:verify
 ```
 
-Check the local file exists and is nonempty, protect it as sensitive user data, then `rm /home/ubuntu/petconnect-backup.tar.gz` on the VM. Periodically practice a restore on a **separate test installation**, with both a disposable MySQL database and a separate `UPLOAD_DIR`, using `HANDOFF_SETUP.md`'s restore instructions; never test restore against live user data or the production upload folder. A backup left only on an OCI VM is **not** protection against VM loss/reclamation. This manual requires the owner to do the weekly off-host transfer; it does not set up unattended backups.
+This covers dependency policy, TypeScript/build checks, linting, frontend tests, source deployment safety, Expo Doctor, browser E2E, Android/iOS source exports, and the isolated backend suite.
 
-For a later release, test the new commit in CI and locally, take an off-host backup, then on the VM:
+Do not point the test suite at production data.
+
+## 14. Updating production
+
+Before an update:
+
+1. verify the target commit passed CI;
+2. create and copy an off-host backup;
+3. record the currently deployed Git commit.
+
+Then:
 
 ```bash
 cd /opt/petconnect
 git pull --ff-only
+
 npm ci
 npm --prefix backend/api ci
 npm --prefix frontend ci
-npm --prefix backend/api run build
+npm run build:backend
+
+sudo -u petconnect /usr/bin/npm run production:preflight --   --api-env /etc/petconnect/api.env   --frontend-env /etc/petconnect/frontend.env
+
+npm run web:export:production -- /etc/petconnect/frontend.env
+
 sudo bash -c 'set -a; . /etc/petconnect/db-maintenance.env; set +a; cd /opt/petconnect; npm run db:migrate; npm run db:status'
-npm run web:export
-sudo systemctl restart petconnect
-curl -fsS https://YOUR_NAME.duckdns.org/v1/ready
+
+sudo systemctl restart petconnect.service
 ```
 
-Keep `/etc/petconnect/`, `/var/lib/petconnect/`, and `frontend/.env.local` outside Git and stable across pulls. Rebuild the web export whenever `EXPO_PUBLIC_*` values change. Recheck the real user flows after each release. If you change the VM or its public IP, update DuckDNS; if you change the site domain, update Firebase Authorized domains, CORS, `PUBLIC_APP_BASE_URL`, and the frontend API URL, then rebuild. Existing QR links contain the old domain.
+Then run the public smoke test:
 
-**Owner checklist:** keep the GitHub, Oracle, DuckDNS, Firebase, and SSH accounts accessible; keep all three generated secrets and the Admin key secure; keep `/etc/petconnect/db-maintenance.env` root-only; renew/rotate credentials if exposed; check `systemctl status`, `journalctl`, `/v1/ready`, disk space, free-tier quota and backups regularly. There is no managed uptime guarantee in this $0 single-VM setup.
+```bash
+npm run production:smoke --   --web-url https://pets.example.com   --api-url https://pets.example.com
+```
 
-## Quick diagnosis
+For split hosting, pass the separate HTTPS API origin to `--api-url`.
 
-| Symptom | Check |
-| --- | --- |
-| VM creation says “out of host capacity” | Use another availability domain in the same home region or retry later. Do not select paid resources. |
-| HTTPS times out | DuckDNS points to current public IP, OCI 80/443 ingress, VM iptables. |
-| Caddy says 502 | `sudo systemctl status petconnect`, `sudo journalctl -u petconnect -n 100 --no-pager`, local `/v1/ready`. |
-| `/v1/ready` says 503 | `sudo systemctl status mysql`, `MYSQL_*` values, local DB user privileges. |
-| Sign-in fails | Firebase Email/Password enabled, project IDs match, correct Web SDK config, Authorized domain; rebuild web export. |
-| QR opens a dead link | `PUBLIC_APP_BASE_URL`, Caddy `/recover`, stable secret, regenerate/rotate test QR after domain change. |
-| Photo disappears after restart | `UPLOAD_DIR` points to persistent VM disk, permissions, and photos are included in the off-host backup. |
-| Clinic user lands on owner route | Provision with **the same Firebase UID**, then sign out/in for fresh role claims. |
+For a code rollback, checkout the previously recorded tested commit, reinstall/build, and restart. Do not casually reverse database migrations; use a validated backup when a data/schema rollback is actually required.
 
-## Optional AI prompts
+## 15. Production monitoring
 
-AI assistance is optional. Paste only **redacted** logs and non-secret settings. Never paste the Admin JSON, MySQL password, recovery secret, SSH key, DuckDNS token, real user information, or backups.
+Monitor:
 
-> I have extracted the full PetConnect ZIP into a new GitHub repository. Follow `PRODUCTION_DEPLOYMENT.md` in order for the Oracle Always Free + DuckDNS + Firebase Spark + Caddy free **web** path. Ask me only for non-secret values you need. Give me one command and its expected result at a time. Stop if a service is paid or a command fails. Never put credentials in Git or an `EXPO_PUBLIC_*` variable.
+- `systemctl status petconnect`;
+- `journalctl -u petconnect`;
+- `/v1/health` and `/v1/ready`;
+- MySQL availability and storage;
+- upload/media storage availability;
+- disk usage;
+- backup timer/service success;
+- off-host backup copies;
+- TLS/domain renewal;
+- notification and push failures.
 
-> Diagnose this PetConnect deployment failure from these redacted logs. Name the first failing layer (DNS, HTTPS/Caddy, API, MySQL, Firebase Auth, or web bundle), point to the evidence, give the smallest fix, and give one verification command. Do not suggest a paid service or a rewrite unless the evidence requires it.
+PetConnect logs structured request/error events and redacts recovery tokens and sensitive finder query values. Never copy passwords, Firebase Admin JSON, recovery/finder secrets, access tokens, private keys, or real user records into logs/issues/chats.
 
-## Official references and limits checked 2026-09-28
+## 16. Native Android/iOS production
 
-- [Oracle Always Free resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm) and [Free Tier account/capacity](https://docs.oracle.com/iaas/Content/FreeTier/freetier.htm): Ampere 2 OCPU/12 GB equivalent for an Always Free tenancy, 200 GB total free block storage, home-region and capacity conditions, idle-instance reclamation.
-- [Firebase Auth no-cost usage](https://firebase.google.com/docs/auth) and [email action limits](https://firebase.google.com/docs/auth/limits): Spark has provider/day and password-reset email limits. [Firebase Admin credentials](https://firebase.google.com/docs/admin/setup).
-- [DuckDNS free subdomains](https://www.duckdns.org/about.jsp), [Caddy official Ubuntu install](https://caddyserver.com/docs/install), [Caddy HTTPS requirements](https://caddyserver.com/docs/automatic-https), [Expo static web export](https://docs.expo.dev/router/web/static-rendering/), [NodeSource Node 22 packages](https://github.com/nodesource/distributions/blob/master/DEV_README.md), and [GitHub import](https://docs.github.com/en/migrations/importing-source-code/using-the-command-line-to-import-source-code/adding-locally-hosted-code-to-github).
+Real store distribution still requires operator-owned external configuration:
 
-Service limits, policies and UI labels can change. Recheck these linked official pages at setup time.
+- Expo/EAS project and `EXPO_PUBLIC_EAS_PROJECT_ID`;
+- production `EXPO_PUBLIC_*` values in the EAS production environment;
+- Android/iOS signing credentials;
+- FCM for Android remote push;
+- APNs for iOS remote push;
+- Google Play / App Store Connect accounts.
+
+Before store release, test signed builds on physical devices for:
+
+- sign-in/session persistence/password reset;
+- camera and QR scanning;
+- image picker/camera uploads;
+- foreground location;
+- public recovery links;
+- lost/sighting/reunion workflows;
+- notification delivery;
+- clinic workflows.
+
+Source export success alone is not proof that store signing or remote push is configured.
+
+## 17. Final acceptance
+
+Before real user data is allowed, verify with dedicated test accounts:
+
+- owner create/sign-in/sign-out/password reset/session persistence;
+- multiple pets with correct per-pet edit/ID/health/recovery actions;
+- recovery tag creation, scan, replacement, lost/revoke behavior and short-code fallback;
+- app-less finder recovery in a normal mobile browser;
+- no-tag nearby matching and sightings;
+- privacy settings and microchip privacy;
+- lost report → sighting → notification → reunited;
+- clinic role/authorization and health workflows;
+- uploads and media cleanup;
+- finder SMS verification through the real provider;
+- backup creation and a restore drill;
+- HTTPS, CORS, health/readiness and structured logs;
+- signed native builds and push if native distribution is part of launch.
+
+Stop rollout and fix any applicable failed check before using production data.

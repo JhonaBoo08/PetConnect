@@ -1,3 +1,6 @@
+export type RecoveryMapPinKind =
+  "lost" | "sighting" | "found" | "reunited" | "nearby";
+
 export type RecoveryMapPin = {
   id: string;
   latitude: number;
@@ -5,11 +8,18 @@ export type RecoveryMapPin = {
   title: string;
   description?: string;
   status?: "LOST" | "SIGHTED" | "REUNITED";
+  kind?: RecoveryMapPinKind;
+};
+
+export type RecoveryMapCoordinate = {
+  latitude: number;
+  longitude: number;
 };
 
 export type RecoveryMapProps = {
   pins: RecoveryMapPin[];
-  selected?: { latitude: number; longitude: number } | null;
-  onSelect?: (coordinate: { latitude: number; longitude: number }) => void;
+  trail?: RecoveryMapCoordinate[];
+  selected?: RecoveryMapCoordinate | null;
+  onSelect?: (coordinate: RecoveryMapCoordinate) => void;
   height?: number;
 };

@@ -54,6 +54,8 @@ backend/api/.env
 .firebase/
 *-debug.log*
 firebase-debug.log
+expo-server.log
+expo-server-error.log
 test-results/
 test-results-backend.log
 dist-native/
@@ -63,10 +65,14 @@ dist-native/
 clinic-input*.json
 playwright-report/
 backups/
-.handoff-stage/
-PetConnect-handoff-*.zip
-PetConnect-handoff-*.sha256
 frontend/dist-android/
 frontend/dist-ios/
-.relai-*/
-.relai-*.log
+backend/api/.e2e-uploads/
+
+# Private deployment bundles and disposable validation output
+.deployment/
+.env.production
+.env.production.*
+!.env.production.example
+.finder-*-output.txt
+jest-*.json

@@ -1,3 +1,4 @@
+import { mysqlConnectionOptions } from "./db-config.js";
 import mysql, { Pool, PoolConnection } from "mysql2/promise";
 
 export function createPool(config?: {
@@ -7,17 +8,14 @@ export function createPool(config?: {
   database?: string;
   port?: number;
 }): Pool {
-  return mysql.createPool({
-    host: config?.host || process.env.MYSQL_HOST || "127.0.0.1",
-    user: config?.user || process.env.MYSQL_USER || "root",
-    password: config?.password || process.env.MYSQL_PASSWORD || "",
-    database: config?.database || process.env.MYSQL_DATABASE || "petconnect_db",
-    port: config?.port || Number(process.env.MYSQL_PORT) || 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    timezone: "Z",
+  const pool = mysql.createPool({ ...mysqlConnectionOptions(), ...config });
+  pool.pool.on("connection", (connection) => {
+    // The driver timezone controls parsing; MySQL also needs UTC for
+    // TIMESTAMP columns and database-generated dates. This query is queued
+    // before the connection is handed to its first caller.
+    connection.query("SET time_zone = '+00:00'");
   });
+  return pool;
 }
 
 export async function withTransaction<T>(

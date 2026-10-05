@@ -54,10 +54,10 @@ describe("PrivacySettingsScreen", () => {
     const view = await render(<PrivacySettingsScreen />);
 
     await waitFor(() =>
-      expect(view.getByText("Show phone on public Pet ID")).toBeTruthy(),
+      expect(view.getByText("Show recovery phone")).toBeTruthy(),
     );
 
-    const phoneSwitch = view.getByLabelText("Show phone on public Pet ID");
+    const phoneSwitch = view.getByLabelText("Show recovery phone");
     expect(phoneSwitch.props.value).toBe(false);
 
     await act(async () => {

@@ -14,21 +14,43 @@ import type {
   VaccinationInput,
 } from "../../../shared/contracts";
 import { authenticatedFetch } from "./auth";
+import { cachedRequest, invalidateCached } from "./resource-cache";
+
+const clinicsCacheKey = "care:clinics";
+const recordsCachePrefix = "care:records:";
+const remindersCachePrefix = "care:reminders:";
+const appointmentsCachePrefix = "care:appointments:";
+
+function invalidateOwnerCare() {
+  invalidateCached(recordsCachePrefix);
+  invalidateCached(remindersCachePrefix);
+  invalidateCached(appointmentsCachePrefix);
+}
 
 export async function listClinics(): Promise<ClinicSummary[]> {
-  return (await authenticatedFetch<{ clinics: ClinicSummary[] }>("/v1/clinics"))
-    .clinics;
+  return cachedRequest(
+    clinicsCacheKey,
+    async () =>
+      (await authenticatedFetch<{ clinics: ClinicSummary[] }>("/v1/clinics"))
+        .clinics,
+    { ttlMs: 60_000 },
+  );
 }
 
 export async function listHealthRecords(
   petId?: string,
 ): Promise<HealthRecord[]> {
   const query = petId ? `?petId=${encodeURIComponent(petId)}` : "";
-  return (
-    await authenticatedFetch<{ records: HealthRecord[] }>(
-      `/v1/health-records${query}`,
-    )
-  ).records;
+  return cachedRequest(
+    recordsCachePrefix + query,
+    async () =>
+      (
+        await authenticatedFetch<{ records: HealthRecord[] }>(
+          `/v1/health-records${query}`,
+        )
+      ).records,
+    { ttlMs: 20_000 },
+  );
 }
 
 function careQuery(range?: CareCalendarRange, petId?: string): string {
@@ -48,54 +70,89 @@ export async function listHealthReminders(
   range?: CareCalendarRange,
 ): Promise<HealthReminder[]> {
   const query = careQuery(range, petId);
-  return (
-    await authenticatedFetch<{ reminders: HealthReminder[] }>(
-      `/v1/reminders${query}`,
-    )
-  ).reminders;
+  return cachedRequest(
+    remindersCachePrefix + query,
+    async () =>
+      (
+        await authenticatedFetch<{ reminders: HealthReminder[] }>(
+          `/v1/reminders${query}`,
+        )
+      ).reminders,
+    { ttlMs: 15_000 },
+  );
 }
 
-export const createHealthReminder = (input: HealthReminderInput) =>
-  authenticatedFetch<HealthReminder>("/v1/reminders", {
+export async function createHealthReminder(
+  input: HealthReminderInput,
+): Promise<HealthReminder> {
+  const reminder = await authenticatedFetch<HealthReminder>("/v1/reminders", {
     method: "POST",
     body: JSON.stringify(input),
   });
+  invalidateOwnerCare();
+  return reminder;
+}
 
-export const updateHealthReminder = (id: string, input: HealthReminderUpdate) =>
-  authenticatedFetch<HealthReminder>(
+export async function updateHealthReminder(
+  id: string,
+  input: HealthReminderUpdate,
+): Promise<HealthReminder> {
+  const reminder = await authenticatedFetch<HealthReminder>(
     `/v1/reminders/${encodeURIComponent(id)}`,
     {
       method: "PATCH",
       body: JSON.stringify(input),
     },
   );
+  invalidateOwnerCare();
+  return reminder;
+}
 
-export const deleteHealthReminder = (id: string) =>
-  authenticatedFetch<void>(`/v1/reminders/${encodeURIComponent(id)}`, {
+export async function deleteHealthReminder(id: string): Promise<void> {
+  await authenticatedFetch<void>(`/v1/reminders/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+  invalidateOwnerCare();
+}
 
 export async function listAppointments(
   range?: CareCalendarRange,
 ): Promise<Appointment[]> {
-  return (
-    await authenticatedFetch<{ appointments: Appointment[] }>(
-      "/v1/appointments" + careQuery(range),
-    )
-  ).appointments;
+  const query = careQuery(range);
+  return cachedRequest(
+    appointmentsCachePrefix + query,
+    async () =>
+      (
+        await authenticatedFetch<{ appointments: Appointment[] }>(
+          "/v1/appointments" + query,
+        )
+      ).appointments,
+    { ttlMs: 15_000 },
+  );
 }
 
-export const createAppointment = (input: AppointmentInput) =>
-  authenticatedFetch<Appointment>("/v1/appointments", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+export async function createAppointment(
+  input: AppointmentInput,
+): Promise<Appointment> {
+  const appointment = await authenticatedFetch<Appointment>(
+    "/v1/appointments",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  invalidateOwnerCare();
+  return appointment;
+}
 
-export const cancelAppointment = (id: string) =>
-  authenticatedFetch<Appointment>(
+export async function cancelAppointment(id: string): Promise<Appointment> {
+  const appointment = await authenticatedFetch<Appointment>(
     `/v1/appointments/${encodeURIComponent(id)}/cancel`,
     { method: "POST" },
   );
+  invalidateOwnerCare();
+  return appointment;
+}
 
 export const getClinic = () => authenticatedFetch<ClinicSummary>("/v1/clinic");
 
