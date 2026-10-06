@@ -39,7 +39,7 @@ function fail(message, details = []) {
   console.error("");
   console.error(message);
   for (const detail of details) console.error(detail);
-  process.exit(1);
+  throw new Error(message);
 }
 
 function npmCommand(args, cwd = repoRoot, options = {}) {
@@ -199,7 +199,7 @@ function validateLocalConfiguration() {
   return backendEnv;
 }
 
-async function bootstrapDatabase(backendEnv) {
+export async function bootstrapDatabase(backendEnv) {
   console.log("Checking local MySQL database and migrations...");
   const result = npmCommand(["run", "db:bootstrap"], backendDir, {
     stdio: "inherit",
@@ -226,7 +226,7 @@ async function bootstrapDatabase(backendEnv) {
   ]);
 }
 
-async function prepareProject() {
+export async function prepareProject() {
   const major = Number(process.versions.node.split(".")[0]);
   const minor = Number(process.versions.node.split(".")[1]);
   if (major < 22 || (major === 22 && minor < 13)) {
@@ -319,29 +319,32 @@ async function prepareProject() {
       ]);
     }
   }
-  const mysql = spawnSync(
-    process.execPath,
-    [
-      path.join(scriptDir, "dev-mysql.mjs"),
-      ...(backendEnvCreated ? ["--configure-new"] : []),
-    ],
-    {
-      cwd: repoRoot,
-      env: process.env,
-      stdio: "inherit",
-      windowsHide: true,
-    },
-  );
-  if (mysql.status !== 0)
-    fail(
-      "PetConnect could not prepare local MySQL. Install MySQL 8 Server or correct backend/api/.env.",
-    );
-  const preparedEnv = parseEnv(backendEnvPath);
-  Object.assign(process.env, preparedEnv);
-  await bootstrapDatabase(preparedEnv);
+  return { backendEnvCreated, backendEnv };
 }
 
-await prepareProject();
-console.log(
-  "PetConnect prerequisites, database migrations and development ports are ready.",
-);
+// Standalone preflight validates a database without leaving an orphan process.
+// The dev/demo launcher uses these functions in its own long-lived process.
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  let database;
+  try {
+    const prepared = await prepareProject();
+    const { startLocalMysql } = await import("./dev-mysql.mjs");
+    database = await startLocalMysql({
+      configureNew: prepared.backendEnvCreated,
+    });
+    const preparedEnv = parseEnv(path.join(backendDir, ".env"));
+    Object.assign(process.env, preparedEnv);
+    await bootstrapDatabase(preparedEnv);
+    console.log(
+      "PetConnect prerequisites, database migrations and development ports are ready.",
+    );
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  } finally {
+    await database?.stop();
+  }
+}

@@ -22,9 +22,9 @@
     "typescript-eslint": "^8.70.0"
   },
   "scripts": {
-    "dev": "node scripts/dev-preflight.mjs && node scripts/dev-stack.mjs",
-    "dev:tunnel": "node scripts/dev-preflight.mjs && node scripts/dev-stack.mjs --tunnel",
-    "demo": "node scripts/dev-preflight.mjs --demo && node scripts/dev-stack.mjs --tunnel --warm-recovery",
+    "dev": "node scripts/dev-stack.mjs",
+    "dev:tunnel": "node scripts/dev-stack.mjs --tunnel",
+    "demo": "node scripts/dev-stack.mjs --tunnel --warm-recovery",
     "dev:mysql": "node scripts/dev-mysql.mjs",
     "dev:preflight": "node scripts/dev-preflight.mjs",
     "dev:frontend": "npm --prefix frontend run start",
@@ -74,7 +74,7 @@
     "release:check": "npm run audit:prod && npm run release:static && npm run test:e2e && npm run release:android && npm run release:ios",
     "release:verify": "npm run release:check && npm run test:backend",
     "postinstall": "node scripts/install-packages.mjs",
-    "test:dev": "node --test scripts/tests/dev-proxy.test.cjs scripts/tests/demo-readiness.test.mjs"
+    "test:dev": "node --test scripts/tests/dev-proxy.test.cjs scripts/tests/demo-readiness.test.mjs scripts/tests/dev-mysql.test.mjs scripts/tests/dev-mysql-runtime.test.mjs"
   },
   "private": true,
   "engines": {
