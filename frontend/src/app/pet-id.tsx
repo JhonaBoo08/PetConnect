@@ -31,6 +31,7 @@ import {
   createRecoveryTag,
   listRecoveryTags,
   markRecoveryTagLost,
+  recoveryUrlForCurrentRuntime,
   replaceRecoveryTag,
   revokeRecoveryTag,
 } from "@/services/recovery";
@@ -235,10 +236,11 @@ export default function PetIdScreen() {
 
   async function exportTag(mode: "download" | "print" | "share") {
     if (!pet || !selectedTag?.recoveryUrl) return;
+    const recoveryUrl = recoveryUrlForCurrentRuntime(selectedTag.recoveryUrl);
     if (Platform.OS !== "web") {
       await Share.share({
         title: `${pet.name}'s PetConnect tag`,
-        message: `${pet.name} · ${selectedTag.shortCode}\n${selectedTag.recoveryUrl}`,
+        message: `${pet.name} · ${selectedTag.shortCode}\n${recoveryUrl}`,
       });
       return;
     }
@@ -565,7 +567,7 @@ export default function PetIdScreen() {
               <Text style={styles.printPetName}>{pet.name.toUpperCase()}</Text>
               <Text style={styles.lostLabel}>I&apos;M LOST</Text>
               <RecoveryQr
-                value={selectedTag.recoveryUrl}
+                value={recoveryUrlForCurrentRuntime(selectedTag.recoveryUrl)}
                 size={190}
                 getRef={(ref) => {
                   qrRef.current = ref;

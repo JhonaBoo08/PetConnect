@@ -63,6 +63,21 @@ describe("development API endpoints", () => {
     expect(getApiBaseUrl()).toBe("http://192.168.1.12:8081/petconnect-api");
   });
 
+  it("skips a native localhost hint when Expo Go also exposes a reachable LAN host", () => {
+    delete process.env.EXPO_PUBLIC_API_BASE_URL;
+    process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
+    globalThis.__DEV__ = true;
+    Constants.expoConfig!.hostUri = "localhost:8081";
+    (
+      Constants as typeof Constants & {
+        expoGoConfig?: { debuggerHost?: string };
+      }
+    ).expoGoConfig = { debuggerHost: "10.0.17.33:8081" };
+
+    expect(getApiBaseUrl()).toBe("http://10.0.17.33:8081/petconnect-api");
+    expect(authEmulatorUrl()).toBe("http://10.0.17.33:8081");
+  });
+
   it("falls back to Expo Go debuggerHost when expoConfig.hostUri is missing", () => {
     delete process.env.EXPO_PUBLIC_API_BASE_URL;
     process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
