@@ -24,6 +24,10 @@ expo-env.d.ts
 # Disposable local development services/data
 .petconnect-dev/
 
+# Python
+__pycache__/
+*.py[cod]
+
 # debug
 npm-debug.*
 yarn-debug.*
