@@ -29,33 +29,42 @@ docs/                  operator-facing legal/privacy templates
 .github/workflows/     CI
 ```
 
-## Requirements
-
-For the normal local `npm run dev` workflow install:
-
-- Node.js 22 or newer
-- npm
-- MySQL 8 server
-- Java 17 or newer for the Firebase Auth emulator
-- At least 2 GB of free disk space for the first dependency install and Expo caches
-
-The MySQL `mysql` / `mysqldump` CLI tools are only required for backup/restore workflows. Playwright Chromium is only required for browser E2E tests. Android Studio/Xcode are only required when building the corresponding native platform.
-
-## Clean install
-
-With the prerequisites above installed, the intended fresh-clone workflow is:
+## Development and pitch setup
 
 ```bash
-git clone <YOUR_REPOSITORY_URL> petconnect
-cd petconnect
-npm run dev
+git clone https://github.com/JhonaBoo08/PetConnect.git
+cd PetConnect
+npm install
+npm run demo
 ```
 
-On first run, PetConnect automatically installs the root/backend/frontend lockfile dependencies when they are missing, creates ignored local environment files from the tracked examples, bootstraps or migrates the local MySQL database, starts the Firebase Auth emulator and API, then starts Expo.
+Install Node.js 22.13+ (Node.js 24 LTS recommended), npm 10+, Git, and MySQL Server 8 first. `node --version` must work. Keep at least 2 GB of free disk space and an Internet connection for dependency/emulator downloads and Expo Tunnel. Judge phones need Internet access and Expo Go compatible with this app's Expo SDK 57; native SDK upgrades may require an Expo Go update.
 
-The generated database defaults are `127.0.0.1:3306`, user `root`, blank password, database `petconnect_db`. If your MySQL installation uses different credentials, the first run will stop with a clear message. Edit `backend/api/.env` once and run `npm run dev` again. PetConnect never overwrites an existing local environment file.
+Root `npm install` installs the API and frontend automatically from their tracked lockfiles, including Expo, ngrok, TypeScript, Firebase CLI, Playwright and Expo Doctor. No global npm tools, Java, Expo login, Android Studio, USB debugging or production Firebase credentials are needed. This pitch uses only the Node-based Firebase Auth emulator.
 
-The tracked environment examples are development-only templates. Never commit the real files.
+`npm run demo` generates ignored local configuration, creates a private loopback MySQL instance using the installed MySQL Server binary, bootstraps the database, applies checksum-tracked migrations, starts the API and Auth emulator, then starts Expo Tunnel. Fresh clones select a free MySQL port from 3307–3339 and use their own data directory. Repeated launches preserve the database, media and signing secrets. If the MySQL binary is outside PATH/standard install locations, set `MYSQLD_PATH` to its executable, or configure an existing local MySQL service in `backend/api/.env`. On Linux running as root, use a MySQL service under its normal database user. Linux packages that restrict MySQL data directories through AppArmor may also require their normal loopback MySQL service.
+
+Wait for:
+
+```text
+Pitch demo ready: Expo Go Android/iOS bundles, API/Auth proxy, and browser recovery are warmed.
+```
+
+This message requires responsive Android/iOS manifests and bundles, the browser recovery JavaScript bundle, database-backed API readiness, and Firebase login responses through the **current public HTTPS tunnel**. A failed check stops startup with an error.
+
+Judges scan the same terminal QR with Expo Go on Android or the iPhone Camera/Expo Go flow. Each phone has its own authenticated session. A finder scans a **Pet ID QR** with an ordinary camera and submits a report in the browser without an account or Expo Go. Generate/display Pet ID QRs after this launch reaches readiness. Keep the laptop awake and the terminal running.
+
+The tunnel URL may change after a restart: previously printed tunnel QRs can stop working. Redisplay/share the current Pet ID for the pitch. Stable printed tags require a permanent production HTTPS address. Development in-app notifications/polling work in Expo Go; native push delivery requires a configured development/production build.
+
+### Genuine prerequisites and troubleshooting
+
+- If a development port is occupied (3000, 8081, 9099, 4000, 4400 or 4500), stop the older PetConnect terminal or conflicting application and rerun. Startup does not kill unrelated listeners or silently borrow another clone's API/Auth services.
+- If MySQL cannot initialize, install MySQL Server 8 or supply a working loopback connection in `backend/api/.env`. Database/user administration rights are needed only if **you choose an existing restricted server**; the private instance needs no Administrator terminal.
+- If the tunnel fails, check the laptop/phone Internet connection and firewall access to Expo/ngrok. Expo can reconnect a dropped tunnel; if access remains down, press Ctrl+C, rerun `npm run demo`, wait for readiness and scan the current QR again. The first cold build can take several minutes. Judges do not need the laptop's Wi-Fi.
+- `backend/api/.env.example` and `frontend/.env.example` contain the complete local templates. They are generated automatically and never overwrite existing files. Keep frontend endpoint overrides unset for Expo Go; demo mode forces requests through the runtime tunnel.
+- Firebase accounts start empty on a fresh clone. Normal shutdown exports them and later launches import them. No previous demo data is required. Console OTP codes are exposed only by the local demo launcher when progressive finder verification needs one; production requires a real provider.
+- Playwright Chromium is only required for E2E tests: `npm run test:e2e:install`. MySQL CLI tools are only required for backup/restore, and Android Studio/Xcode only for native builds.
+- For LAN/browser development use `npm run dev`; for a public tunnel without the pitch warm-up use `npm run dev:tunnel`.
 
 ## Local database
 
@@ -94,11 +103,11 @@ If you intentionally want to run components separately, use `npm run emulators`,
 
 Default local endpoints are API `http://127.0.0.1:3000`, Expo web `http://127.0.0.1:8081`, Auth emulator `127.0.0.1:9099`, and Emulator UI `http://127.0.0.1:4000`.
 
-In emulator-mode development, API, photo, and Firebase Auth SDK requests automatically go through the Expo server. Leave `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_EMULATOR_HOST` unset to use this route. It works with web, LAN, Android emulators, and `npm run dev:tunnel` on a physical phone, including mobile data. MySQL must already be running before `npm run dev`.
+In emulator-mode development, API, photo, and Firebase Auth SDK requests automatically go through the Expo server. Leave `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_EMULATOR_HOST` unset to use this route. It works with web, LAN, Android emulators, and `npm run dev:tunnel` on a physical phone, including mobile data. The launcher prepares MySQL before database bootstrap.
 
 If an older `frontend/.env.local` sets localhost endpoint overrides, remove those two lines and restart Expo with `npm run dev:tunnel`. Explicit overrides are still supported for separate services; those addresses must be reachable from the device. Production and exported builds use explicitly configured service endpoints and do not include the development proxy.
 
-For a pitch/demo on a physical phone, run `npm run demo` from the repository root and scan the Expo QR with Expo Go. Demo mode ensures a local MySQL instance is available, starts the API and Firebase Auth emulator on the laptop, exposes the Expo development server through a tunnel, and pre-warms the browser recovery route. Wait until the terminal prints `Pitch demo ready` before the live QR demonstration. API/Auth traffic is proxied through that same Expo origin, and Pet ID recovery QRs are rewritten to the active tunnel/LAN origin instead of phone `localhost`. The laptop must stay running for the demo. On Windows, when the configured local MySQL port is unavailable and MySQL Server is installed, PetConnect can start a private loopback-only development instance without requiring the Windows MySQL service or administrator rights.
+For a pitch/demo on physical phones, run `npm run demo` from the repository root and scan the Expo QR with Expo Go. Demo mode ensures a local MySQL instance is available, starts the API and Firebase Auth emulator on the laptop, exposes the Expo development server through a tunnel, pre-builds the Expo Go Android and iOS bundles, and pre-warms the browser recovery route. Wait until the terminal prints `Pitch demo ready` before the live QR demonstration. Multiple judge devices can open the same active Expo tunnel as long as they have Internet access and a compatible Expo Go installation; they do not need to share the laptop's Wi-Fi. API/Auth traffic is proxied through that same Expo origin, and Pet ID recovery QRs are rewritten to the active tunnel/LAN origin instead of phone `localhost`. The laptop must stay running for the demo. On Windows, when the configured local MySQL port is unavailable and MySQL Server is installed, PetConnect can start a private loopback-only development instance without requiring the Windows MySQL service or administrator rights.
 
 The API's `PUBLIC_APP_BASE_URL` can remain local during emulator-mode development because the frontend rewrites active recovery-tag URLs to the current Expo runtime. Production still requires the real public HTTPS origin.
 
@@ -128,7 +137,7 @@ npm run audit:prod
 
 The production audit fails on any critical or unapproved high-severity advisory. Two exact, currently unpatched Expo/Jest build-tool advisories are documented and narrowly allow-listed in [docs/DEPENDENCY_SECURITY.md](docs/DEPENDENCY_SECURITY.md); the policy does not waive new high-severity findings.
 
-Backend integration tests need a disposable `petconnect_test` MySQL database and Java 17+:
+Backend integration tests need a disposable `petconnect_test` MySQL database:
 
 ```bash
 npm run test:backend

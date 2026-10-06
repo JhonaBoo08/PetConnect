@@ -7,6 +7,8 @@
     "ui": {
       "enabled": false
     },
+    "hub": { "host": "127.0.0.1", "port": 4401 },
+    "logging": { "host": "127.0.0.1", "port": 4501 },
     "singleProjectMode": false
   }
 }

@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import net from "node:net";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -65,7 +66,9 @@ function dependenciesMissing(cwd, sentinels) {
 }
 
 function ensureInstallDiskSpace(groups) {
-  if (!groups.some(({ cwd, sentinels }) => dependenciesMissing(cwd, sentinels))) {
+  if (
+    !groups.some(({ cwd, sentinels }) => dependenciesMissing(cwd, sentinels))
+  ) {
     return;
   }
 
@@ -75,10 +78,13 @@ function ensureInstallDiskSpace(groups) {
     const minimumBytes = 2 * 1024 * 1024 * 1024;
     if (availableBytes < minimumBytes) {
       const availableGb = (availableBytes / 1024 ** 3).toFixed(2);
-      fail("PetConnect needs more free disk space before first-run dependency installation.", [
-        `Available: ${availableGb} GB. Free at least 2 GB, then run npm run dev again.`,
-        "No project files or database data were changed by this check.",
-      ]);
+      fail(
+        "PetConnect needs more free disk space before first-run dependency installation.",
+        [
+          `Available: ${availableGb} GB. Free at least 2 GB, then run npm run dev again.`,
+          "No project files or database data were changed by this check.",
+        ],
+      );
     }
   } catch {
     // Disk availability checks are advisory when the host filesystem does not
@@ -106,7 +112,9 @@ function ensureFile(target, example) {
   }
   copyFileSync(example, target);
   console.log(
-    "Created " + path.relative(repoRoot, target) + " from the tracked template.",
+    "Created " +
+      path.relative(repoRoot, target) +
+      " from the tracked template.",
   );
   return true;
 }
@@ -139,19 +147,6 @@ function parseEnv(file) {
     values[key] = value;
   }
   return values;
-}
-
-function javaMajor() {
-  const result = spawnSync("java", ["-version"], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (result.error || result.status !== 0) return undefined;
-  const output = (result.stdout || "") + "\n" + (result.stderr || "");
-  const match = output.match(/version\s+"?(\d+)(?:\.(\d+))?/i);
-  if (!match) return undefined;
-  const first = Number(match[1]);
-  return first === 1 ? Number(match[2]) : first;
 }
 
 function validateLocalConfiguration() {
@@ -204,11 +199,7 @@ function validateLocalConfiguration() {
   return backendEnv;
 }
 
-async function bootstrapDatabase(
-  backendEnv,
-  backendEnvPath,
-  backendEnvCreated,
-) {
+async function bootstrapDatabase(backendEnv) {
   console.log("Checking local MySQL database and migrations...");
   const result = npmCommand(["run", "db:bootstrap"], backendDir, {
     stdio: "inherit",
@@ -218,37 +209,7 @@ async function bootstrapDatabase(
   const host = backendEnv.MYSQL_HOST || "127.0.0.1";
   const port = backendEnv.MYSQL_PORT || "3306";
   const user = backendEnv.MYSQL_USER || "root";
-  const password = backendEnv.MYSQL_PASSWORD || "";
   const database = backendEnv.MYSQL_DATABASE || "petconnect_db";
-
-  const localHost = ["127.0.0.1", "localhost"].includes(host);
-  const untouchedDefault =
-    backendEnvCreated &&
-    localHost &&
-    port === "3306" &&
-    user === "root" &&
-    password === "" &&
-    !backendEnv.MYSQL_SOCKET_PATH;
-
-  if (untouchedDefault) {
-    for (const candidate of [3307, 3308]) {
-      if (!(await isListening(candidate))) continue;
-      console.log(
-        `MySQL is not available on 3306. Trying detected local port ${candidate}...`,
-      );
-      const retry = npmCommand(["run", "db:bootstrap"], backendDir, {
-        stdio: "inherit",
-        env: { ...process.env, MYSQL_PORT: String(candidate) },
-      });
-      if (retry.status === 0) {
-        setEnvValue(backendEnvPath, "MYSQL_PORT", String(candidate));
-        console.log(
-          `Updated backend/api/.env to use detected local MySQL port ${candidate}.`,
-        );
-        return;
-      }
-    }
-  }
 
   fail("PetConnect could not prepare the local MySQL database.", [
     "Expected MySQL at " +
@@ -267,9 +228,12 @@ async function bootstrapDatabase(
 
 async function prepareProject() {
   const major = Number(process.versions.node.split(".")[0]);
-  if (major < 22) {
+  const minor = Number(process.versions.node.split(".")[1]);
+  if (major < 22 || (major === 22 && minor < 13)) {
     fail(
-      "PetConnect requires Node.js 22 or newer. Current: " + process.version + ".",
+      "PetConnect requires Node.js 22.13 or newer. Current: " +
+        process.version +
+        ".",
     );
   }
 
@@ -316,85 +280,68 @@ async function prepareProject() {
   );
 
   const backendEnv = validateLocalConfiguration();
-  const java = javaMajor();
-  if (!java || java < 17) {
-    fail("PetConnect requires Java 17 or newer for the Firebase Auth emulator.", [
-      "Install a JDK 17+ and make sure java -version works, then run npm run dev again.",
+  if (backendEnvCreated) {
+    for (const key of [
+      "RECOVERY_TOKEN_SECRET",
+      "FINDER_SESSION_SECRET",
+      "FINDER_IP_HASH_SECRET",
+      "FINDER_OTP_SECRET",
+    ]) {
+      const value = randomBytes(32).toString("hex");
+      setEnvValue(backendEnvPath, key, value);
+      backendEnv[key] = value;
+    }
+  }
+  if (
+    !["127.0.0.1", "localhost"].includes(backendEnv.MYSQL_HOST || "127.0.0.1")
+  ) {
+    fail("Local development requires a loopback MySQL server.", [
+      "Use MYSQL_HOST=127.0.0.1 in backend/api/.env.",
     ]);
   }
-
-  await bootstrapDatabase(backendEnv, backendEnvPath, backendEnvCreated);
-}
-
-function freePort(port) {
-  if (process.platform === "win32") {
-    try {
-      const netstat = spawnSync("netstat", ["-ano", "-p", "tcp"], {
-        encoding: "utf8",
-        windowsHide: true,
-      });
-      if (!netstat.stdout) return;
-      const lines = netstat.stdout.split(/\r?\n/);
-      const pids = new Set();
-      for (const line of lines) {
-        if (
-          line.includes(`:${port}`) &&
-          line.toUpperCase().includes("LISTENING")
-        ) {
-          const parts = line.trim().split(/\s+/);
-          const pid = parts[parts.length - 1];
-          if (pid && !isNaN(Number(pid)) && Number(pid) > 0) {
-            pids.add(pid);
-          }
-        }
-      }
-      for (const pid of pids) {
-        spawnSync("taskkill", ["/PID", pid, "/T", "/F"], {
-          stdio: "ignore",
-          windowsHide: true,
-        });
-      }
-    } catch {
-      // Ignore cleanup errors
-    }
-  } else {
-    try {
-      spawnSync("sh", ["-c", `lsof -ti tcp:${port} | xargs kill -9`], {
-        stdio: "ignore",
-      });
-    } catch {
-      // Ignore cleanup errors
+  if (String(backendEnv.PORT || 3000) !== "3000") {
+    fail("The development proxy expects API PORT=3000.", [
+      "Set PORT=3000 in backend/api/.env.",
+    ]);
+  }
+  // File-based development settings take precedence over machine-wide settings.
+  Object.assign(process.env, backendEnv);
+  for (const key of [
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "FIREBASE_SERVICE_ACCOUNT_JSON",
+  ])
+    delete process.env[key];
+  for (const port of [3000, 8081, 9099, 4000, 4400, 4500]) {
+    if (await isListening(port)) {
+      fail(`PetConnect cannot start: port ${port} is occupied.`, [
+        "Stop the existing PetConnect terminal or the conflicting application, then run npm run demo again.",
+        "No existing listener has been stopped by PetConnect.",
+      ]);
     }
   }
+  const mysql = spawnSync(
+    process.execPath,
+    [
+      path.join(scriptDir, "dev-mysql.mjs"),
+      ...(backendEnvCreated ? ["--configure-new"] : []),
+    ],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: "inherit",
+      windowsHide: true,
+    },
+  );
+  if (mysql.status !== 0)
+    fail(
+      "PetConnect could not prepare local MySQL. Install MySQL 8 Server or correct backend/api/.env.",
+    );
+  const preparedEnv = parseEnv(backendEnvPath);
+  Object.assign(process.env, preparedEnv);
+  await bootstrapDatabase(preparedEnv);
 }
 
 await prepareProject();
-
-// Only Expo must be exclusively owned by this invocation. The dev launcher can
-// safely reuse a healthy PetConnect API/Auth pair left behind by an interrupted
-// terminal session, and it can start whichever backend service is missing.
-if (await isListening(8081)) {
-  console.log(
-    "Port 8081 is in use by a previous Expo session. Automatically freeing port 8081...",
-  );
-  freePort(8081);
-
-  const start = Date.now();
-  while (await isListening(8081)) {
-    if (Date.now() - start > 4000) break;
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-}
-
-if (await isListening(8081)) {
-  console.error("");
-  console.error(
-    "PetConnect development cannot start because the Expo frontend port 8081 could not be released.",
-  );
-  console.error(
-    "Please check running processes and stop any application using port 8081.",
-  );
-  process.exit(1);
-}
-
-console.log("PetConnect frontend port is available.");
+console.log(
+  "PetConnect prerequisites, database migrations and development ports are ready.",
+);

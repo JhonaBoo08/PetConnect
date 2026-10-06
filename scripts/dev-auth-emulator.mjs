@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,7 @@ const firebaseCli = require.resolve("firebase-tools/lib/bin/firebase.js");
 
 const exportDir = path.join(repoRoot, ".firebase", "emulators");
 const exportMetadata = path.join(exportDir, "firebase-export-metadata.json");
+mkdirSync(path.dirname(exportDir), { recursive: true });
 
 const args = [
   firebaseCli,

@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,9 +75,10 @@ function findMysqld() {
   }
 
   if (process.platform === "win32") {
+    const programs = process.env.ProgramFiles || "C:\\Program Files";
     candidates.push(
-      "C:\\Program Files\\MySQL\\MySQL Server 8.4\\bin\\mysqld.exe",
-      "C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysqld.exe",
+      path.join(programs, "MySQL", "MySQL Server 8.4", "bin", "mysqld.exe"),
+      path.join(programs, "MySQL", "MySQL Server 8.0", "bin", "mysqld.exe"),
     );
   } else {
     candidates.push("/usr/local/mysql/bin/mysqld", "/opt/homebrew/bin/mysqld");
@@ -94,9 +95,22 @@ function fail(message, detail) {
 
 const env = parseEnv(backendEnvPath);
 const host = env.MYSQL_HOST || "127.0.0.1";
-const port = Number(env.MYSQL_PORT || 3306);
+let port = Number(env.MYSQL_PORT || 3307);
 const user = env.MYSQL_USER || "root";
 const password = env.MYSQL_PASSWORD || "";
+if (process.argv.includes("--configure-new")) {
+  // Reserve a fresh private instance instead of borrowing another clone's data.
+  while (port < 3340 && (await isListening(host, port))) port++;
+  if (port >= 3340)
+    fail(
+      "No free private MySQL port between 3307 and 3339. Stop an unused local MySQL instance.",
+    );
+  const source = readFileSync(backendEnvPath, "utf8");
+  writeFileSync(
+    backendEnvPath,
+    source.replace(/^MYSQL_PORT=.*$/m, `MYSQL_PORT=${port}`),
+  );
+}
 
 const localHost = host === "127.0.0.1" || host === "localhost";
 const safeManagedConfig =
@@ -123,10 +137,10 @@ if (await isListening(host, port)) {
 
 const mysqld = findMysqld();
 if (!mysqld) {
-  console.log(
-    "No local mysqld executable was found. PetConnect will use the normal MySQL preflight instructions.",
+  fail(
+    "MySQL 8 Server is required.",
+    "Install MySQL 8 Server (mysqld on PATH, or set MYSQLD_PATH), then rerun npm run demo. Alternatively configure a running loopback service in backend/api/.env.",
   );
-  process.exit(0);
 }
 
 const dataDir = path.join(managedRoot, `mysql-${port}`);
@@ -147,7 +161,12 @@ if (!existsSync(systemDb)) {
   if (initialized.error || initialized.status !== 0) {
     fail(
       "PetConnect could not initialize its private local MySQL data directory.",
-      (initialized.stderr || initialized.stdout || initialized.error?.message || "").trim(),
+      (
+        initialized.stderr ||
+        initialized.stdout ||
+        initialized.error?.message ||
+        ""
+      ).trim(),
     );
   }
 }
@@ -161,6 +180,9 @@ const child = spawn(
     `--port=${port}`,
     "--bind-address=127.0.0.1",
     "--mysqlx=0",
+    ...(process.platform === "win32"
+      ? []
+      : [`--socket=${path.join(dataDir, "mysql.sock")}`]),
     `--pid-file=${path.join(dataDir, "petconnect.pid")}`,
     `--log-error=${path.join(dataDir, "petconnect-mysql.log")}`,
   ],

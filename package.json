@@ -12,7 +12,9 @@
     "concurrently": "^9.2.4",
     "cross-env": "^10.1.0",
     "eslint": "^9.0.0",
+    "expo-doctor": "^1.20.4",
     "firebase-tools": "^15.30.2",
+    "jsqr": "^1.4.0",
     "prettier": "^3.9.8",
     "serve": "^14.2.6",
     "tsx": "^4.23.13",
@@ -20,9 +22,9 @@
     "typescript-eslint": "^8.70.0"
   },
   "scripts": {
-    "dev": "npm run dev:mysql && npm run dev:preflight && node scripts/dev-stack.mjs",
-    "dev:tunnel": "npm run dev:mysql && npm run dev:preflight && node scripts/dev-stack.mjs --tunnel",
-    "demo": "npm run dev:mysql && npm run dev:preflight && node scripts/dev-stack.mjs --tunnel --warm-recovery",
+    "dev": "node scripts/dev-preflight.mjs && node scripts/dev-stack.mjs",
+    "dev:tunnel": "node scripts/dev-preflight.mjs && node scripts/dev-stack.mjs --tunnel",
+    "demo": "node scripts/dev-preflight.mjs --demo && node scripts/dev-stack.mjs --tunnel --warm-recovery",
     "dev:mysql": "node scripts/dev-mysql.mjs",
     "dev:preflight": "node scripts/dev-preflight.mjs",
     "dev:frontend": "npm --prefix frontend run start",
@@ -33,7 +35,7 @@
     "web": "npm --prefix frontend run web",
     "lint:frontend": "npm --prefix frontend run lint",
     "typecheck:frontend": "npm --prefix frontend run typecheck",
-    "doctor:frontend": "cd frontend && npx expo-doctor",
+    "doctor:frontend": "node scripts/expo-doctor.mjs",
     "typecheck": "npm run typecheck:frontend",
     "build:backend": "npm --prefix backend/api run build",
     "lint:backend": "eslint backend/api/src backend/api/scripts backend/api/tests frontend/src/services shared/contracts.ts",
@@ -50,7 +52,7 @@
     "db:baseline": "npm --prefix backend/api run db:baseline --",
     "db:backup": "npm --prefix backend/api run db:backup --",
     "db:restore": "npm --prefix backend/api run db:restore --",
-    "test:frontend": "node --test scripts/tests/dev-proxy.test.cjs && npm --prefix frontend run test",
+    "test:frontend": "npm run test:dev && npm --prefix frontend run test",
     "web:export": "npm --prefix frontend run export:web",
     "web:export:production": "node scripts/production-web.mjs",
     "deploy:web": "npm run web:export:production && firebase deploy --only hosting --project petconnect-umtc-20260929",
@@ -69,7 +71,13 @@
     "test:audit": "node --test scripts/tests/audit.test.mjs",
     "audit:prod": "npm run test:audit && node scripts/check-production-audit.mjs",
     "release:check": "npm run audit:prod && npm run release:static && npm run test:e2e && npm run release:android && npm run release:ios",
-    "release:verify": "npm run release:check && npm run test:backend"
+    "release:verify": "npm run release:check && npm run test:backend",
+    "postinstall": "node scripts/install-packages.mjs",
+    "test:dev": "node --test scripts/tests/dev-proxy.test.cjs scripts/tests/demo-readiness.test.mjs"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0",
+    "npm": ">=10"
+  }
 }
