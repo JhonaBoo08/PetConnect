@@ -29,7 +29,11 @@ function normalizeOrigin(candidate?: string | null): string | undefined {
     // Expo tunnel hosts redirect plain HTTP to HTTPS. Firebase Auth's React
     // Native transport is more reliable when pointed at the final secure
     // origin directly instead of depending on that redirect.
-    if (url.hostname.endsWith(".exp.direct")) {
+    if (
+      /\.(?:exp\.direct|ngrok\.io|ngrok-free\.app|ngrok\.app)$/i.test(
+        url.hostname,
+      )
+    ) {
       url.protocol = "https:";
     }
 

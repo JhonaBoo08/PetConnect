@@ -55,6 +55,17 @@ describe("development API endpoints", () => {
     expect(authEmulatorUrl()).toBe("https://phone-preview.exp.direct");
   });
 
+  it("uses HTTPS for the ngrok tunnel published by Expo Go", () => {
+    delete process.env.EXPO_PUBLIC_API_BASE_URL;
+    process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
+    globalThis.__DEV__ = true;
+    Constants.expoConfig!.hostUri = "phone-preview.ngrok.io";
+    expect(getApiBaseUrl()).toBe(
+      "https://phone-preview.ngrok.io/petconnect-api",
+    );
+    expect(authEmulatorUrl()).toBe("https://phone-preview.ngrok.io");
+  });
+
   it("uses the same Metro port for LAN development", () => {
     delete process.env.EXPO_PUBLIC_API_BASE_URL;
     process.env.EXPO_PUBLIC_FIREBASE_ENV = "emulator";
