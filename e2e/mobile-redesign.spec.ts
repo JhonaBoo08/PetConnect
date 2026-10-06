@@ -1,4 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import path from "node:path";
+import jsQR from "jsqr";
+
+const apiRequire = createRequire(
+  path.resolve(__dirname, "../backend/api/package.json"),
+);
+const sharp = apiRequire("sharp");
 
 test.describe("mobile navigation and recovery redesign", () => {
   test.skip(
@@ -12,7 +21,7 @@ test.describe("mobile navigation and recovery redesign", () => {
     context,
     browser,
   }, testInfo) => {
-    test.setTimeout(300_000);
+    test.setTimeout(600_000);
     await context.grantPermissions(["geolocation"]);
     await context.setGeolocation({ latitude: 7.4479, longitude: 125.8079 });
 
@@ -88,7 +97,7 @@ test.describe("mobile navigation and recovery redesign", () => {
     await expect(
       page.getByRole("button", { name: "Report Lost Pet", exact: true }),
     ).toHaveCount(0);
-    await page.getByRole("tab", { name: "My Reports", exact: true }).click();
+    await page.getByRole("tab", { name: "My cases", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Add a pet", exact: true }),
     ).toBeVisible();
@@ -106,7 +115,7 @@ test.describe("mobile navigation and recovery redesign", () => {
       await page.getByLabel("Age", { exact: true }).fill("3 years");
       const recovery = page.waitForResponse(
         (response) =>
-          /\/v1\/pets\/[^/]+\/recovery$/.test(response.url()) &&
+          /\/v1\/pets\/[^/]+\/recovery\/tags$/.test(response.url()) &&
           response.request().method() === "GET",
       );
       await page.getByRole("button", { name: "Save pet", exact: true }).click();
@@ -115,12 +124,49 @@ test.describe("mobile navigation and recovery redesign", () => {
       await expect(
         page.getByRole("button", { name: "Edit pet", exact: true }),
       ).toBeVisible();
-      const data = await response.json();
-      const url = new URL(data.recoveryUrl);
-      return new URL(
+      const data = (await response.json()) as {
+        tags: Array<{ status: string; recoveryUrl: string | null }>;
+      };
+      const recoveryUrl = data.tags.find(
+        (tag) => tag.status === "ACTIVE",
+      )?.recoveryUrl;
+      expect(recoveryUrl).toContain("/recover?token=");
+      const url = new URL(recoveryUrl!);
+      const expectedUrl = new URL(
         url.pathname + url.search,
         testInfo.project.use.baseURL as string,
       ).toString();
+      // Decode the actual printable tag rather than constructing a finder URL.
+      await page
+        .getByRole("button", { name: "Open", exact: true })
+        .first()
+        .click();
+      const pendingDownload = page.waitForEvent("download", {
+        timeout: 30_000,
+      });
+      await page.getByRole("button", { name: "Download", exact: true }).click();
+      const downloaded = await pendingDownload;
+      const { data: pixels, info } = await sharp(
+        await readFile((await downloaded.path())!),
+      )
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const decoded = jsQR(
+        new Uint8ClampedArray(pixels),
+        info.width,
+        info.height,
+      );
+      expect(decoded?.data).toBe(expectedUrl);
+      const current = new URL(decoded!.data);
+      expect(current.origin).toBe(
+        new URL(testInfo.project.use.baseURL as string).origin,
+      );
+      if (current.protocol === "https:")
+        expect(current.hostname).not.toMatch(
+          /^(localhost|127\.|192\.168\.|10\.)/,
+        );
+      return current.toString();
     }
     const recoveryUrl = await createPet("Bantay");
     await createPet("Luna With A Longer Name");
@@ -232,9 +278,11 @@ test.describe("mobile navigation and recovery redesign", () => {
     await page
       .getByRole("button", { name: "Publish lost report", exact: true })
       .click();
-    await expect(page.getByText(/Bantay is now in Recovery/)).toBeVisible();
     await expect(
-      page.getByRole("tab", { name: "My Reports", exact: true }),
+      page.getByText("Bantay is now in Recovery.", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "My cases", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     await expect(page.getByLabel("Last seen", { exact: true })).toHaveCount(0);
 
@@ -249,19 +297,42 @@ test.describe("mobile navigation and recovery redesign", () => {
     ] as const) {
       await finder.setGeolocation({ latitude, longitude });
       await finderPage.goto(recoveryUrl);
+      const hasPet = place === "Market entrance";
       await finderPage
-        .getByRole("button", { name: "I saw this pet", exact: true })
+        .getByRole("button", {
+          name: hasPet ? "I have this pet" : "I saw this pet",
+          exact: true,
+        })
         .click();
+      if (hasPet) {
+        const pendingPhoto = finderPage.waitForEvent("filechooser");
+        await finderPage
+          .getByRole("button", { name: "Take a current photo", exact: true })
+          .click();
+        await (
+          await pendingPhoto
+        ).setFiles({
+          name: "finder-evidence.png",
+          mimeType: "image/png",
+          buffer: await readFile("frontend/assets/images/logo.png"),
+        });
+      }
       await finderPage.getByLabel("Finder location description").fill(place);
       await finderPage
         .getByRole("button", { name: "Use my current GPS", exact: true })
         .click();
       await expect(finderPage.getByText(/Location attached/)).toBeVisible();
       await finderPage
-        .getByRole("button", { name: "Submit Sighting", exact: true })
+        .getByRole("button", {
+          name: hasPet ? "Send to owner" : "Send sighting",
+          exact: true,
+        })
         .click();
       await expect(
-        finderPage.getByText("Sighting sent", { exact: true }),
+        finderPage.getByText(
+          hasPet ? "Found-pet report sent" : "Sighting sent",
+          { exact: true },
+        ),
       ).toBeVisible();
     }
     await finder.close();
@@ -271,7 +342,9 @@ test.describe("mobile navigation and recovery redesign", () => {
     await page
       .getByText("Recovery trail", { exact: true })
       .scrollIntoViewIfNeeded();
-    await expect(page.locator('path[stroke="#2F6F4E"]')).toBeVisible();
+    await expect(
+      page.locator('.leaflet-overlay-pane path[fill="none"]').first(),
+    ).toBeVisible();
     await capture("11-my-reports-trail");
     const sighting = page
       .getByRole("button", { name: /Review Bantay sighting/ })
