@@ -5,6 +5,7 @@ import type {
   RecoveryTokenState,
 } from "../../../shared/contracts";
 import { ApiError, authenticatedFetch, getApiBaseUrl } from "./auth";
+import { developmentServerOrigin } from "./development-endpoints";
 
 const recoveryTokenPattern = /^[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/;
 
@@ -118,6 +119,27 @@ export async function recordRecoveryScan(
       body: JSON.stringify({ source }),
     },
   );
+}
+
+export function recoveryUrlForCurrentRuntime(recoveryUrl: string): string {
+  if ((process.env.EXPO_PUBLIC_FIREBASE_ENV ?? "emulator") !== "emulator") {
+    return recoveryUrl;
+  }
+
+  const origin = developmentServerOrigin();
+  if (!origin) return recoveryUrl;
+
+  try {
+    const source = new URL(recoveryUrl);
+    const token = source.searchParams.get("token");
+    if (!token || !recoveryTokenPattern.test(token)) return recoveryUrl;
+
+    const runtimeUrl = new URL("/recover", origin);
+    runtimeUrl.searchParams.set("token", token);
+    return runtimeUrl.toString();
+  } catch {
+    return recoveryUrl;
+  }
 }
 
 export function recoveryTokenFromQrData(data: string): string | null {

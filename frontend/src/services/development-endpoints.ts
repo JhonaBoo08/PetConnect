@@ -43,6 +43,25 @@ function normalizeOrigin(candidate?: string | null): string | undefined {
   }
 }
 
+function isPhoneLoopbackOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname
+      .replace(/^\[|\]$/g, "")
+      .replace(/\.$/, "")
+      .toLowerCase();
+    return (
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      /^127\./.test(host) ||
+      host === "::1" ||
+      host === "0.0.0.0" ||
+      host === "::"
+    );
+  } catch {
+    return true;
+  }
+}
+
 export function developmentServerOrigin(): string | undefined {
   if (
     !__DEV__ ||
@@ -69,7 +88,12 @@ export function developmentServerOrigin(): string | undefined {
 
   for (const candidate of candidates) {
     const origin = normalizeOrigin(candidate);
-    if (origin) return origin;
+    if (!origin) continue;
+    // A physical phone interprets localhost/127.0.0.1 as the phone itself.
+    // Expo can expose multiple runtime hints, so ignore loopback/wildcard
+    // candidates on native and keep looking for the LAN or tunnel address.
+    if (Platform.OS !== "web" && isPhoneLoopbackOrigin(origin)) continue;
+    return origin;
   }
 
   return undefined;

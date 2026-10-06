@@ -3,6 +3,7 @@ import concurrently from "concurrently";
 import net from "node:net";
 
 const tunnel = process.argv.includes("--tunnel");
+const warmRecovery = process.argv.includes("--warm-recovery");
 const npmCliPath = process.env.npm_execpath;
 
 function run(command, args, options = {}) {
@@ -40,6 +41,55 @@ function isListening(port) {
     socket.once("timeout", () => finish(false));
     socket.once("error", () => finish(false));
   });
+}
+
+async function warmRecoveryWeb() {
+  const deadline = Date.now() + 90_000;
+
+  while (Date.now() < deadline) {
+    if (shuttingDown || (frontend && frontend.exitCode !== null)) return;
+    if (await isListening(8081)) break;
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+
+  if (!(await isListening(8081))) {
+    console.warn(
+      "Pitch demo warning: Expo did not open port 8081, so the recovery web route could not be pre-warmed.",
+    );
+    return;
+  }
+
+  const token = `${"a".repeat(32)}.${"B".repeat(43)}`;
+  const recoveryUrl = `http://127.0.0.1:8081/recover?token=${token}`;
+
+  console.log("Preparing the browser recovery flow for the first QR scan...");
+  try {
+    const response = await fetch(recoveryUrl, {
+      headers: {
+        accept: "text/html",
+        "user-agent": "PetConnect-demo-warmup",
+      },
+      signal: AbortSignal.timeout(90_000),
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `Pitch demo warning: recovery web warm-up returned HTTP ${response.status}.`,
+      );
+      return;
+    }
+
+    await response.text();
+    console.log(
+      "Pitch demo ready: Expo Go, API/Auth proxy, and browser recovery are warmed.",
+    );
+  } catch (error) {
+    console.warn(
+      `Pitch demo warning: recovery web warm-up failed: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    );
+  }
 }
 
 async function apiReady() {
@@ -270,6 +320,10 @@ try {
       maybeExit();
     }
   });
+
+  if (warmRecovery) {
+    void warmRecoveryWeb();
+  }
 } catch (error) {
   console.error(
     error instanceof Error ? error.message : "PetConnect development failed.",

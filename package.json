@@ -20,8 +20,10 @@
     "typescript-eslint": "^8.70.0"
   },
   "scripts": {
-    "dev": "npm run dev:preflight && node scripts/dev-stack.mjs",
-    "dev:tunnel": "npm run dev:preflight && node scripts/dev-stack.mjs --tunnel",
+    "dev": "npm run dev:mysql && npm run dev:preflight && node scripts/dev-stack.mjs",
+    "dev:tunnel": "npm run dev:mysql && npm run dev:preflight && node scripts/dev-stack.mjs --tunnel",
+    "demo": "npm run dev:mysql && npm run dev:preflight && node scripts/dev-stack.mjs --tunnel --warm-recovery",
+    "dev:mysql": "node scripts/dev-mysql.mjs",
     "dev:preflight": "node scripts/dev-preflight.mjs",
     "dev:frontend": "npm --prefix frontend run start",
     "dev:api": "npm --prefix backend/api run dev",

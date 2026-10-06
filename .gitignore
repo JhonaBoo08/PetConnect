@@ -21,6 +21,13 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
+# Disposable local development services/data
+.petconnect-dev/
+
+# Python
+__pycache__/
+*.py[cod]
+
 # debug
 npm-debug.*
 yarn-debug.*

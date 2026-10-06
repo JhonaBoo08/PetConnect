@@ -98,7 +98,9 @@ In emulator-mode development, API, photo, and Firebase Auth SDK requests automat
 
 If an older `frontend/.env.local` sets localhost endpoint overrides, remove those two lines and restart Expo with `npm run dev:tunnel`. Explicit overrides are still supported for separate services; those addresses must be reachable from the device. Production and exported builds use explicitly configured service endpoints and do not include the development proxy.
 
-For a public recovery QR link during a tunnel session, set the API's `PUBLIC_APP_BASE_URL` to the tunnel's HTTPS origin and restart the API. The link follows the current development tunnel and will stop working when that tunnel closes.
+For a pitch/demo on a physical phone, run `npm run demo` from the repository root and scan the Expo QR with Expo Go. Demo mode ensures a local MySQL instance is available, starts the API and Firebase Auth emulator on the laptop, exposes the Expo development server through a tunnel, and pre-warms the browser recovery route. Wait until the terminal prints `Pitch demo ready` before the live QR demonstration. API/Auth traffic is proxied through that same Expo origin, and Pet ID recovery QRs are rewritten to the active tunnel/LAN origin instead of phone `localhost`. The laptop must stay running for the demo. On Windows, when the configured local MySQL port is unavailable and MySQL Server is installed, PetConnect can start a private loopback-only development instance without requiring the Windows MySQL service or administrator rights.
+
+The API's `PUBLIC_APP_BASE_URL` can remain local during emulator-mode development because the frontend rewrites active recovery-tag URLs to the current Expo runtime. Production still requires the real public HTTPS origin.
 
 ### Open the web app by scanning a QR
 
