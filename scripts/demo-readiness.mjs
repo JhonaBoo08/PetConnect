@@ -1,10 +1,14 @@
+import { setTimeout as delay } from "node:timers/promises";
+
 // Pitch readiness is earned by responsive services through the current public tunnel.
 export function publicExpoOrigin(manifest) {
   const host = manifest?.extra?.expoClient?.hostUri;
   const launch = new URL(manifest?.launchAsset?.url);
   if (
     typeof host !== "string" ||
-    !/^[a-z0-9-]+\.exp\.direct$/i.test(host) ||
+    !/^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:exp\.direct|ngrok\.io|ngrok-free\.app|ngrok\.app)$/i.test(
+      host,
+    ) ||
     launch.hostname !== host ||
     !["http:", "https:"].includes(launch.protocol)
   ) {
@@ -13,10 +17,12 @@ export function publicExpoOrigin(manifest) {
   return `https://${host}`;
 }
 
-async function checkedFetch(url, options = {}, timeout = 180_000) {
+async function checkedFetch(url, options = {}, timeout = 180_000, signal) {
   const response = await fetch(url, {
     ...options,
-    signal: AbortSignal.timeout(timeout),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
+      : AbortSignal.timeout(timeout),
   });
   if (!response.ok)
     throw new Error(
@@ -25,9 +31,9 @@ async function checkedFetch(url, options = {}, timeout = 180_000) {
   return response;
 }
 
-async function verifyDemoServicesOnce(origin) {
+async function verifyDemoServicesOnce(origin, signal) {
   const ready = await (
-    await checkedFetch(origin + "/petconnect-api/v1/ready", {}, 30_000)
+    await checkedFetch(origin + "/petconnect-api/v1/ready", {}, 30_000, signal)
   ).json();
   if (ready.status !== "ready")
     throw new Error("API/database proxy is not ready.");
@@ -44,7 +50,9 @@ async function verifyDemoServicesOnce(origin) {
         password: "invalid-readiness-password",
         returnSecureToken: true,
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
+        : AbortSignal.timeout(30_000),
     },
   );
   const data = await response.json();
@@ -67,11 +75,16 @@ function requireJavaScript(response) {
     throw new Error("Expo did not serve a JavaScript bundle.");
 }
 
-export async function warmRecoveryBrowser(origin) {
+export async function warmRecoveryBrowser(origin, signal) {
   const html = await (
-    await checkedFetch(origin + "/recover", {
-      headers: { accept: "text/html" },
-    })
+    await checkedFetch(
+      origin + "/recover",
+      {
+        headers: { accept: "text/html" },
+      },
+      180_000,
+      signal,
+    )
   ).text();
   const scripts = [
     ...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/gi),
@@ -82,40 +95,69 @@ export async function warmRecoveryBrowser(origin) {
     const url = new URL(script, origin);
     if (url.origin !== origin)
       throw new Error("Recovery entry script uses a different origin.");
-    const response = await checkedFetch(url);
+    const response = await checkedFetch(url, {}, 180_000, signal);
     requireJavaScript(response);
     if (!(await response.arrayBuffer()).byteLength)
       throw new Error("Browser recovery bundle is empty.");
   }
 }
 
-export async function warmPublicExpo(origin, platform) {
-  const response = await checkedFetch(origin, {
-    headers: { accept: "application/expo+json", "expo-platform": platform },
-  });
+export async function warmPublicExpo(origin, platform, signal) {
+  const response = await checkedFetch(
+    origin,
+    {
+      headers: { accept: "application/expo+json", "expo-platform": platform },
+    },
+    180_000,
+    signal,
+  );
   const manifest = await response.json();
   if (publicExpoOrigin(manifest) !== origin)
     throw new Error("Expo tunnel changed during warm-up.");
   const bundle = new URL(manifest.launchAsset.url);
   bundle.protocol = "https:";
-  const result = await checkedFetch(bundle, {
-    headers: { "expo-platform": platform },
-  });
+  const result = await checkedFetch(
+    bundle,
+    {
+      headers: { "expo-platform": platform },
+    },
+    180_000,
+    signal,
+  );
   requireJavaScript(result);
   if ((await result.arrayBuffer()).byteLength < 1024)
     throw new Error(`Expo Go ${platform} bundle is empty.`);
 }
 
-export async function verifyDemoServices(origin) {
+export async function verifyDemoServices(origin, signal) {
   let lastError;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await verifyDemoServicesOnce(origin);
+      signal?.throwIfAborted();
+      await verifyDemoServicesOnce(origin, signal);
       return;
     } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500));
+      if (attempt < 2) await delay(500, undefined, { signal });
     }
   }
   throw lastError;
+}
+
+export async function retryDemoStartup(
+  operation,
+  { signal, maxAttempts = 3, delayMs = 1500, onRetry } = {},
+) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    signal?.throwIfAborted();
+    try {
+      return await operation();
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (attempt === maxAttempts) throw error;
+      onRetry?.(error, attempt);
+      await delay(delayMs, undefined, { signal });
+    }
+  }
 }

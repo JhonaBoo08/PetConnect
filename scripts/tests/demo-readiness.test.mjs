@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import {
   publicExpoOrigin,
+  retryDemoStartup,
   verifyDemoServices,
   warmRecoveryBrowser,
 } from "../demo-readiness.mjs";
@@ -27,6 +28,29 @@ test("derives HTTPS recovery origin from the current tunnel manifest", () => {
     }),
     "https://session-8081.exp.direct",
   );
+});
+test("accepts the ngrok host published by the Expo tunnel on Windows", () => {
+  assert.equal(
+    publicExpoOrigin({
+      extra: { expoClient: { hostUri: "5cnpcf4-anonymous-8081.ngrok.io" } },
+      launchAsset: {
+        url: "http://5cnpcf4-anonymous-8081.ngrok.io/entry.bundle",
+      },
+    }),
+    "https://5cnpcf4-anonymous-8081.ngrok.io",
+  );
+});
+test("rejects deceptive public tunnel suffixes", () => {
+  for (const host of [
+    "session.ngrok.io.attacker.test",
+    "session.exp.direct.attacker.test",
+  ])
+    assert.throws(() =>
+      publicExpoOrigin({
+        extra: { expoClient: { hostUri: host } },
+        launchAsset: { url: "https://" + host + "/entry.bundle" },
+      }),
+    );
 });
 test("rejects phone loopback, LAN and mismatched launch hosts", () => {
   for (const host of ["localhost:8081", "127.0.0.1:8081", "192.168.1.20:8081"])
@@ -127,4 +151,58 @@ test("readiness retries a transient tunnel HTML response and requires real Auth 
   });
   await verifyDemoServices(origin);
   assert.equal(attempts, 2);
+});
+
+test("demo startup automatically retries failed tunnel attempts before reporting readiness", async () => {
+  let attempts = 0;
+  const retries = [];
+  const result = await retryDemoStartup(
+    async () => {
+      attempts++;
+      if (attempts < 3) throw new Error("remote gone away");
+      return "public-ready";
+    },
+    {
+      delayMs: 1,
+      onRetry: (error, attempt) => retries.push([error.message, attempt]),
+    },
+  );
+  assert.equal(result, "public-ready");
+  assert.equal(attempts, 3);
+  assert.deepEqual(retries, [
+    ["remote gone away", 1],
+    ["remote gone away", 2],
+  ]);
+});
+test("permanent tunnel failures stop after three attempts", async () => {
+  let attempts = 0;
+  await assert.rejects(
+    () =>
+      retryDemoStartup(
+        async () => {
+          attempts++;
+          throw new Error("tunnel unavailable");
+        },
+        { delayMs: 1 },
+      ),
+    /tunnel unavailable/,
+  );
+  assert.equal(attempts, 3);
+});
+test("cancelling demo startup prevents another tunnel attempt", async () => {
+  const controller = new AbortController();
+  let attempts = 0;
+  await assert.rejects(
+    () =>
+      retryDemoStartup(
+        async () => {
+          attempts++;
+          controller.abort(new Error("cancelled"));
+          throw new Error("remote gone away");
+        },
+        { signal: controller.signal, delayMs: 1 },
+      ),
+    /cancelled/,
+  );
+  assert.equal(attempts, 1);
 });
