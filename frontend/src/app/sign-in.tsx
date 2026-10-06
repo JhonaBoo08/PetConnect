@@ -14,6 +14,7 @@ export default function SignInScreen() {
       title="Welcome back"
       subtitle="Care follows wherever your pet goes."
       submitLabel="Sign In"
+      forceAccountType="owner"
       onBack={() => goBack("/")}
       onForgotPassword={() => router.push("/reset-password")}
       onSubmit={async ({ accountType, email, password }) => {

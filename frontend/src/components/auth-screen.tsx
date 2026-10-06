@@ -133,21 +133,25 @@ type AuthScreenProps = {
   onBack: () => void | Promise<void>;
   onForgotPassword?: () => void;
   onSubmit: (values: AuthValues) => Promise<void | string>;
+  forceAccountType?: AccountType;
 };
 
-export function AuthScreen({
-  mode,
-  title,
-  subtitle,
-  submitLabel,
-  existingEmail,
-  clinicNote,
-  footer,
-  onBack,
-  onForgotPassword,
-  onSubmit,
-}: AuthScreenProps) {
-  const [accountType, setAccountType] = useState<AccountType>("owner");
+export function AuthScreen(props: AuthScreenProps) {
+  const {
+    mode,
+    title,
+    subtitle,
+    submitLabel,
+    existingEmail,
+    clinicNote,
+    footer,
+    onBack,
+    onForgotPassword,
+    onSubmit,
+  } = props;
+  const [accountType, setAccountType] = useState<AccountType>(
+    props.forceAccountType || "owner",
+  );
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState(existingEmail || "");
   const [password, setPassword] = useState("");
@@ -157,7 +161,11 @@ export function AuthScreen({
   const [success, setSuccess] = useState("");
 
   const completing = mode === "signUp" && !!existingEmail;
-  const clinicSignup = mode === "signUp" && accountType === "vet";
+  const forcedAccountType = props.forceAccountType;
+  const clinicSignup =
+    mode === "signUp" &&
+    accountType === "vet" &&
+    !forcedAccountType;
 
   async function submit() {
     if (pending || clinicSignup) return;
@@ -256,8 +264,11 @@ export function AuthScreen({
               <View style={styles.segment}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityState={{ selected: accountType === "owner" }}
+                  accessibilityState={{
+                    selected: accountType === "owner",
+                  }}
                   onPress={() => {
+                    if (forcedAccountType) return;
                     setAccountType("owner");
                     setError("");
                   }}
@@ -268,7 +279,9 @@ export function AuthScreen({
                 >
                   <PawIcon
                     color={
-                      accountType === "owner" ? "#FFFFFF" : Palette.forestDark
+                      accountType === "owner"
+                        ? "#FFFFFF"
+                        : Palette.forestDark
                     }
                   />
                   <Text
@@ -280,32 +293,37 @@ export function AuthScreen({
                     Pet Owner
                   </Text>
                 </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: accountType === "vet" }}
-                  onPress={() => {
-                    setAccountType("vet");
-                    setError("");
-                  }}
-                  style={[
-                    styles.segmentItem,
-                    accountType === "vet" && styles.segmentItemActive,
-                  ]}
-                >
-                  <VetIcon
-                    color={
-                      accountType === "vet" ? "#FFFFFF" : Palette.forestDark
-                    }
-                  />
-                  <Text
+                {forcedAccountType ? null : (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: accountType === "vet" }}
+                    onPress={() => {
+                      setAccountType("vet");
+                      setError("");
+                    }}
                     style={[
-                      styles.segmentLabel,
-                      accountType === "vet" && styles.segmentLabelActive,
+                      styles.segmentItem,
+                      accountType === "vet" && styles.segmentItemActive,
                     ]}
                   >
-                    Vet Clinic
-                  </Text>
-                </Pressable>
+                    <VetIcon
+                      color={
+                        accountType === "vet"
+                          ? "#FFFFFF"
+                          : Palette.forestDark
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.segmentLabel,
+                        accountType === "vet" &&
+                          styles.segmentLabelActive,
+                      ]}
+                    >
+                      Vet Clinic
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             ) : null}
 

@@ -17,6 +17,7 @@ export default function CreateAccountScreen() {
       submitLabel="Create Account"
       existingEmail={existingEmail}
       clinicNote="Clinic accounts are set up by the Pet-Connect team. If you already have credentials, sign in as Vet Clinic."
+      forceAccountType="owner"
       onBack={() => {
         if (existingEmail) return signOut();
         goBack("/sign-in");
