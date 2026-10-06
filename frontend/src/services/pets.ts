@@ -1,5 +1,5 @@
+import { File as ExpoFile } from "expo-file-system";
 import { Platform } from "react-native";
-
 import type { Pet, PetInput } from "../../../shared/contracts";
 import { authenticatedFetch, getApiBaseUrl } from "./auth";
 import {
@@ -94,12 +94,14 @@ export async function uploadPetPhoto(id: string, uri: string): Promise<Pet> {
     if (blob.size > 5 * 1024 * 1024)
       throw new Error("Photo must be under 5 MB.");
     form.append("file", blob, "pet.jpg");
-  } else {
-    form.append("file", {
-      uri,
-      name: "pet.jpg",
-      type: "image/jpeg",
-    } as unknown as Blob);
+    } else {
+    const file = new ExpoFile(uri);
+
+    if (file.size > 5 * 1024 * 1024) {
+      throw new Error("Photo must be under 5 MB.");
+    }
+
+    form.append("file", file);
   }
   const pet = await authenticatedFetch<Pet>(
     `/v1/pets/${encodeURIComponent(id)}/photo`,
