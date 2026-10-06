@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -490,7 +491,7 @@ export default function AddPetScreen() {
             style={styles.input}
           />
           <Text style={styles.privateHint}>
-            Private · only you and authorized clinic views can see the number.
+            Private · only you can see the microchip number.
           </Text>
 
           <View style={styles.idPanel}>
@@ -839,10 +840,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: Palette.gold,
     marginTop: Spacing.five,
-    shadowColor: Palette.gold,
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    ...Platform.select({
+      web: {
+        boxShadow: `0px 4px 10px ${Palette.gold}4c`,
+      },
+      default: {
+        shadowColor: Palette.gold,
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+      },
+    }),
     elevation: 3,
   },
   saveLabel: {

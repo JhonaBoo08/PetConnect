@@ -103,10 +103,7 @@ export default function NotificationsScreen() {
       }
     }
 
-    const target = notificationTarget(
-      { ...item.data, type: item.type },
-      "OWNER",
-    );
+    const target = notificationTarget({ ...item.data, type: item.type });
     // Items without a detail destination stay in the inbox after being read.
     if (target !== "/notifications") router.push(target);
   }

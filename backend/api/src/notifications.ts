@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool, RowDataPacket, ResultSetHeader } from "mysql2/promise";
+import type { Pool, RowDataPacket } from "mysql2/promise";
 import type {
   PushDeviceInput,
   RecoveryNotification,
@@ -220,48 +220,60 @@ export class Notifications {
     data: Record<string, unknown> = {},
     notificationId?: string,
   ): Promise<void> {
-    if (
-      !(await this.insertNotification(
-        userId,
-        type,
-        title,
-        body,
-        data,
-        notificationId,
-      ))
-    )
-      return;
-    const [devices] = await this.pool.query<PushDeviceRow[]>(
-      `SELECT expo_push_token, user_id
-         FROM push_devices
-        WHERE user_id = ? AND enabled = TRUE`,
-      [userId],
-    );
-    await this.sendPush(devices, title, body, { ...data, type });
-  }
-
-  async notifyClinicMembers(
-    clinicId: string,
-    type: string,
-    title: string,
-    body: string,
-    data: Record<string, unknown> = {},
-  ): Promise<void> {
-    const [rows] = await this.pool.query<
-      (RowDataPacket & { user_id: string })[]
-    >(
-      `SELECT cm.user_id
-         FROM clinic_members cm
-         JOIN users u ON u.id = cm.user_id
-        WHERE cm.clinic_id = ?
-          AND u.status = 'ACTIVE'`,
-      [clinicId],
-    );
-    await Promise.all(
-      [...new Set(rows.map((row) => row.user_id))].map((userId) =>
-        this.notifyUser(userId, type, title, body, data),
-      ),
-    );
+    const id = notificationId || "NT-" + randomUUID().toUpperCase();
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [owners] = await connection.query<RowDataPacket[]>(
+        "SELECT id FROM users WHERE id = ? AND role = 'OWNER' AND status = 'ACTIVE' FOR UPDATE",
+        [userId],
+      );
+      if (!owners.length) {
+        await connection.commit();
+        return;
+      }
+      try {
+        await connection.query(
+          "INSERT INTO notifications (id, user_id, type, title, body, data) VALUES (?, ?, ?, ?, ?, ?)",
+          [
+            id,
+            userId,
+            type,
+            title.slice(0, 120),
+            body.slice(0, 500),
+            JSON.stringify(data),
+          ],
+        );
+      } catch (error) {
+        if (
+          !notificationId ||
+          (error as { code?: string }).code !== "ER_DUP_ENTRY"
+        )
+          throw error;
+        const [existing] = await connection.query<RowDataPacket[]>(
+          "SELECT user_id FROM notifications WHERE id = ?",
+          [id],
+        );
+        if (existing[0]?.user_id !== userId)
+          throw new Error("Notification identity conflict.");
+      }
+      const [devices] = await connection.query<PushDeviceRow[]>(
+        "SELECT expo_push_token, user_id FROM push_devices WHERE user_id = ? AND enabled = TRUE",
+        [userId],
+      );
+      for (const device of devices) {
+        await connection.query(
+          "INSERT INTO push_delivery_jobs (id, notification_id, expo_push_token) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE notification_id = VALUES(notification_id)",
+          ["PD-" + randomUUID().toUpperCase(), id, device.expo_push_token],
+        );
+      }
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   async notifyNearby(
@@ -296,106 +308,156 @@ export class Notifications {
 
     const users = [...new Set(devices.map((device) => device.user_id))];
     await Promise.all(
-      users.map((userId) =>
-        this.insertNotification(userId, type, title, body, data),
-      ),
+      users.map((userId) => this.notifyUser(userId, type, title, body, data)),
     );
-    await this.sendPush(devices, title, body, { ...data, type });
   }
 
-  private async insertNotification(
-    userId: string,
-    type: string,
-    title: string,
-    body: string,
-    data: Record<string, unknown>,
-    notificationId?: string,
-  ): Promise<boolean> {
+  async processPushDeliveries(
+    limit = 25,
+  ): Promise<{ sent: number; failed: number; cancelled: number }> {
+    const connection = await this.pool.getConnection();
+    let jobs: (RowDataPacket & { id: string; attempts: number })[] = [];
     try {
-      await this.pool.query<ResultSetHeader>(
-        `INSERT INTO notifications (id, user_id, type, title, body, data)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          notificationId || `NT-${randomUUID().toUpperCase()}`,
-          userId,
-          type,
-          title.slice(0, 120),
-          body.slice(0, 500),
-          JSON.stringify(data),
-        ],
+      await connection.beginTransaction();
+      await connection.query(
+        "UPDATE push_delivery_jobs SET status = 'PENDING', claimed_at = NULL WHERE status = 'PROCESSING' AND claimed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE) LIMIT 100",
       );
-      return true;
+      const [selected] = await connection.query<
+        (RowDataPacket & { id: string; attempts: number })[]
+      >(
+        "SELECT id, attempts FROM push_delivery_jobs WHERE status = 'PENDING' AND available_at <= UTC_TIMESTAMP() ORDER BY available_at, created_at LIMIT ? FOR UPDATE SKIP LOCKED",
+        [Math.max(1, Math.min(100, limit))],
+      );
+      jobs = selected;
+      if (jobs.length)
+        await connection.query(
+          "UPDATE push_delivery_jobs SET status = 'PROCESSING', claimed_at = UTC_TIMESTAMP(), attempts = attempts + 1 WHERE id IN (?)",
+          [jobs.map((job) => job.id)],
+        );
+      await connection.commit();
     } catch (error) {
-      if (
-        notificationId &&
-        (error as { code?: string }).code === "ER_DUP_ENTRY"
-      )
-        return false;
+      await connection.rollback();
       throw error;
+    } finally {
+      connection.release();
     }
-  }
-
-  private async sendPush(
-    devices: PushDeviceRow[],
-    title: string,
-    body: string,
-    data: Record<string, unknown>,
-  ): Promise<void> {
-    if (devices.length === 0 || process.env.NODE_ENV === "test") return;
-
-    const messages = devices.map((device) => ({
-      to: device.expo_push_token,
-      sound: "default",
-      title,
-      body,
-      data,
-    }));
-
-    for (let offset = 0; offset < messages.length; offset += 100) {
-      const chunk = messages.slice(offset, offset + 100);
-      const chunkDevices = devices.slice(offset, offset + 100);
-      try {
-        const response = await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            ...(process.env.EXPO_ACCESS_TOKEN
-              ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` }
-              : {}),
-          },
-          body: JSON.stringify(chunk),
-          signal: AbortSignal.timeout(5000),
-        });
-        if (!response.ok) {
-          console.error("Expo push request failed:", response.status);
-          continue;
-        }
-        const payload = (await response.json()) as { data?: ExpoPushTicket[] };
-        const tickets = Array.isArray(payload.data) ? payload.data : [];
-        for (let index = 0; index < tickets.length; index += 1) {
-          const ticket = tickets[index];
-          const token = chunkDevices[index]?.expo_push_token;
-          if (!token) continue;
-          if (
-            ticket.status === "error" &&
-            ticket.details?.error === "DeviceNotRegistered"
-          ) {
-            await this.disableToken(token);
-            continue;
-          }
-          if (ticket.status === "ok" && ticket.id) {
+    let sent = 0,
+      failed = 0,
+      cancelled = 0;
+    // Bound concurrency so a provider outage cannot hold the worker indefinitely.
+    for (let offset = 0; offset < jobs.length; offset += 5) {
+      await Promise.all(
+        jobs.slice(offset, offset + 5).map(async (job) => {
+          try {
+            const [rows] = await this.pool.query<
+              (NotificationRow & { expo_push_token: string })[]
+            >(
+              "SELECT n.id, n.type, n.title, n.body, n.data, d.expo_push_token FROM push_delivery_jobs j JOIN notifications n ON n.id = j.notification_id JOIN users u ON u.id = n.user_id AND u.role = 'OWNER' AND u.status = 'ACTIVE' JOIN push_devices d ON d.expo_push_token = j.expo_push_token AND d.user_id = n.user_id AND d.enabled = TRUE WHERE j.id = ? AND j.status = 'PROCESSING'",
+              [job.id],
+            );
+            const row = rows[0];
+            if (!row) {
+              await this.pool.query(
+                "UPDATE push_delivery_jobs SET status = 'CANCELLED', claimed_at = NULL WHERE id = ? AND status = 'PROCESSING'",
+                [job.id],
+              );
+              cancelled += 1;
+              return;
+            }
+            const data =
+              typeof row.data === "string"
+                ? (JSON.parse(row.data) as Record<string, unknown>)
+                : row.data || {};
+            const response = await fetch(
+              "https://exp.host/--/api/v2/push/send",
+              {
+                method: "POST",
+                headers: {
+                  Accept: "application/json",
+                  "Content-Type": "application/json",
+                  ...(process.env.EXPO_ACCESS_TOKEN
+                    ? {
+                        Authorization:
+                          "Bearer " + process.env.EXPO_ACCESS_TOKEN,
+                      }
+                    : {}),
+                },
+                body: JSON.stringify([
+                  {
+                    to: row.expo_push_token,
+                    sound: "default",
+                    title: row.title,
+                    body: row.body,
+                    data: { ...data, type: row.type },
+                  },
+                ]),
+                signal: AbortSignal.timeout(5000),
+              },
+            );
+            if (!response.ok) throw new Error("expo-http-" + response.status);
+            const payload = (await response.json()) as {
+              data?: ExpoPushTicket[];
+            };
+            const ticket = Array.isArray(payload.data)
+              ? payload.data[0]
+              : undefined;
+            if (
+              ticket?.status === "error" &&
+              ticket.details?.error === "DeviceNotRegistered"
+            ) {
+              await this.disableToken(row.expo_push_token);
+              await this.pool.query(
+                "UPDATE push_delivery_jobs SET status = 'CANCELLED', claimed_at = NULL, last_error = 'DeviceNotRegistered' WHERE id = ? AND status = 'PROCESSING'",
+                [job.id],
+              );
+              cancelled += 1;
+              return;
+            }
+            if (ticket?.status !== "ok" || !ticket.id)
+              throw new Error("expo-ticket-unavailable");
+            const save = await this.pool.getConnection();
+            try {
+              await save.beginTransaction();
+              await save.query(
+                "INSERT INTO expo_push_receipts (receipt_id, expo_push_token) VALUES (?, ?) ON DUPLICATE KEY UPDATE expo_push_token = VALUES(expo_push_token)",
+                [ticket.id, row.expo_push_token],
+              );
+              await save.query(
+                "UPDATE push_delivery_jobs SET status = 'SENT', claimed_at = NULL, sent_at = UTC_TIMESTAMP(), last_error = NULL WHERE id = ? AND status = 'PROCESSING'",
+                [job.id],
+              );
+              await save.commit();
+            } catch (error) {
+              await save.rollback();
+              throw error;
+            } finally {
+              save.release();
+            }
+            sent += 1;
+          } catch (error) {
+            failed += 1;
+            const attempt = Number(job.attempts) + 1;
+            const retrySeconds = Math.min(
+              3600,
+              30 * Math.pow(2, Math.min(7, attempt - 1)),
+            );
+            const detail =
+              error instanceof Error && /^expo-[a-z0-9-]+$/.test(error.message)
+                ? error.message
+                : "push-delivery-failed";
             await this.pool.query(
-              `INSERT INTO expo_push_receipts (receipt_id, expo_push_token)
-               VALUES (?, ?)
-               ON DUPLICATE KEY UPDATE expo_push_token = VALUES(expo_push_token)`,
-              [ticket.id, token],
+              "UPDATE push_delivery_jobs SET status = ?, claimed_at = NULL, available_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? SECOND), last_error = ? WHERE id = ? AND status = 'PROCESSING'",
+              [
+                attempt >= 10 ? "FAILED" : "PENDING",
+                retrySeconds,
+                detail,
+                job.id,
+              ],
             );
           }
-        }
-      } catch (error) {
-        console.error("Expo push delivery failed:", error);
-      }
+        }),
+      );
     }
+    return { sent, failed, cancelled };
   }
 }

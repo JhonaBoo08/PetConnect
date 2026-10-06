@@ -19,29 +19,12 @@ it.each([
     { pathname: "/alerts", params: { mode: "feed" } },
   ],
 ])("routes owner push data %j to its protected target", (data, target) => {
-  expect(notificationTarget(data, "OWNER")).toEqual(target);
-});
-it("keeps a clinic appointment inside the clinic queue", () => {
-  expect(
-    notificationTarget(
-      { appointmentId: "AP-LUNA", petId: "PET-LUNA" },
-      "CLINIC",
-    ),
-  ).toEqual({
-    pathname: "/clinic-dashboard",
-    params: { appointmentId: "AP-LUNA" },
-  });
+  expect(notificationTarget(data)).toEqual(target);
 });
 it("ignores arbitrary URLs and malformed IDs", () => {
   expect(
-    notificationTarget(
-      { url: "https://outside.example.test", reminderId: {} },
-      "OWNER",
-    ),
+    notificationTarget({ url: "https://outside.example.test", reminderId: {} }),
   ).toBe("/notifications");
-  expect(notificationTarget({ reminderId: "RM-LUNA" }, "CLINIC")).toBe(
-    "/clinic-dashboard",
-  );
 });
 
 it.each([
@@ -64,5 +47,5 @@ it.each([
     { pathname: "/recovery-report", params: { eventId: "RC-MILO" } },
   ],
 ])("opens evidence from owner push data %j", (data, target) => {
-  expect(notificationTarget(data, "OWNER")).toEqual(target);
+  expect(notificationTarget(data)).toEqual(target);
 });

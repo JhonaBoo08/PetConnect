@@ -4,7 +4,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import type { Pool, RowDataPacket } from "mysql2/promise";
+import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 
 export class FinderSessionError extends Error {}
 
@@ -138,15 +138,21 @@ export class FinderSessions {
     };
   }
 
-  async markPhoneVerified(sessionId: string, phoneHash: string): Promise<void> {
-    await this.pool.query(
+  async markPhoneVerified(
+    sessionId: string,
+    phoneHash: string,
+    connection: PoolConnection | Pool = this.pool,
+  ): Promise<void> {
+    const [result] = await connection.query(
       `UPDATE finder_sessions
           SET phone_verified_at = CURRENT_TIMESTAMP,
               verified_phone_hash = ?,
               last_seen_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'ACTIVE'`,
+        WHERE id = ? AND status = 'ACTIVE' AND expires_at > UTC_TIMESTAMP()`,
       [phoneHash, sessionId],
     );
+    if ((result as { affectedRows: number }).affectedRows !== 1)
+      throw new FinderSessionError("Finder session expired or unavailable.");
   }
 
   async incrementSubmission(sessionId: string): Promise<void> {

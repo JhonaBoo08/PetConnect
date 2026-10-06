@@ -10,7 +10,7 @@
     "start": "node lib/backend/api/src/server.js",
     "dev": "tsc && node lib/backend/api/src/server.js",
     "operator": "node lib/backend/api/src/operator.js",
-    "test": "tsx --test tests/backend.test.ts",
+    "test": "tsx --test --test-concurrency=1 tests/backend.test.ts",
     "db": "tsx scripts/db-maintenance.ts",
     "db:bootstrap": "tsx scripts/db-maintenance.ts bootstrap",
     "db:migrate": "tsx scripts/db-maintenance.ts migrate",

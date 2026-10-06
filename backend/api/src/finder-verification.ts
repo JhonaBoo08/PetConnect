@@ -196,45 +196,60 @@ export class FinderVerification {
     if (!/^OTP-[0-9A-F-]{36}$/.test(id) || !/^\d{6}$/.test(code)) {
       throw new FinderVerificationError("Invalid verification code.");
     }
-    const [rows] = await this.pool.query<ChallengeRow[]>(
-      `SELECT id, finder_session_id, phone_hash, code_hash, attempts,
-              expires_at, consumed_at
-         FROM finder_otp_challenges
-        WHERE id = ? AND finder_session_id = ?
-        LIMIT 1`,
-      [id, finderSessionId],
-    );
-    const row = rows[0];
-    if (
-      !row ||
-      row.consumed_at ||
-      row.expires_at.getTime() <= Date.now() ||
-      Number(row.attempts) >= 5
-    ) {
-      throw new FinderVerificationError(
-        "This verification code is expired or unavailable.",
+    const connection = await this.pool.getConnection();
+    let invalidCode = false;
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.query<ChallengeRow[]>(
+        "SELECT id, finder_session_id, phone_hash, code_hash, attempts, expires_at, consumed_at FROM finder_otp_challenges WHERE id = ? AND finder_session_id = ? LIMIT 1 FOR UPDATE",
+        [id, finderSessionId],
       );
+      const row = rows[0];
+      if (
+        !row ||
+        row.consumed_at ||
+        row.expires_at.getTime() <= Date.now() ||
+        Number(row.attempts) >= 5
+      ) {
+        throw new FinderVerificationError(
+          "This verification code is expired or unavailable.",
+        );
+      }
+      const expected = Buffer.from(row.code_hash, "hex");
+      const provided = Buffer.from(this.codeHash(id, code), "hex");
+      invalidCode =
+        expected.length !== provided.length ||
+        !timingSafeEqual(expected, provided);
+      if (invalidCode) {
+        await connection.query(
+          "UPDATE finder_otp_challenges SET attempts = attempts + 1 WHERE id = ? AND attempts < 5",
+          [id],
+        );
+      } else {
+        const [result] = await connection.query(
+          "UPDATE finder_otp_challenges SET consumed_at = UTC_TIMESTAMP() WHERE id = ? AND consumed_at IS NULL AND expires_at > UTC_TIMESTAMP() AND attempts < 5",
+          [id],
+        );
+        if ((result as { affectedRows: number }).affectedRows !== 1) {
+          throw new FinderVerificationError(
+            "This verification code is expired or unavailable.",
+          );
+        }
+        await this.sessions.markPhoneVerified(
+          finderSessionId,
+          row.phone_hash,
+          connection,
+        );
+      }
+      // Invalid attempts must commit as well, before returning their error.
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
-
-    const expected = Buffer.from(row.code_hash, "hex");
-    const provided = Buffer.from(this.codeHash(id, code), "hex");
-    const valid =
-      expected.length === provided.length &&
-      timingSafeEqual(expected, provided);
-    if (!valid) {
-      await this.pool.query(
-        "UPDATE finder_otp_challenges SET attempts = attempts + 1 WHERE id = ?",
-        [id],
-      );
+    if (invalidCode)
       throw new FinderVerificationError("Invalid verification code.");
-    }
-
-    await this.pool.query(
-      `UPDATE finder_otp_challenges
-          SET consumed_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND consumed_at IS NULL`,
-      [id],
-    );
-    await this.sessions.markPhoneVerified(finderSessionId, row.phone_hash);
   }
 }

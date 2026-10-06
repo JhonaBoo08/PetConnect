@@ -1,10 +1,9 @@
-export type UserRole = "OWNER" | "CLINIC";
+export type UserRole = "OWNER";
 export type AccountStatus = "PENDING" | "ACTIVE" | "DISABLED";
 
 export interface SessionResponse {
   role: UserRole;
   status: AccountStatus;
-  clinicId?: string;
   displayName: string;
   email: string;
   phone?: string;
@@ -23,13 +22,11 @@ export interface UpdateProfileRequest {
 export interface PrivacySettings {
   shareRecoveryPhone: boolean;
   sharePreciseRecoveryLocation: boolean;
-  sharePhoneWithClinics: boolean;
 }
 
 export interface UpdatePrivacySettings {
   shareRecoveryPhone?: boolean;
   sharePreciseRecoveryLocation?: boolean;
-  sharePhoneWithClinics?: boolean;
 }
 
 export interface UploadResponse {
@@ -288,23 +285,6 @@ export interface HealthRecord {
   createdAt: string;
 }
 
-export interface HealthRecordInput {
-  recordType: HealthRecordType;
-  title: string;
-  notes?: string;
-  occurredAt?: string;
-}
-
-export interface VaccinationInput {
-  vaccineName: string;
-  doseNumber?: string;
-  lotNumber?: string;
-  notes?: string;
-  administeredAt?: string;
-  nextDueAt?: string;
-  notifyAt?: string;
-}
-
 export type ReminderStatus = "PENDING" | "COMPLETED" | "CANCELLED";
 export type ReminderSource = "MANUAL" | "VACCINATION" | "APPOINTMENT";
 
@@ -356,12 +336,6 @@ export interface AppointmentInput {
   reminderMinutesBefore?: number;
 }
 
-export interface ClinicAppointmentInput {
-  appointmentDate: string;
-  reason?: string;
-  reminderMinutesBefore?: number;
-}
-
 export interface Appointment {
   id: string;
   petId: string;
@@ -379,25 +353,6 @@ export interface Appointment {
   reminderMinutesBefore: number;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface ClinicAppointmentUpdate {
-  status?: AppointmentStatus;
-  appointmentDate?: string;
-  reason?: string;
-  reminderMinutesBefore?: number;
-}
-
-export interface ClinicPatient {
-  pet: Pet;
-  owner: {
-    displayName: string;
-    phone: string | null;
-  };
-  clinicalHistoryGranted: boolean;
-  clinicalAccessGranted: boolean;
-  recentHealthRecords: HealthRecord[];
-  upcomingAppointments: Appointment[];
 }
 
 export interface PublicRecoveryProfile {

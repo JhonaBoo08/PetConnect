@@ -1,30 +1,30 @@
+import "./test-environment.js";
 import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import { readFileSync } from "node:fs";
-import { RowDataPacket } from "mysql2/promise";
+import { RowDataPacket, PoolConnection } from "mysql2/promise";
+import { assertTestDatabase } from "../src/test-safety.js";
+import { mysqlConnectionOptions } from "../src/db-config.js";
 import sharp from "sharp";
 import { initializeApp, deleteApp } from "firebase/app";
 import {
   getAuth,
   connectAuthEmulator,
   createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
 } from "firebase/auth";
 import {
   app,
   pool,
   accounts,
   finderEvidence,
+  finderSessions,
+  finderVerification,
   scheduledNotifications,
 } from "../src/server.js";
 import { Notifications } from "../src/notifications.js";
 import { ScheduledNotifications } from "../src/scheduled-notifications.js";
 import { createPool } from "../src/db.js";
-import {
-  HealthClinic,
-  HealthClinicValidationError,
-} from "../src/health-clinic.js";
 import { FinderEvidence } from "../src/finder-evidence.js";
 import type { MediaStorage } from "../src/media-storage.js";
 
@@ -50,31 +50,57 @@ function client(name: string) {
   return a;
 }
 
+async function assertTestTarget(connection: PoolConnection) {
+  const [rows] = await connection.query<RowDataPacket[]>(
+    "SELECT DATABASE() AS db",
+  );
+  const database = rows[0]?.db;
+  assertTestDatabase(process.env, database);
+  assert.equal(
+    database,
+    mysqlConnectionOptions().database,
+    "Resolved test database differs from live connection",
+  );
+}
+
 async function resetTestDb() {
-  await pool.query("SET FOREIGN_KEY_CHECKS = 0");
-  await pool.query("TRUNCATE TABLE media_cleanup_jobs");
-  await pool.query("TRUNCATE TABLE audit_logs");
-  await pool.query("TRUNCATE TABLE scheduled_notifications");
-  await pool.query("TRUNCATE TABLE health_reminders");
-  await pool.query("TRUNCATE TABLE appointments");
-  await pool.query("TRUNCATE TABLE health_records");
-  await pool.query("TRUNCATE TABLE notifications");
-  await pool.query("TRUNCATE TABLE expo_push_receipts");
-  await pool.query("TRUNCATE TABLE push_devices");
-  await pool.query("TRUNCATE TABLE sighting_evidence");
-  await pool.query("TRUNCATE TABLE recovery_contact_events");
-  await pool.query("TRUNCATE TABLE recovery_tag_scans");
-  await pool.query("TRUNCATE TABLE finder_otp_challenges");
-  await pool.query("TRUNCATE TABLE sightings");
-  await pool.query("TRUNCATE TABLE lost_reports");
-  await pool.query("TRUNCATE TABLE finder_sessions");
-  await pool.query("TRUNCATE TABLE pet_recovery_tags");
-  await pool.query("TRUNCATE TABLE pet_recovery_tokens");
-  await pool.query("TRUNCATE TABLE pets");
-  await pool.query("TRUNCATE TABLE clinic_members");
-  await pool.query("TRUNCATE TABLE clinics");
-  await pool.query("TRUNCATE TABLE users");
-  await pool.query("SET FOREIGN_KEY_CHECKS = 1");
+  const connection = await pool.getConnection();
+  try {
+    await assertTestTarget(connection);
+    await connection.query("SET FOREIGN_KEY_CHECKS = 0");
+    for (const table of [
+      "push_delivery_jobs",
+      "media_cleanup_jobs",
+      "audit_logs",
+      "scheduled_notifications",
+      "health_reminders",
+      "appointments",
+      "health_records",
+      "notifications",
+      "expo_push_receipts",
+      "push_devices",
+      "sighting_evidence",
+      "recovery_contact_events",
+      "recovery_tag_scans",
+      "finder_otp_challenges",
+      "sightings",
+      "lost_reports",
+      "finder_sessions",
+      "pet_recovery_tags",
+      "pet_recovery_tokens",
+      "pets",
+      "clinic_members",
+      "clinics",
+      "users",
+    ])
+      await connection.query("TRUNCATE TABLE " + table);
+  } finally {
+    try {
+      await connection.query("SET FOREIGN_KEY_CHECKS = 1");
+    } finally {
+      connection.release();
+    }
+  }
 }
 
 before(async () => {
@@ -88,6 +114,18 @@ before(async () => {
       "Backend tests require the isolated Firebase Auth test emulator at 127.0.0.1:9199 with FIREBASE_PROJECT_ID=demo-petconnect-test. Run `npm run test:backend` instead of test:backend:run directly.",
     );
   }
+  const connection = await pool.getConnection();
+  try {
+    await assertTestTarget(connection);
+  } finally {
+    connection.release();
+  }
+  const resetAuth = await fetch(
+    "http://127.0.0.1:9199/emulator/v1/projects/demo-petconnect-test/accounts",
+    { method: "DELETE" },
+  );
+  if (!resetAuth.ok)
+    throw new Error("Could not reset the isolated Auth test emulator.");
   const schemaSql = readFileSync(
     new URL("../../../sql/schema.sql", import.meta.url),
     "utf8",
@@ -602,36 +640,6 @@ test("unauthenticated access is denied", async () => {
   assert.equal(sessionRes.status, 401);
 });
 
-test("clinic provisioning and login succeeds", async () => {
-  await accounts.provisionClinic(
-    {
-      uid: "vet-one",
-      email: "vet@example.test",
-      clinicId: "clinic-one",
-      name: "Test Clinic",
-      address: "Tagum",
-    },
-    "test-operator",
-  );
-  const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
-  await getAdminAuth().updateUser("vet-one", { password: "Example-pass-123!" });
-
-  const auth = client("clinic");
-  const credential = await signInWithEmailAndPassword(
-    auth,
-    "vet@example.test",
-    "Example-pass-123!",
-  );
-  const token = await credential.user.getIdToken(true);
-
-  const sessionRes = await request(app)
-    .get("/v1/session")
-    .set("Authorization", `Bearer ${token}`);
-  assert.equal(sessionRes.status, 200);
-  assert.equal(sessionRes.body.role, "CLINIC");
-  assert.equal(sessionRes.body.clinicId, "clinic-one");
-});
-
 test("disabling account denies session access", async () => {
   const auth = client("disabled");
   const credential = await createUserWithEmailAndPassword(
@@ -954,7 +962,6 @@ test("recovery QR tokens are public-safe, owner-scoped, revocable and rotatable"
   assert.deepEqual(privacyDefaults.body, {
     shareRecoveryPhone: false,
     sharePreciseRecoveryLocation: false,
-    sharePhoneWithClinics: true,
   });
 
   await request(app)
@@ -1941,73 +1948,6 @@ test("each pooled database connection uses UTC for server timestamps", async () 
   }
 });
 
-test("invalid vaccination notification times leave no clinical record", async () => {
-  await pool.query(
-    "INSERT INTO users (id, email, display_name, role, status) VALUES " +
-      "('vaccine-owner', 'vaccine-owner@example.test', 'Owner', 'OWNER', 'ACTIVE'), " +
-      "('vaccine-vet', 'vaccine-vet@example.test', 'Vet', 'CLINIC', 'ACTIVE')",
-  );
-  await pool.query(
-    "INSERT INTO clinics (id, name, address, status) VALUES ('vaccine-clinic', 'Test Clinic', 'Tagum', 'ACTIVE')",
-  );
-  await pool.query(
-    "INSERT INTO pets (id, owner_id, name, species) VALUES ('vaccine-pet', 'vaccine-owner', 'Mochi', 'Cat')",
-  );
-  const nextDueAt = new Date(Date.now() + 7 * 86400000).toISOString();
-  await pool.query(
-    "INSERT INTO appointments (id, pet_id, owner_id, clinic_id, appointment_date, status) VALUES (?, ?, ?, ?, ?, 'REQUESTED')",
-    [
-      "vaccine-appointment",
-      "vaccine-pet",
-      "vaccine-owner",
-      "vaccine-clinic",
-      new Date(nextDueAt),
-    ],
-  );
-  const healthClinic = new HealthClinic(
-    pool,
-    new Notifications(pool),
-    scheduledNotifications,
-  );
-
-  for (const notifyAt of [
-    "not-a-date",
-    new Date(Date.now() + 8 * 86400000).toISOString(),
-  ]) {
-    await assert.rejects(
-      healthClinic.createVaccination(
-        "vaccine-clinic",
-        "vaccine-vet",
-        "vaccine-pet",
-        { vaccineName: "Rabies", nextDueAt, notifyAt },
-      ),
-      HealthClinicValidationError,
-    );
-    assert.deepEqual(
-      await healthClinic.ownerHealthRecords("vaccine-owner"),
-      [],
-    );
-    assert.deepEqual(await healthClinic.ownerReminders("vaccine-owner"), []);
-    const [jobs] = await pool.query<RowDataPacket[]>(
-      "SELECT id FROM scheduled_notifications WHERE user_id = 'vaccine-owner'",
-    );
-    assert.equal(jobs.length, 0);
-  }
-
-  const saved = await healthClinic.createVaccination(
-    "vaccine-clinic",
-    "vaccine-vet",
-    "vaccine-pet",
-    { vaccineName: "Rabies", nextDueAt, notifyAt: nextDueAt },
-  );
-  assert.equal(saved.recordType, "VACCINATION");
-  assert.equal(
-    (await healthClinic.ownerHealthRecords("vaccine-owner")).length,
-    1,
-  );
-  assert.equal((await healthClinic.ownerReminders("vaccine-owner")).length, 1);
-});
-
 test("reminder edits reject a retained notification after the new due time", async () => {
   const owner = await ownerToken(
     "Reminder Dates",
@@ -2052,436 +1992,468 @@ test("reminder edits reject a retained notification after the new due time", asy
   assert.equal(corrected.body.dueAt, corrected.body.notifyAt);
 });
 
-test("health and clinic ecosystem enforces QR scope, vaccination reminders, appointments, and scheduled notifications", async () => {
-  const owner = await ownerToken("Health Owner", "health-owner@example.test");
-  const ownerHeader = `Bearer ${owner.token}`;
-
-  await request(app)
-    .patch("/v1/profile")
-    .set("Authorization", ownerHeader)
-    .send({ phone: "09179990000" })
-    .expect(200);
-
-  const createdPet = await request(app)
-    .post("/v1/pets")
-    .set("Authorization", ownerHeader)
-    .send({
-      name: "Mochi",
-      species: "Cat",
-      breed: "Domestic Shorthair",
-      sex: "Female",
-      ageLabel: "2 years",
-      identifyingDetails: "White paws",
-    })
-    .expect(201);
-  const petId = createdPet.body.id as string;
-
-  const qr = await request(app)
-    .get(`/v1/pets/${petId}/recovery`)
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  const token = qr.body.token as string;
-
-  await accounts.provisionClinic(
-    {
-      uid: "clinic-health-one",
-      email: "clinic-health-one@example.test",
-      clinicId: "clinic-health-one",
-      name: "Tagum Health Clinic",
-      address: "Tagum City",
-      phone: "084-111-1111",
-    },
-    "test-operator",
-  );
-  await accounts.provisionClinic(
-    {
-      uid: "clinic-health-two",
-      email: "clinic-health-two@example.test",
-      clinicId: "clinic-health-two",
-      name: "Other Clinic",
-      address: "Davao City",
-    },
-    "test-operator",
-  );
-
-  const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
-  await getAdminAuth().updateUser("clinic-health-one", {
-    password: "Example-pass-123!",
-  });
-  await getAdminAuth().updateUser("clinic-health-two", {
-    password: "Example-pass-123!",
-  });
-
-  const firstClinicAuth = client("health-clinic-one");
-  const firstClinicCredential = await signInWithEmailAndPassword(
-    firstClinicAuth,
-    "clinic-health-one@example.test",
-    "Example-pass-123!",
-  );
-  const clinicHeader = `Bearer ${await firstClinicCredential.user.getIdToken(true)}`;
-
-  const secondClinicAuth = client("health-clinic-two");
-  const secondClinicCredential = await signInWithEmailAndPassword(
-    secondClinicAuth,
-    "clinic-health-two@example.test",
-    "Example-pass-123!",
-  );
-  const otherClinicHeader = `Bearer ${await secondClinicCredential.user.getIdToken(true)}`;
-
-  const clinics = await request(app)
-    .get("/v1/clinics")
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  assert.equal(clinics.body.clinics.length, 2);
-  assert.equal(
-    clinics.body.clinics.some(
-      (clinic: { id: string }) => clinic.id === "clinic-health-one",
-    ),
-    true,
-  );
-
-  await request(app)
-    .get(`/v1/clinic/patients/recovery/${encodeURIComponent(token)}`)
-    .expect(401);
-  await request(app)
-    .get(`/v1/clinic/patients/recovery/${encodeURIComponent(token)}`)
-    .set("Authorization", ownerHeader)
-    .expect(403);
-
-  const patient = await request(app)
-    .get(`/v1/clinic/patients/recovery/${encodeURIComponent(token)}`)
-    .set("Authorization", clinicHeader)
-    .expect(200);
-  assert.equal(patient.body.pet.name, "Mochi");
-  assert.equal(patient.body.owner.displayName, "Health Owner");
-  assert.equal(patient.body.owner.phone, "09179990000");
-  assert.equal(patient.body.clinicalHistoryGranted, false);
-  assert.equal(patient.body.clinicalAccessGranted, false);
-  assert.deepEqual(patient.body.recentHealthRecords, []);
-
-  await request(app)
-    .get(
-      `/v1/clinic/patients/recovery/${encodeURIComponent(token)}/health-records`,
-    )
-    .set("Authorization", clinicHeader)
-    .expect(403);
-
-  await request(app)
-    .post(
-      `/v1/clinic/patients/recovery/${encodeURIComponent(token)}/health-records`,
-    )
-    .set("Authorization", clinicHeader)
-    .send({
-      recordType: "CHECKUP",
-      title: "Unauthorized pre-appointment write",
-    })
-    .expect(403);
-
-  await request(app)
-    .patch("/v1/privacy")
-    .set("Authorization", ownerHeader)
-    .send({ sharePhoneWithClinics: false })
-    .expect(200);
-  const privatePatient = await request(app)
-    .get(`/v1/clinic/patients/recovery/${encodeURIComponent(token)}`)
-    .set("Authorization", clinicHeader)
-    .expect(200);
-  assert.equal(privatePatient.body.owner.phone, null);
-
-  const appointmentDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
-  appointmentDate.setUTCHours(9, 0, 0, 0);
-  const requested = await request(app)
-    .post("/v1/appointments")
-    .set("Authorization", ownerHeader)
-    .send({
-      petId,
-      clinicId: "clinic-health-one",
-      appointmentDate: appointmentDate.toISOString(),
-      reason: "Annual wellness exam",
-      reminderMinutesBefore: 1440,
-    })
-    .expect(201);
-  assert.equal(requested.body.status, "REQUESTED");
-  const appointmentId = requested.body.id as string;
-
-  const authorizedPatient = await request(app)
-    .get(`/v1/clinic/patients/recovery/${encodeURIComponent(token)}`)
-    .set("Authorization", clinicHeader)
-    .expect(200);
-  assert.equal(authorizedPatient.body.clinicalHistoryGranted, true);
-  assert.equal(authorizedPatient.body.clinicalAccessGranted, true);
-
-  const unrelatedClinicPatient = await request(app)
-    .get(`/v1/clinic/patients/recovery/${encodeURIComponent(token)}`)
-    .set("Authorization", otherClinicHeader)
-    .expect(200);
-  assert.equal(unrelatedClinicPatient.body.clinicalHistoryGranted, false);
-  assert.equal(unrelatedClinicPatient.body.clinicalAccessGranted, false);
-
-  const clinicNotifications = await request(app)
-    .get("/v1/notifications")
-    .set("Authorization", clinicHeader)
-    .expect(200);
-  assert.equal(
-    clinicNotifications.body.notifications.some(
-      (item: { type: string }) => item.type === "APPOINTMENT_REQUESTED",
-    ),
-    true,
-  );
-
-  const clinicQueue = await request(app)
-    .get("/v1/clinic/appointments")
-    .set("Authorization", clinicHeader)
-    .expect(200);
-  assert.equal(clinicQueue.body.appointments[0].id, appointmentId);
-  assert.equal(clinicQueue.body.appointments[0].status, "REQUESTED");
-  assert.equal(clinicQueue.body.appointments[0].ownerPhone, null);
-
-  await request(app)
-    .patch(`/v1/clinic/appointments/${appointmentId}`)
-    .set("Authorization", otherClinicHeader)
-    .send({ status: "SCHEDULED" })
-    .expect(404);
-
-  const confirmed = await request(app)
-    .patch(`/v1/clinic/appointments/${appointmentId}`)
-    .set("Authorization", clinicHeader)
-    .send({ status: "SCHEDULED", reminderMinutesBefore: 1440 })
-    .expect(200);
-  assert.equal(confirmed.body.status, "SCHEDULED");
-
-  const ownerAppointments = await request(app)
-    .get("/v1/appointments")
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  assert.equal(ownerAppointments.body.appointments[0].status, "SCHEDULED");
-
-  const appointmentReminders = await request(app)
-    .get("/v1/reminders")
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  assert.equal(
-    appointmentReminders.body.reminders.some(
-      (item: { sourceType: string; sourceId: string }) =>
-        item.sourceType === "APPOINTMENT" && item.sourceId === appointmentId,
-    ),
-    true,
-  );
-
-  const genericRecord = await request(app)
-    .post(
-      `/v1/clinic/patients/recovery/${encodeURIComponent(token)}/health-records`,
-    )
-    .set("Authorization", clinicHeader)
-    .send({
-      recordType: "CHECKUP",
-      title: "Annual wellness exam",
-      notes: "Bright, alert, responsive.",
-      occurredAt: new Date().toISOString(),
-    })
-    .expect(201);
-  assert.equal(genericRecord.body.recordType, "CHECKUP");
-
-  const nextDueAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  nextDueAt.setUTCHours(9, 0, 0, 0);
-  const vaccination = await request(app)
-    .post(
-      `/v1/clinic/patients/recovery/${encodeURIComponent(token)}/vaccinations`,
-    )
-    .set("Authorization", clinicHeader)
-    .send({
-      vaccineName: "Rabies",
-      doseNumber: "1",
-      lotNumber: "RAB-2026-001",
-      notes: "No immediate reaction.",
-      administeredAt: new Date().toISOString(),
-      nextDueAt: nextDueAt.toISOString(),
-    })
-    .expect(201);
-  assert.equal(vaccination.body.recordType, "VACCINATION");
-  assert.equal(vaccination.body.vaccineName, "Rabies");
-  assert.equal(vaccination.body.lotNumber, "RAB-2026-001");
-
-  const ownerRecords = await request(app)
-    .get("/v1/health-records")
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  assert.equal(ownerRecords.body.records.length, 2);
-  assert.equal(
-    ownerRecords.body.records.some(
-      (item: { vaccineName: string | null }) => item.vaccineName === "Rabies",
-    ),
-    true,
-  );
-
-  const publicProfile = await request(app)
-    .get(`/v1/recovery/${encodeURIComponent(token)}`)
-    .expect(200);
-  assert.equal(publicProfile.body.healthRecords, undefined);
-  assert.equal(publicProfile.body.vaccinations, undefined);
-  assert.equal(publicProfile.body.appointments, undefined);
-
-  const reminders = await request(app)
-    .get("/v1/reminders")
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  const vaccineReminder = reminders.body.reminders.find(
-    (item: { sourceType: string; sourceId: string }) =>
-      item.sourceType === "VACCINATION" &&
-      item.sourceId === vaccination.body.id,
-  );
-  assert.ok(vaccineReminder);
-  assert.equal(vaccineReminder.title, "Rabies next dose");
-
-  const manualDue = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  const manualReminder = await request(app)
-    .post("/v1/reminders")
-    .set("Authorization", ownerHeader)
-    .send({
-      petId,
-      title: "Deworming",
-      notes: "Routine preventive care.",
-      dueAt: manualDue.toISOString(),
-    })
-    .expect(201);
-  assert.equal(manualReminder.body.status, "PENDING");
-
-  const completedManual = await request(app)
-    .patch(`/v1/reminders/${manualReminder.body.id}`)
-    .set("Authorization", ownerHeader)
-    .send({ status: "COMPLETED" })
-    .expect(200);
-  assert.equal(completedManual.body.status, "COMPLETED");
-  assert.ok(completedManual.body.completedAt);
-
-  await request(app)
-    .delete(`/v1/reminders/${manualReminder.body.id}`)
-    .set("Authorization", ownerHeader)
-    .expect(204);
-
-  const [scheduledRows] = await pool.query<
-    (RowDataPacket & { id: string; dedupe_key: string; status: string })[]
-  >(
-    `SELECT id, dedupe_key, status
-       FROM scheduled_notifications
-      WHERE dedupe_key = ?`,
-    [`health-reminder:${vaccineReminder.id}`],
-  );
-  assert.equal(scheduledRows.length, 1);
-  assert.equal(scheduledRows[0].status, "PENDING");
-
-  await pool.query(
-    `UPDATE scheduled_notifications
-        SET scheduled_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE)
-      WHERE id = ?`,
-    [scheduledRows[0].id],
-  );
-  const processed = await scheduledNotifications.processDue();
-  assert.equal(processed.sent, 1);
-  assert.equal(processed.failed, 0);
-
-  const ownerNotifications = await request(app)
-    .get("/v1/notifications")
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  assert.equal(
-    ownerNotifications.body.notifications.some(
-      (item: { type: string; data: { reminderId?: string } }) =>
-        item.type === "HEALTH_REMINDER_DUE" &&
-        item.data?.reminderId === vaccineReminder.id,
-    ),
-    true,
-  );
-
-  const completed = await request(app)
-    .patch(`/v1/clinic/appointments/${appointmentId}`)
-    .set("Authorization", clinicHeader)
-    .send({ status: "COMPLETED" })
-    .expect(200);
-  assert.equal(completed.body.status, "COMPLETED");
-
-  const afterCompletion = await request(app)
-    .get("/v1/reminders")
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  const linkedAppointmentReminder = afterCompletion.body.reminders.find(
-    (item: { sourceType: string; sourceId: string }) =>
-      item.sourceType === "APPOINTMENT" && item.sourceId === appointmentId,
-  );
-  assert.equal(linkedAppointmentReminder.status, "COMPLETED");
-
-  const rotated = await request(app)
-    .post(`/v1/pets/${petId}/recovery/rotate`)
-    .set("Authorization", ownerHeader)
-    .expect(200);
-  const newToken = rotated.body.token as string;
-  assert.notEqual(newToken, token);
-
-  await request(app)
-    .get(`/v1/clinic/patients/recovery/${encodeURIComponent(token)}`)
-    .set("Authorization", clinicHeader)
-    .expect(404);
-  const rotatedPatient = await request(app)
-    .get(`/v1/clinic/patients/recovery/${encodeURIComponent(newToken)}`)
-    .set("Authorization", clinicHeader)
-    .expect(200);
-  assert.equal(rotatedPatient.body.pet.id, petId);
-  assert.equal(rotatedPatient.body.clinicalHistoryGranted, true);
-  assert.equal(rotatedPatient.body.clinicalAccessGranted, false);
-  assert.equal(rotatedPatient.body.recentHealthRecords.length, 2);
-
-  await request(app)
-    .get(
-      `/v1/clinic/patients/recovery/${encodeURIComponent(newToken)}/health-records`,
-    )
-    .set("Authorization", clinicHeader)
-    .expect(200);
-
-  await request(app)
-    .post(
-      `/v1/clinic/patients/recovery/${encodeURIComponent(newToken)}/health-records`,
-    )
-    .set("Authorization", clinicHeader)
-    .send({
-      recordType: "CHECKUP",
-      title: "Post-completion write must require renewed owner authorization",
-    })
-    .expect(403);
-});
-
-test("clinic accounts cannot access owner pet endpoints", async () => {
-  await accounts.provisionClinic(
-    {
-      uid: "clinic-pets",
-      email: "clinic-pets@example.test",
-      clinicId: "clinic-pets",
-      name: "Pets Clinic",
-      address: "Tagum",
-    },
-    "test-operator",
-  );
-  const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
-  await getAdminAuth().updateUser("clinic-pets", {
-    password: "Example-pass-123!",
-  });
-  const auth = client("clinic-pets");
-  const credential = await signInWithEmailAndPassword(
+async function auditOwner(name: string) {
+  const auth = client("audit-" + name);
+  const credential = await createUserWithEmailAndPassword(
     auth,
-    "clinic-pets@example.test",
+    "audit-" + name + "@example.test",
     "Example-pass-123!",
   );
-  const header = `Bearer ${await credential.user.getIdToken(true)}`;
+  const response = await request(app)
+    .post("/v1/account/initialize")
+    .set("Authorization", "Bearer " + (await credential.user.getIdToken()))
+    .send({ displayName: "Audit " + name });
+  assert.equal(response.status, 200);
+  return {
+    uid: credential.user.uid,
+    token: await credential.user.getIdToken(true),
+  };
+}
+async function auditPet(token: string) {
+  const response = await request(app)
+    .post("/v1/pets")
+    .set("Authorization", "Bearer " + token)
+    .send({
+      name: "Audit Pet",
+      species: "Dog",
+      breed: "Mixed",
+      sex: "Male",
+      ageLabel: "2 years",
+      identifyingDetails: "",
+      microchipNumber: "",
+    });
+  assert.equal(response.status, 201);
+  return response.body.id as string;
+}
+function auditDue(days = 3) {
+  return new Date(
+    Math.floor((Date.now() + days * 86400000) / 1000) * 1000,
+  ).toISOString();
+}
+
+test("retired clinic identities cannot initialize, sign in, read owner data, or use clinic routes", async () => {
+  const auth = client("audit-retired");
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    "audit-retired@example.test",
+    "Example-pass-123!",
+  );
+  const uid = credential.user.uid;
+  const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
+  await getAdminAuth().setCustomUserClaims(uid, {
+    role: "CLINIC",
+    clinicId: "legacy-clinic",
+  });
+  await pool.query(
+    "INSERT INTO users (id,email,role,display_name,status) VALUES (?,?,'CLINIC','Historical Vet','ACTIVE')",
+    [uid, "audit-retired@example.test"],
+  );
+  const token = await credential.user.getIdToken(true);
+  const session = await request(app)
+    .get("/v1/session")
+    .set("Authorization", "Bearer " + token);
+  assert.equal(session.status, 403);
   assert.equal(
-    (await request(app).get("/v1/pets").set("Authorization", header)).status,
+    (
+      await request(app)
+        .get("/v1/pets")
+        .set("Authorization", "Bearer " + token)
+    ).status,
     403,
   );
   assert.equal(
     (
       await request(app)
-        .post("/v1/pets")
-        .set("Authorization", header)
-        .send({ name: "Dog", species: "Dog" })
+        .post("/v1/account/initialize")
+        .set("Authorization", "Bearer " + token)
+        .send({ displayName: "Retired Vet" })
     ).status,
     403,
   );
+  for (const path of [
+    "/v1/clinic",
+    "/v1/clinic/appointments",
+    "/v1/clinic/patients/recovery/legacy",
+  ])
+    assert.equal(
+      (
+        await request(app)
+          .get(path)
+          .set("Authorization", "Bearer " + token)
+      ).status,
+      404,
+    );
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT role FROM users WHERE id = ?",
+    [uid],
+  );
+  assert.equal(
+    rows[0].role,
+    "CLINIC",
+    "A historical identity must never be silently converted into an owner",
+  );
+});
+
+test("owner care retains historical veterinary records and saves and cancels personal appointment schedules", async () => {
+  const owner = await auditOwner("care");
+  const petId = await auditPet(owner.token);
+  await pool.query(
+    "INSERT INTO users (id,email,role,display_name,status) VALUES ('historical-vet','history@example.test','CLINIC','Historical Vet','DISABLED')",
+  );
+  await pool.query(
+    "INSERT INTO clinics (id,name,address,status) VALUES ('historical-clinic','Historical Clinic','Test location','ACTIVE')",
+  );
+  await pool.query(
+    "INSERT INTO health_records (id,pet_id,clinic_id,vet_id,record_type,title,occurred_at) VALUES ('HR-HISTORY',?,'historical-clinic','historical-vet','CHECKUP','Preserved checkup',UTC_TIMESTAMP())",
+    [petId],
+  );
+  const history = await request(app)
+    .get("/v1/health-records")
+    .set("Authorization", "Bearer " + owner.token);
+  assert.equal(history.status, 200);
+  assert.equal(history.body.records[0].vetName, "Historical Vet");
+  const saved = await request(app)
+    .post("/v1/appointments")
+    .set("Authorization", "Bearer " + owner.token)
+    .send({
+      petId,
+      clinicId: "historical-clinic",
+      appointmentDate: auditDue(),
+      reason: "Owner calendar visit",
+      reminderMinutesBefore: 60,
+    });
+  assert.equal(saved.status, 201);
+  assert.equal(saved.body.status, "SCHEDULED");
+  const [reminders] = await pool.query<RowDataPacket[]>(
+    "SELECT id,status FROM health_reminders WHERE source_id = ?",
+    [saved.body.id],
+  );
+  assert.equal(reminders.length, 1);
+  assert.equal(reminders[0].status, "PENDING");
+  assert.equal(
+    (
+      await request(app)
+        .get("/v1/reminders/" + reminders[0].id)
+        .set("Authorization", "Bearer " + owner.token)
+    ).status,
+    200,
+  );
+  const cancelled = await request(app)
+    .post("/v1/appointments/" + saved.body.id + "/cancel")
+    .set("Authorization", "Bearer " + owner.token);
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.status, "CANCELLED");
+  const [jobs] = await pool.query<RowDataPacket[]>(
+    "SELECT status FROM scheduled_notifications WHERE dedupe_key = ?",
+    ["health-reminder:" + reminders[0].id],
+  );
+  assert.equal(jobs[0].status, "CANCELLED");
+  const privacy = await request(app)
+    .get("/v1/privacy")
+    .set("Authorization", "Bearer " + owner.token);
+  assert.deepEqual(Object.keys(privacy.body).sort(), [
+    "sharePreciseRecoveryLocation",
+    "shareRecoveryPhone",
+  ]);
+});
+
+test("queue insertion failure rolls back reminder creation and edits, so a retry creates one reminder", async (t) => {
+  const owner = await auditOwner("atomic");
+  const petId = await auditPet(owner.token);
+  const input = {
+    petId,
+    title: "Atomic reminder",
+    dueAt: auditDue(),
+    notifyAt: auditDue(2),
+  };
+  const schedule = t.mock.method(
+    scheduledNotifications,
+    "schedule",
+    async () => {
+      throw new Error("queue unavailable");
+    },
+  );
+  const failed = await request(app)
+    .post("/v1/reminders")
+    .set("Authorization", "Bearer " + owner.token)
+    .send(input);
+  assert.equal(failed.status, 500);
+  const [empty] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS count FROM health_reminders WHERE owner_id = ?",
+    [owner.uid],
+  );
+  assert.equal(Number(empty[0].count), 0);
+  schedule.mock.restore();
+  const retry = await request(app)
+    .post("/v1/reminders")
+    .set("Authorization", "Bearer " + owner.token)
+    .send(input);
+  assert.equal(retry.status, 201);
+  const editSchedule = t.mock.method(
+    scheduledNotifications,
+    "schedule",
+    async () => {
+      throw new Error("queue unavailable");
+    },
+  );
+  const edited = await request(app)
+    .patch("/v1/reminders/" + retry.body.id)
+    .set("Authorization", "Bearer " + owner.token)
+    .send({ title: "Must roll back" });
+  assert.equal(edited.status, 500);
+  editSchedule.mock.restore();
+  const detail = await request(app)
+    .get("/v1/reminders/" + retry.body.id)
+    .set("Authorization", "Bearer " + owner.token);
+  assert.equal(detail.body.title, "Atomic reminder");
+  const [counts] = await pool.query<RowDataPacket[]>(
+    "SELECT (SELECT COUNT(*) FROM health_reminders) AS reminders, (SELECT COUNT(*) FROM scheduled_notifications) AS jobs",
+  );
+  assert.equal(Number(counts[0].reminders), 1);
+  assert.equal(Number(counts[0].jobs), 1);
+});
+
+test("appointment save rolls back its appointment, reminder, audit record and queue when scheduling fails", async (t) => {
+  const owner = await auditOwner("atomic-appointment");
+  const petId = await auditPet(owner.token);
+  await pool.query(
+    "INSERT INTO clinics (id,name,address,status) VALUES ('atomic-location','Clinic location','Address','ACTIVE')",
+  );
+  t.mock.method(scheduledNotifications, "schedule", async () => {
+    throw new Error("queue unavailable");
+  });
+  const response = await request(app)
+    .post("/v1/appointments")
+    .set("Authorization", "Bearer " + owner.token)
+    .send({ petId, clinicId: "atomic-location", appointmentDate: auditDue() });
+  assert.equal(response.status, 500);
+  const [counts] = await pool.query<RowDataPacket[]>(
+    "SELECT (SELECT COUNT(*) FROM appointments) AS appointments, (SELECT COUNT(*) FROM health_reminders) AS reminders, (SELECT COUNT(*) FROM scheduled_notifications) AS jobs, (SELECT COUNT(*) FROM audit_logs WHERE entity_type='appointment') AS audits",
+  );
+  for (const field of ["appointments", "reminders", "jobs", "audits"])
+    assert.equal(Number(counts[0][field]), 0);
+});
+
+test("reminder details beyond the 250-row list limit remain owner-scoped and readable", async () => {
+  const owner = await auditOwner("many-reminders");
+  const other = await auditOwner("other-reminders");
+  const petId = await auditPet(owner.token);
+  const base = new Date(auditDue()).getTime();
+  const values = Array.from({ length: 260 }, (_, index) => [
+    "RM-AUDIT-" + index,
+    petId,
+    owner.uid,
+    "Reminder " + index,
+    new Date(base + index * 3600000),
+    new Date(base),
+    "PENDING",
+  ]);
+  await pool.query(
+    "INSERT INTO health_reminders (id,pet_id,owner_id,title,due_at,notify_at,status) VALUES ?",
+    [values],
+  );
+  const list = await request(app)
+    .get("/v1/reminders")
+    .set("Authorization", "Bearer " + owner.token);
+  assert.equal(list.body.reminders.length, 250);
+  const range = await request(app)
+    .get("/v1/reminders")
+    .query({
+      from: new Date(base).toISOString(),
+      to: new Date(base + 31 * 86400000).toISOString(),
+    })
+    .set("Authorization", "Bearer " + owner.token);
+  assert.equal(range.body.reminders.length, 260);
+  const detail = await request(app)
+    .get("/v1/reminders/RM-AUDIT-259")
+    .set("Authorization", "Bearer " + owner.token);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.title, "Reminder 259");
+  assert.equal(
+    (
+      await request(app)
+        .get("/v1/reminders/RM-AUDIT-259")
+        .set("Authorization", "Bearer " + other.token)
+    ).status,
+    404,
+  );
+});
+
+test("finder middleware forwards a database failure and the API remains responsive", async (t) => {
+  const resolver = t.mock.method(finderSessions, "resolve", async () => {
+    throw new Error("database offline");
+  });
+  const failed = await request(app)
+    .post("/v1/recovery/finder-session/otp/send")
+    .set("X-Finder-Session", "unavailable")
+    .send({ phone: "+639172345678" });
+  assert.equal(failed.status, 500);
+  assert.ok(!String(failed.body.message).includes("database offline"));
+  resolver.mock.restore();
+  assert.equal((await request(app).get("/v1/health")).status, 200);
+});
+
+test("concurrent OTP verification enforces the five-attempt budget and consumes a valid code once", async (t) => {
+  const previousExposeCode = process.env.FINDER_OTP_EXPOSE_CODE;
+  process.env.FINDER_OTP_EXPOSE_CODE = "true";
+  t.after(() => {
+    if (previousExposeCode === undefined)
+      delete process.env.FINDER_OTP_EXPOSE_CODE;
+    else process.env.FINDER_OTP_EXPOSE_CODE = previousExposeCode;
+  });
+  const finder = await finderSessions.create("198.51.100.21");
+  const challenge = await finderVerification.send(finder.id, "+639172345671");
+  assert.ok(challenge.developmentCode);
+  await pool.query(
+    "UPDATE finder_otp_challenges SET attempts = 4 WHERE id = ?",
+    [challenge.challengeId],
+  );
+  const wrong = challenge.developmentCode === "000000" ? "999999" : "000000";
+  const results = await Promise.allSettled(
+    Array.from({ length: 4 }, () =>
+      finderVerification.verify(finder.id, challenge.challengeId, wrong),
+    ),
+  );
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 0);
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT attempts FROM finder_otp_challenges WHERE id = ?",
+    [challenge.challengeId],
+  );
+  assert.equal(Number(rows[0].attempts), 5);
+  const second = await finderSessions.create("198.51.100.22");
+  const good = await finderVerification.send(second.id, "+639172345672");
+  const consumed = await Promise.allSettled([
+    finderVerification.verify(
+      second.id,
+      good.challengeId,
+      good.developmentCode,
+    ),
+    finderVerification.verify(
+      second.id,
+      good.challengeId,
+      good.developmentCode,
+    ),
+  ]);
+  assert.equal(consumed.filter((r) => r.status === "fulfilled").length, 1);
+  const [verified] = await pool.query<RowDataPacket[]>(
+    "SELECT phone_verified_at FROM finder_sessions WHERE id = ?",
+    [second.id],
+  );
+  assert.ok(verified[0].phone_verified_at);
+});
+
+test("provider 503 retries durable push delivery after a restart without duplicating the inbox", async (t) => {
+  const owner = await auditOwner("push-retry");
+  const pushes = new Notifications(pool);
+  await pushes.registerDevice(owner.uid, {
+    expoPushToken: "ExpoPushToken[audit-retry]",
+    platform: "android",
+  });
+  await scheduledNotifications.schedule({
+    userId: owner.uid,
+    type: "HEALTH_REMINDER_DUE",
+    title: "Due",
+    body: "Due reminder",
+    scheduledAt: new Date(Date.now() - 1000),
+    dedupeKey: "audit-push-retry",
+  });
+  assert.deepEqual(await scheduledNotifications.processDue(), {
+    sent: 1,
+    failed: 0,
+  });
+  const [inbox] = await pool.query<RowDataPacket[]>(
+    "SELECT id FROM notifications WHERE user_id = ?",
+    [owner.uid],
+  );
+  assert.equal(inbox.length, 1);
+  const failure = t.mock.method(
+    globalThis,
+    "fetch",
+    async () => new Response("", { status: 503 }),
+  );
+  assert.deepEqual(await pushes.processPushDeliveries(), {
+    sent: 0,
+    failed: 1,
+    cancelled: 0,
+  });
+  failure.mock.restore();
+  const [pending] = await pool.query<RowDataPacket[]>(
+    "SELECT status,attempts,last_error FROM push_delivery_jobs",
+  );
+  assert.equal(pending[0].status, "PENDING");
+  assert.equal(Number(pending[0].attempts), 1);
+  assert.equal(pending[0].last_error, "expo-http-503");
+  await pushes.notifyUser(
+    owner.uid,
+    "HEALTH_REMINDER_DUE",
+    "Due",
+    "Due reminder",
+    {},
+    inbox[0].id,
+  );
+  await pool.query(
+    "UPDATE push_delivery_jobs SET available_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 SECOND)",
+  );
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify({ data: [{ status: "ok", id: "audit-receipt" }] }),
+        { status: 200 },
+      ),
+  );
+  assert.deepEqual(await new Notifications(pool).processPushDeliveries(), {
+    sent: 1,
+    failed: 0,
+    cancelled: 0,
+  });
+  const [counts] = await pool.query<RowDataPacket[]>(
+    "SELECT (SELECT COUNT(*) FROM notifications) AS inbox, (SELECT COUNT(*) FROM push_delivery_jobs) AS jobs, (SELECT COUNT(*) FROM expo_push_receipts) AS receipts",
+  );
+  assert.equal(Number(counts[0].inbox), 1);
+  assert.equal(Number(counts[0].jobs), 1);
+  assert.equal(Number(counts[0].receipts), 1);
+});
+
+test("a queued private push is cancelled when its device token changes owner", async (t) => {
+  const a = await auditOwner("push-owner-a"),
+    b = await auditOwner("push-owner-b");
+  const pushes = new Notifications(pool);
+  const input = {
+    expoPushToken: "ExpoPushToken[audit-shared]",
+    platform: "android" as const,
+  };
+  await pushes.registerDevice(a.uid, input);
+  await pushes.notifyUser(
+    a.uid,
+    "HEALTH_REMINDER_DUE",
+    "Private A",
+    "Private A",
+    {},
+  );
+  await pushes.registerDevice(b.uid, input);
+  const fetcher = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("must not send");
+  });
+  assert.deepEqual(await pushes.processPushDeliveries(), {
+    sent: 0,
+    failed: 0,
+    cancelled: 1,
+  });
+  assert.equal(fetcher.mock.callCount(), 0);
+});
+
+test("readiness rejects a missing current outbox migration", async () => {
+  assert.equal((await request(app).get("/v1/ready")).status, 200);
+  await pool.query(
+    "RENAME TABLE push_delivery_jobs TO push_delivery_jobs_audit_hidden",
+  );
+  try {
+    assert.equal((await request(app).get("/v1/ready")).status, 503);
+  } finally {
+    await pool.query(
+      "RENAME TABLE push_delivery_jobs_audit_hidden TO push_delivery_jobs",
+    );
+  }
 });

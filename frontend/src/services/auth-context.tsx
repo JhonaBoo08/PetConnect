@@ -1,6 +1,7 @@
 import { onIdTokenChanged, type User } from "firebase/auth";
 import { AppState } from "react-native";
 import {
+  Fragment,
   createContext,
   useCallback,
   useContext,
@@ -13,7 +14,6 @@ import {
 import type {
   InitializeOwnerRequest,
   SessionResponse,
-  UserRole,
 } from "../../../shared/contracts";
 import {
   ApiError,
@@ -24,7 +24,7 @@ import {
   registerOwner,
 } from "@/services/auth";
 import { firebaseClient } from "@/services/firebase/client";
-import { clearCached } from "@/services/resource-cache";
+import { clearCached, setCacheIdentity } from "@/services/resource-cache";
 
 export type AuthState =
   | { status: "loading" }
@@ -37,11 +37,7 @@ export type AuthState =
 type AuthContextValue = {
   state: AuthState;
   refreshing: boolean;
-  signIn: (
-    email: string,
-    password: string,
-    role: UserRole,
-  ) => Promise<SessionResponse>;
+  signIn: (email: string, password: string) => Promise<SessionResponse>;
   signUp: (
     email: string,
     password: string,
@@ -155,9 +151,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const revision = useRef(0);
   const busy = useRef(false);
   const resolvedOnce = useRef(false);
+  const identity = useRef<string | null | undefined>(undefined);
+  const privateSession = useRef(false);
+  useEffect(() => {
+    privateSession.current = state.status === "ready";
+  }, [state.status]);
 
   const loadSession = useCallback(async (user: User | null) => {
     const turn = ++revision.current;
+    const uid = user?.uid ?? null;
+    if (identity.current !== uid) {
+      identity.current = uid;
+      setCacheIdentity(uid);
+      resolvedOnce.current = false;
+    }
     if (!user) {
       clearCached();
       resolvedOnce.current = true;
@@ -192,6 +199,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const unsubscribe = onIdTokenChanged(
         auth,
         (user) => {
+          if (busy.current && identity.current !== (user?.uid ?? null)) {
+            identity.current = user?.uid ?? null;
+            setCacheIdentity(identity.current);
+            resolvedOnce.current = false;
+            setRefreshing(false);
+            if (privateSession.current) setState({ status: "loading" });
+          }
           if (!busy.current) void loadSession(user);
         },
         (error) =>
@@ -219,9 +233,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ): Promise<T> {
     busy.current = true;
     ++revision.current;
+    resolvedOnce.current = false;
+    setRefreshing(false);
+    if (privateSession.current) setState({ status: "loading" });
     try {
       clearCached();
       const result = await action();
+      identity.current = firebaseClient().auth.currentUser?.uid ?? null;
+      setCacheIdentity(identity.current);
       ++revision.current;
       resolvedOnce.current = true;
       setRefreshing(false);
@@ -251,9 +270,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthContextValue = {
     state,
     refreshing,
-    signIn: (email, password, role) =>
+    signIn: (email, password) =>
       run(
-        () => login(email, password, role),
+        () => login(email, password),
         (session) => ({ status: "ready", session }),
       ),
     signUp: (email, password, input) =>
@@ -270,8 +289,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ),
     signOut: async () => {
       const previous = state;
+      const previousUid = firebaseClient().auth.currentUser?.uid ?? null;
       busy.current = true;
       ++revision.current;
+      if (privateSession.current) setState({ status: "loading" });
       try {
         try {
           const { disableRecoveryPush } = await import("./device-recovery");
@@ -281,13 +302,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // authenticated session when the notification service is unavailable.
         }
         await logout();
+        identity.current = null;
+        setCacheIdentity(null);
         clearCached();
         ++revision.current;
         resolvedOnce.current = true;
         setRefreshing(false);
         setState({ status: "guest" });
       } catch (error) {
-        setState(previous);
+        const user = firebaseClient().auth.currentUser;
+        if ((user?.uid ?? null) === previousUid) {
+          setState(previous);
+        } else {
+          await loadSession(user);
+        }
         throw error;
       } finally {
         busy.current = false;
@@ -301,7 +329,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
   };
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      <Fragment key={identity.current ?? "guest"}>{children}</Fragment>
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

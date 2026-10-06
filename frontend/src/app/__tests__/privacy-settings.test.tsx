@@ -38,13 +38,11 @@ describe("PrivacySettingsScreen", () => {
     mockGetPrivacySettings.mockResolvedValue({
       shareRecoveryPhone: false,
       sharePreciseRecoveryLocation: false,
-      sharePhoneWithClinics: true,
     });
     mockUpdatePrivacySettings.mockImplementation(
       async (patch: Partial<PrivacySettings>) => ({
         shareRecoveryPhone: false,
         sharePreciseRecoveryLocation: false,
-        sharePhoneWithClinics: true,
         ...patch,
       }),
     );

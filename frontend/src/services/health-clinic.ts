@@ -2,16 +2,11 @@ import type {
   Appointment,
   AppointmentInput,
   CareCalendarRange,
-  ClinicAppointmentInput,
-  ClinicAppointmentUpdate,
-  ClinicPatient,
   ClinicSummary,
   HealthRecord,
-  HealthRecordInput,
   HealthReminder,
   HealthReminderInput,
   HealthReminderUpdate,
-  VaccinationInput,
 } from "../../../shared/contracts";
 import { authenticatedFetch } from "./auth";
 import { cachedRequest, invalidateCached } from "./resource-cache";
@@ -79,6 +74,12 @@ export async function listHealthReminders(
         )
       ).reminders,
     { ttlMs: 15_000 },
+  );
+}
+
+export async function getHealthReminder(id: string): Promise<HealthReminder> {
+  return authenticatedFetch<HealthReminder>(
+    "/v1/reminders/" + encodeURIComponent(id),
   );
 }
 
@@ -153,72 +154,3 @@ export async function cancelAppointment(id: string): Promise<Appointment> {
   invalidateOwnerCare();
   return appointment;
 }
-
-export const getClinic = () => authenticatedFetch<ClinicSummary>("/v1/clinic");
-
-export async function listClinicAppointments(): Promise<Appointment[]> {
-  return (
-    await authenticatedFetch<{ appointments: Appointment[] }>(
-      "/v1/clinic/appointments",
-    )
-  ).appointments;
-}
-
-export const updateClinicAppointment = (
-  id: string,
-  input: ClinicAppointmentUpdate,
-) =>
-  authenticatedFetch<Appointment>(
-    `/v1/clinic/appointments/${encodeURIComponent(id)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(input),
-    },
-  );
-
-function clinicPatientBase(token: string) {
-  return `/v1/clinic/patients/recovery/${encodeURIComponent(token)}`;
-}
-
-export const getClinicPatient = (token: string) =>
-  authenticatedFetch<ClinicPatient>(clinicPatientBase(token));
-
-export async function listClinicPatientHealthRecords(
-  token: string,
-): Promise<HealthRecord[]> {
-  return (
-    await authenticatedFetch<{ records: HealthRecord[] }>(
-      `${clinicPatientBase(token)}/health-records`,
-    )
-  ).records;
-}
-
-export const createClinicHealthRecord = (
-  token: string,
-  input: HealthRecordInput,
-) =>
-  authenticatedFetch<HealthRecord>(
-    `${clinicPatientBase(token)}/health-records`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-
-export const createClinicVaccination = (
-  token: string,
-  input: VaccinationInput,
-) =>
-  authenticatedFetch<HealthRecord>(`${clinicPatientBase(token)}/vaccinations`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-
-export const createClinicAppointment = (
-  token: string,
-  input: ClinicAppointmentInput,
-) =>
-  authenticatedFetch<Appointment>(`${clinicPatientBase(token)}/appointments`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });

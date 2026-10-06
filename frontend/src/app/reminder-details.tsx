@@ -23,7 +23,7 @@ import { goBack } from "@/lib/navigation";
 import { authErrorMessage } from "@/services/auth-context";
 import {
   deleteHealthReminder,
-  listHealthReminders,
+  getHealthReminder,
   updateHealthReminder,
 } from "@/services/health-clinic";
 import type { HealthReminder } from "../../../shared/contracts";
@@ -49,10 +49,7 @@ export default function ReminderDetailsScreen() {
 
   const load = useCallback(async () => {
     if (!id) throw new Error("Reminder ID is missing.");
-    const rows = await listHealthReminders();
-    const match = rows.find((row) => row.id === id);
-    if (!match) throw new Error("Reminder not found.");
-    setReminder(match);
+    setReminder(await getHealthReminder(id));
   }, [id]);
 
   useEffect(() => {

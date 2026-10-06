@@ -60,7 +60,7 @@
   },
   "scripts": {
     "start": "expo start",
-    "tunnel": "expo start --tunnel",
+    "tunnel": "cross-env EXPO_TUNNEL_SUBDOMAIN=true expo start --tunnel --clear",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",

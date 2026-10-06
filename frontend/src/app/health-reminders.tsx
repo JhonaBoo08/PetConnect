@@ -177,7 +177,7 @@ export default function HealthRemindersScreen() {
     }
   }
 
-  async function requestAppointment() {
+  async function saveAppointment() {
     if (!selectedPetId || !selectedClinicId) {
       setError("Choose a pet and clinic first.");
       return;
@@ -194,7 +194,9 @@ export default function HealthRemindersScreen() {
         reminderMinutesBefore: 1440,
       });
       setAppointmentReason("");
-      setMessage("Appointment request sent to the clinic.");
+      setMessage(
+        "Appointment saved to your care calendar. Contact the clinic to confirm your visit.",
+      );
       await load();
     } catch (cause) {
       setError(authErrorMessage(cause));
@@ -241,7 +243,7 @@ export default function HealthRemindersScreen() {
           </Pressable>
 
           <Text style={styles.eyebrow}>PET HEALTH</Text>
-          <Text style={styles.heading}>Health & clinic hub</Text>
+          <Text style={styles.heading}>Pet health hub</Text>
           <Text style={styles.supporting}>
             Your pet&apos;s clinic history, reminders, vaccinations, and visits
             stay together in PetConnect.
@@ -456,8 +458,8 @@ export default function HealthRemindersScreen() {
                   <View style={styles.emptyCard}>
                     <Text style={styles.emptyTitle}>No clinic records yet</Text>
                     <Text style={styles.meta}>
-                      A clinic can add records after scanning your active Pet
-                      ID.
+                      Your existing veterinary records are kept here for your
+                      Pet ID.
                     </Text>
                   </View>
                 ) : null}
@@ -468,7 +470,7 @@ export default function HealthRemindersScreen() {
           {!loading && mode === "appointments" ? (
             <>
               <View style={styles.formCard}>
-                <Text style={styles.formTitle}>Request appointment</Text>
+                <Text style={styles.formTitle}>Save appointment</Text>
                 <Text style={styles.label}>Pet</Text>
                 <View style={styles.choiceRow}>
                   {pets.map((pet) => (
@@ -539,13 +541,13 @@ export default function HealthRemindersScreen() {
                 </Text>
                 <Pressable
                   disabled={saving}
-                  onPress={() => void requestAppointment()}
+                  onPress={() => void saveAppointment()}
                   style={styles.primaryButton}
                 >
                   {saving ? (
                     <ActivityIndicator color={Palette.white} />
                   ) : (
-                    <Text style={styles.primaryText}>Send request</Text>
+                    <Text style={styles.primaryText}>Save appointment</Text>
                   )}
                 </Pressable>
               </View>
@@ -631,7 +633,6 @@ export default function HealthRemindersScreen() {
             </>
           ) : null}
         </ScrollView>
-
       </SafeAreaView>
     </View>
   );

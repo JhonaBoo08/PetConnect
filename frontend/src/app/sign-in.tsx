@@ -16,12 +16,8 @@ export default function SignInScreen() {
       submitLabel="Sign In"
       onBack={() => goBack("/")}
       onForgotPassword={() => router.push("/reset-password")}
-      onSubmit={async ({ accountType, email, password }) => {
-        await signIn(
-          email,
-          password,
-          accountType === "vet" ? "CLINIC" : "OWNER",
-        );
+      onSubmit={async ({ email, password }) => {
+        await signIn(email, password);
       }}
       footer={
         <AuthFooter

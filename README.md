@@ -1,6 +1,6 @@
 # PetConnect
 
-PetConnect is a cross-platform pet identity, recovery, and veterinary-care application. Owners can manage multiple pets, issue revocable QR Pet IDs, report pets lost, receive sightings and notifications, manage care reminders and appointments, and share limited pet information with participating clinics.
+PetConnect is a cross-platform pet identity, recovery, and veterinary-care application. Owners can manage multiple pets, issue revocable QR Pet IDs, report pets lost, receive sightings and notifications, manage care reminders and personal appointment schedules. Pet owners are the only application users; clinic names and existing veterinary records remain historical metadata.
 
 ## Architecture
 
@@ -111,13 +111,25 @@ For a pitch/demo on physical phones, run `npm run demo` from the repository root
 
 The API's `PUBLIC_APP_BASE_URL` can remain local during emulator-mode development because the frontend rewrites active recovery-tag URLs to the current Expo runtime. Production still requires the real public HTTPS origin.
 
+### Open the web app by scanning a QR
+
+Start the web server with `npm run web`, then run `npm run web:qr` in another terminal. It checks the current LAN website before generating `frontend/assets/web-access-qr.png`. Scan that image with the phone camera and tap its browser link. Both devices must be on the same Wi-Fi or hotspot.
+
+The QR shown by Expo uses an `exp://` app link; use the separate web QR to open a browser. Regenerate the web QR when the computer's IP address or web port changes. If more than one LAN address is available, choose the reachable URL explicitly:
+
+```bash
+npm run web:qr -- --url http://YOUR_COMPUTER_IP:8081/
+```
+
+For a separately configured API, `EXPO_PUBLIC_API_BASE_URL` and its CORS configuration must also use an address reachable from the phone. A LAN web QR works while the development server is running on that network.
+
 ## Core product flows
 
 Owner accounts can create and manage multiple pets. Pet-specific actions always require the intended pet rather than assuming the first pet in an account.
 
 A Pet ID QR contains a signed public recovery token, not the Firebase UID or internal MySQL pet ID. Owners can rotate or revoke the token. Public recovery responses are filtered by owner privacy settings and exclude health, clinic, authentication, and internal-account data.
 
-Recovery supports `LOST -> SIGHTED -> REUNITED` with finder sightings, foreground location, an owner updates feed, and nearby recovery data. Clinic access requires an authenticated clinic role and a valid recovery token; clinical access remains subject to the appointment/consent boundary implemented by the API.
+Recovery supports `LOST -> SIGHTED -> REUNITED` with finder sightings, foreground location, an owner updates feed, and nearby recovery data. Private care information is available only to the pet owner. Clinic accounts and clinic portal access have been retired. Appointment schedules are personal calendar entries; owners contact the clinic directly to confirm a visit.
 
 ## Quality checks
 
@@ -143,7 +155,7 @@ Backend integration tests need a disposable `petconnect_test` MySQL database:
 npm run test:backend
 ```
 
-They truncate test data. Never point them at a database containing real user data. Migration and backup/restore tests also create temporary test databases and upload directories. Make `mysql` and `mysqldump` available on PATH, or set `MYSQL_BIN` and `MYSQLDUMP_BIN` to their executable paths.
+Guards require test mode, a resolved database ending in `_test` or `_e2e`, and the dedicated demo Auth emulator before server imports or resets. They truncate test data. Use an isolated MySQL instance with test-only administration credentials; see [docs/owner-only-and-test-safety.md](docs/owner-only-and-test-safety.md). Never point them at a database containing real user data. Migration and backup/restore tests also create temporary test databases and upload directories. Make `mysql` and `mysqldump` available on PATH, or set `MYSQL_BIN` and `MYSQLDUMP_BIN` to their executable paths.
 
 Browser tests:
 
@@ -200,7 +212,7 @@ Source-level export success is not the same as store approval or production push
 - Firebase ID tokens are verified by the API.
 - Owner pet operations are owner-scoped.
 - Public recovery data is explicitly filtered.
-- Clinic access is role/relationship constrained.
+- Only owner accounts can access private pet and care data; legacy clinic identities are denied.
 - Uploads are decoded, size/dimension limited, re-encoded, metadata-stripped, and stored under generated filenames.
 - Production configuration has no silent root/blank-password/demo/localhost fallbacks.
 - Recovery signing secrets, service-account JSON, database credentials, Expo tokens, uploads, and backups must never be committed.

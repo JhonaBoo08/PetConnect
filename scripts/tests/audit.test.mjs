@@ -109,3 +109,23 @@ test("rejects inconsistent counts and malformed advisory entries", () => {
     0,
   );
 });
+
+test("does not elevate moderate sibling advisories on high parent packages", () => {
+  const report = structuredClone(clean);
+  report.vulnerabilities.tool = {
+    severity: "high",
+    via: [
+      { severity: "high", url: "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm" },
+      { severity: "moderate", url: "https://github.com/advisories/GHSA-moderate-test-only" },
+    ],
+  };
+  report.metadata.vulnerabilities.high = 1;
+  report.metadata.vulnerabilities.total = 1;
+  assert.equal(runAudit(report).status, 0);
+  report.vulnerabilities.tool.via[1].severity = "high";
+  assert.notEqual(runAudit(report).status, 0);
+  report.vulnerabilities.tool.via[1] = {
+    severity: "critical", url: "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+  };
+  assert.notEqual(runAudit(report).status, 0);
+});

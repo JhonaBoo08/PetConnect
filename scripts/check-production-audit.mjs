@@ -135,10 +135,16 @@ for (const [label, cwd] of targets) {
 
   for (const [name, vulnerability] of Object.entries(vulnerabilities)) {
     if (!["high", "critical"].includes(vulnerability.severity)) continue;
-    const roots = rootAdvisories(vulnerabilities, name);
+    // npm propagates the maximum severity to parent packages.
+    // Evaluate high/critical root advisories without elevating moderate siblings.
+    // Unknown root severities remain subject to the strict exception policy.
+    const roots = rootAdvisories(vulnerabilities, name).filter(
+      (item) => !["info", "low", "moderate"].includes(item.severity),
+    );
     const urls = [...new Set(roots.map((item) => item.url).filter(Boolean))];
     const allow =
       vulnerability.severity === "high" &&
+      !roots.some((item) => item.severity === "critical") &&
       urls.length > 0 &&
       urls.every((url) => allowedHighAdvisories.has(url));
     (allow ? allowed : blocked).push({

@@ -2,16 +2,12 @@ import "dotenv/config";
 import mysql from "mysql2/promise";
 
 import { mysqlConnectionOptions } from "../src/db-config.js";
+import { assertTestDatabase } from "../src/test-safety.js";
 
 async function main() {
-  const database = process.env.MYSQL_DATABASE || "";
-  if (!/^[A-Za-z0-9_]+$/.test(database) || !/(?:_test|_e2e)$/.test(database)) {
-    throw new Error(
-      "Refusing to reset a non-test database. MYSQL_DATABASE must end in _test or _e2e.",
-    );
-  }
-
   const options = mysqlConnectionOptions();
+  const database = options.database;
+  assertTestDatabase(process.env, database);
   delete options.database;
   const connection = await mysql.createConnection({
     ...options,
