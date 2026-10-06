@@ -45,7 +45,7 @@ export class Accounts {
       throw new Error("User does not exist in Firebase Auth");
     }
 
-    if (authUser.customClaims?.role === "CLINIC") {
+    if (authUser.customClaims?.role && authUser.customClaims.role !== "OWNER") {
       throw new Error("Account is not an owner");
     }
 
@@ -238,32 +238,16 @@ export class Accounts {
     }
 
     const claimRole = token.role as UserRole | undefined;
-    if (!claimRole || claimRole !== user.role) {
+    if (claimRole !== "OWNER" || user.role !== "OWNER") {
       throw new Error("Role mismatch");
     }
 
-    let clinicId: string | undefined;
-    if (user.role === "CLINIC") {
-      const [members] = await this.pool.query<RowDataPacket[]>(
-        `SELECT cm.clinic_id 
-         FROM clinic_members cm 
-         JOIN clinics c ON cm.clinic_id = c.id 
-         WHERE cm.user_id = ? AND c.status = 'ACTIVE'`,
-        [uid],
-      );
-      if (members.length === 0) {
-        throw new Error("Clinic membership inactive or missing");
-      }
-      clinicId = members[0].clinic_id;
-    }
-
     return {
-      role: user.role,
+      role: "OWNER",
       status: user.status,
       displayName: user.display_name,
       email: user.email,
       ...(user.phone ? { phone: user.phone } : {}),
-      ...(clinicId ? { clinicId } : {}),
     };
   }
 
@@ -308,7 +292,6 @@ export class Accounts {
         status: AccountStatus;
         share_recovery_phone: number;
         share_precise_recovery_location: number;
-        share_phone_with_clinics: number;
       })[]
     >(
       `SELECT role, status, share_recovery_phone,
@@ -327,7 +310,6 @@ export class Accounts {
       sharePreciseRecoveryLocation: Boolean(
         user.share_precise_recovery_location,
       ),
-      sharePhoneWithClinics: Boolean(user.share_phone_with_clinics),
     };
   }
 
@@ -340,7 +322,6 @@ export class Accounts {
     const keys: (keyof PrivacySettings)[] = [
       "shareRecoveryPhone",
       "sharePreciseRecoveryLocation",
-      "sharePhoneWithClinics",
     ];
 
     for (const key of keys) {
@@ -355,13 +336,11 @@ export class Accounts {
     await this.pool.query(
       `UPDATE users
           SET share_recovery_phone = ?,
-              share_precise_recovery_location = ?,
-              share_phone_with_clinics = ?
+              share_precise_recovery_location = ?
         WHERE id = ?`,
       [
         next.shareRecoveryPhone ? 1 : 0,
         next.sharePreciseRecoveryLocation ? 1 : 0,
-        next.sharePhoneWithClinics ? 1 : 0,
         uid,
       ],
     );
@@ -378,64 +357,6 @@ export class Accounts {
       ],
     );
     return next;
-  }
-
-  async provisionClinic(
-    input: {
-      uid: string;
-      email: string;
-      clinicId: string;
-      name: string;
-      address: string;
-      phone?: string;
-    },
-    operatorId: string,
-  ): Promise<void> {
-    if (
-      !input ||
-      !input.uid ||
-      !input.email ||
-      !input.clinicId ||
-      !input.name ||
-      !input.address
-    ) {
-      throw new Error("Invalid clinic input");
-    }
-
-    let authUser;
-    try {
-      authUser = await this.auth.getUser(input.uid);
-    } catch {
-      authUser = await this.auth.createUser({
-        uid: input.uid,
-        email: input.email,
-      });
-    }
-
-    await this.pool.query(
-      "INSERT INTO clinics (id, name, address, phone, status) VALUES (?, ?, ?, ?, 'ACTIVE') ON DUPLICATE KEY UPDATE name = VALUES(name), address = VALUES(address)",
-      [input.clinicId, input.name, input.address, input.phone || null],
-    );
-
-    await this.pool.query(
-      "INSERT INTO users (id, email, role, display_name, phone, status) VALUES (?, ?, 'CLINIC', ?, ?, 'ACTIVE') ON DUPLICATE KEY UPDATE status = 'ACTIVE'",
-      [input.uid, authUser.email, input.name, input.phone || null],
-    );
-
-    await this.pool.query(
-      "INSERT IGNORE INTO clinic_members (clinic_id, user_id) VALUES (?, ?)",
-      [input.clinicId, input.uid],
-    );
-
-    await this.auth.setCustomUserClaims(input.uid, {
-      role: "CLINIC",
-      clinicId: input.clinicId,
-    });
-
-    await this.pool.query(
-      "INSERT INTO audit_logs (entity_type, entity_id, action, performed_by, details) VALUES ('clinic', ?, 'provision_clinic', ?, ?)",
-      [input.clinicId, operatorId, JSON.stringify({ userId: input.uid })],
-    );
   }
 
   async disable(uid: string, operatorId: string): Promise<void> {

@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Svg, { Circle, Path, Rect } from "react-native-svg";
+import Svg, { Path } from "react-native-svg";
 
 import { Fonts, MaxContentWidth, Spacing } from "@/constants/theme";
 import { Palette } from "@/constants/palette";
@@ -34,38 +34,6 @@ function BackArrow({
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </Svg>
-  );
-}
-
-function PawIcon({
-  size = 16,
-  color = Palette.forestDark,
-}: {
-  size?: number;
-  color?: string;
-}) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-      <Circle cx={7} cy={8.5} r={2.4} />
-      <Circle cx={12} cy={6.5} r={2.4} />
-      <Circle cx={17} cy={8.5} r={2.4} />
-      <Path d="M12 11.5c-3.2 0-5.6 2.1-5.6 4.5 0 1.7 1.3 2.9 3 2.9 1 0 1.7-.4 2.6-.4s1.6.4 2.6.4c1.7 0 3-1.2 3-2.9 0-2.4-2.4-4.5-5.6-4.5z" />
-    </Svg>
-  );
-}
-
-function VetIcon({
-  size = 16,
-  color = Palette.forestDark,
-}: {
-  size?: number;
-  color?: string;
-}) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-      <Rect x={10} y={3.5} width={4} height={17} rx={1.6} />
-      <Rect x={3.5} y={10} width={17} height={4} rx={1.6} />
     </Svg>
   );
 }
@@ -114,9 +82,7 @@ export function AuthFooter({
   );
 }
 
-export type AccountType = "owner" | "vet";
 export type AuthValues = {
-  accountType: AccountType;
   email: string;
   password: string;
   displayName: string;
@@ -128,7 +94,6 @@ type AuthScreenProps = {
   subtitle: string;
   submitLabel: string;
   existingEmail?: string;
-  clinicNote?: string;
   footer: ReactNode;
   onBack: () => void | Promise<void>;
   onForgotPassword?: () => void;
@@ -141,13 +106,11 @@ export function AuthScreen({
   subtitle,
   submitLabel,
   existingEmail,
-  clinicNote,
   footer,
   onBack,
   onForgotPassword,
   onSubmit,
 }: AuthScreenProps) {
-  const [accountType, setAccountType] = useState<AccountType>("owner");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState(existingEmail || "");
   const [password, setPassword] = useState("");
@@ -157,10 +120,9 @@ export function AuthScreen({
   const [success, setSuccess] = useState("");
 
   const completing = mode === "signUp" && !!existingEmail;
-  const clinicSignup = mode === "signUp" && accountType === "vet";
 
   async function submit() {
-    if (pending || clinicSignup) return;
+    if (pending) return;
     setError("");
     setSuccess("");
     const address = (existingEmail || email).trim();
@@ -186,7 +148,6 @@ export function AuthScreen({
     setPending(true);
     try {
       const result = await onSubmit({
-        accountType,
         displayName: displayName.trim(),
         email: address,
         password,
@@ -252,193 +213,124 @@ export function AuthScreen({
               </Text>
             </View>
 
-            {mode !== "reset" && !completing ? (
-              <View style={styles.segment}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: accountType === "owner" }}
-                  onPress={() => {
-                    setAccountType("owner");
-                    setError("");
-                  }}
-                  style={[
-                    styles.segmentItem,
-                    accountType === "owner" && styles.segmentItemActive,
-                  ]}
-                >
-                  <PawIcon
-                    color={
-                      accountType === "owner" ? "#FFFFFF" : Palette.forestDark
-                    }
+            <View style={styles.form}>
+              {mode === "signUp" ? (
+                <View style={styles.field}>
+                  <Text style={styles.label}>Full name</Text>
+                  <TextInput
+                    accessibilityLabel="Full name"
+                    value={displayName}
+                    onChangeText={(value) => {
+                      setDisplayName(value);
+                      setError("");
+                    }}
+                    placeholder="Your name"
+                    placeholderTextColor={Palette.placeholder}
+                    autoComplete="name"
+                    style={styles.input}
                   />
-                  <Text
-                    style={[
-                      styles.segmentLabel,
-                      accountType === "owner" && styles.segmentLabelActive,
-                    ]}
-                  >
-                    Pet Owner
-                  </Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: accountType === "vet" }}
-                  onPress={() => {
-                    setAccountType("vet");
-                    setError("");
-                  }}
-                  style={[
-                    styles.segmentItem,
-                    accountType === "vet" && styles.segmentItemActive,
-                  ]}
-                >
-                  <VetIcon
-                    color={
-                      accountType === "vet" ? "#FFFFFF" : Palette.forestDark
-                    }
-                  />
-                  <Text
-                    style={[
-                      styles.segmentLabel,
-                      accountType === "vet" && styles.segmentLabelActive,
-                    ]}
-                  >
-                    Vet Clinic
-                  </Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {clinicSignup ? (
-              <Text style={styles.clinicNote}>
-                {clinicNote ||
-                  "Clinic accounts are set up by the Pet-Connect team. If you have credentials, sign in as Vet Clinic."}
-              </Text>
-            ) : (
-              <>
-                <View style={styles.form}>
-                  {mode === "signUp" ? (
-                    <View style={styles.field}>
-                      <Text style={styles.label}>Full name</Text>
-                      <TextInput
-                        accessibilityLabel="Full name"
-                        value={displayName}
-                        onChangeText={(value) => {
-                          setDisplayName(value);
-                          setError("");
-                        }}
-                        placeholder="Your name"
-                        placeholderTextColor={Palette.placeholder}
-                        autoComplete="name"
-                        style={styles.input}
-                      />
-                    </View>
-                  ) : null}
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Email address</Text>
-                    <TextInput
-                      accessibilityLabel="Email address"
-                      value={existingEmail || email}
-                      onChangeText={(value) => {
-                        setEmail(value);
-                        setError("");
-                      }}
-                      editable={!completing && !pending}
-                      placeholder="you@example.com"
-                      placeholderTextColor={Palette.placeholder}
-                      keyboardType="email-address"
-                      autoComplete="email"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      style={styles.input}
-                    />
-                  </View>
-                  {mode !== "reset" && !completing ? (
-                    <View style={styles.field}>
-                      <Text style={styles.label}>Password</Text>
-                      <TextInput
-                        accessibilityLabel="Password"
-                        value={password}
-                        onChangeText={(value) => {
-                          setPassword(value);
-                          setError("");
-                        }}
-                        placeholder="At least 6 characters"
-                        placeholderTextColor={Palette.placeholder}
-                        secureTextEntry
-                        autoComplete={
-                          mode === "signUp"
-                            ? "new-password"
-                            : "current-password"
-                        }
-                        style={styles.input}
-                      />
-                    </View>
-                  ) : null}
-                  {mode === "signUp" && !completing ? (
-                    <View style={styles.field}>
-                      <Text style={styles.label}>Confirm password</Text>
-                      <TextInput
-                        accessibilityLabel="Confirm password"
-                        value={confirmPassword}
-                        onChangeText={(value) => {
-                          setConfirmPassword(value);
-                          setError("");
-                        }}
-                        placeholder="Repeat your password"
-                        placeholderTextColor={Palette.placeholder}
-                        secureTextEntry
-                        autoComplete="new-password"
-                        style={styles.input}
-                      />
-                    </View>
-                  ) : null}
                 </View>
+              ) : null}
+              <View style={styles.field}>
+                <Text style={styles.label}>Email address</Text>
+                <TextInput
+                  accessibilityLabel="Email address"
+                  value={existingEmail || email}
+                  onChangeText={(value) => {
+                    setEmail(value);
+                    setError("");
+                  }}
+                  editable={!completing && !pending}
+                  placeholder="you@example.com"
+                  placeholderTextColor={Palette.placeholder}
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={styles.input}
+                />
+              </View>
+              {mode !== "reset" && !completing ? (
+                <View style={styles.field}>
+                  <Text style={styles.label}>Password</Text>
+                  <TextInput
+                    accessibilityLabel="Password"
+                    value={password}
+                    onChangeText={(value) => {
+                      setPassword(value);
+                      setError("");
+                    }}
+                    placeholder="At least 6 characters"
+                    placeholderTextColor={Palette.placeholder}
+                    secureTextEntry
+                    autoComplete={
+                      mode === "signUp" ? "new-password" : "current-password"
+                    }
+                    style={styles.input}
+                  />
+                </View>
+              ) : null}
+              {mode === "signUp" && !completing ? (
+                <View style={styles.field}>
+                  <Text style={styles.label}>Confirm password</Text>
+                  <TextInput
+                    accessibilityLabel="Confirm password"
+                    value={confirmPassword}
+                    onChangeText={(value) => {
+                      setConfirmPassword(value);
+                      setError("");
+                    }}
+                    placeholder="Repeat your password"
+                    placeholderTextColor={Palette.placeholder}
+                    secureTextEntry
+                    autoComplete="new-password"
+                    style={styles.input}
+                  />
+                </View>
+              ) : null}
+            </View>
 
-                {mode === "signIn" && onForgotPassword ? (
-                  <Pressable
-                    accessibilityRole="link"
-                    onPress={onForgotPassword}
-                    style={styles.inlineLink}
-                  >
-                    <Text style={styles.inlineLinkText}>Forgot password?</Text>
-                  </Pressable>
-                ) : null}
-                {error ? (
-                  <Text accessibilityRole="alert" style={styles.message}>
-                    {error}
-                  </Text>
-                ) : null}
-                {success ? (
-                  <Text
-                    accessibilityRole="alert"
-                    style={[styles.message, styles.success]}
-                  >
-                    {success}
-                  </Text>
-                ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: pending }}
-                  disabled={pending}
-                  onPress={() => void submit()}
-                  style={({ pressed }) => [
-                    styles.primaryButton,
-                    pending && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  {pending ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.primaryLabel}>
-                      {completing ? "Finish Account" : submitLabel}
-                    </Text>
-                  )}
-                </Pressable>
-              </>
-            )}
-
+            {mode === "signIn" && onForgotPassword ? (
+              <Pressable
+                accessibilityRole="link"
+                onPress={onForgotPassword}
+                style={styles.inlineLink}
+              >
+                <Text style={styles.inlineLinkText}>Forgot password?</Text>
+              </Pressable>
+            ) : null}
+            {error ? (
+              <Text accessibilityRole="alert" style={styles.message}>
+                {error}
+              </Text>
+            ) : null}
+            {success ? (
+              <Text
+                accessibilityRole="alert"
+                style={[styles.message, styles.success]}
+              >
+                {success}
+              </Text>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: pending }}
+              disabled={pending}
+              onPress={() => void submit()}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pending && styles.disabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              {pending ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.primaryLabel}>
+                  {completing ? "Finish Account" : submitLabel}
+                </Text>
+              )}
+            </Pressable>
             {footer}
           </ScrollView>
         </KeyboardAvoidingView>
@@ -535,42 +427,6 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: Palette.inkMuted,
   },
-  segment: {
-    flexDirection: "row",
-    backgroundColor: Palette.segmentTrack,
-    borderRadius: 999,
-    padding: 4,
-    marginTop: Spacing.four,
-    gap: 4,
-  },
-  segmentItem: {
-    flex: 1,
-    height: 40,
-    borderRadius: 999,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.two,
-  },
-  segmentItemActive: {
-    backgroundColor: Palette.forestDark,
-  },
-  segmentLabel: {
-    fontFamily: Fonts.sans,
-    fontSize: 14,
-    fontWeight: "600",
-    color: Palette.forestDark,
-  },
-  segmentLabelActive: {
-    color: "#FFFFFF",
-  },
-  clinicNote: {
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    lineHeight: 19,
-    color: Palette.inkMuted,
-    marginTop: Spacing.three,
-  },
   form: {
     marginTop: Spacing.five,
     gap: Spacing.four,
@@ -602,10 +458,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: Spacing.five,
-    shadowColor: Palette.forestDark,
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    ...Platform.select({
+      web: {
+        boxShadow: `0px 4px 10px ${Palette.forestDark}40`,
+      },
+      default: {
+        shadowColor: Palette.forestDark,
+        shadowOpacity: 0.25,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+      },
+    }),
     elevation: 4,
   },
   primaryLabel: {

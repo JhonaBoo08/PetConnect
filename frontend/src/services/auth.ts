@@ -13,7 +13,6 @@ import type {
   SessionResponse,
   UpdatePrivacySettings,
   UpdateProfileRequest,
-  UserRole,
 } from "../../../shared/contracts";
 
 export class ApiError extends Error {
@@ -80,8 +79,18 @@ export async function authenticatedFetch<T>(
 ): Promise<T> {
   const auth = firebaseClient().auth;
   await withAuthTimeout(auth.authStateReady());
-  if (!auth.currentUser) throw new Error("Sign in to continue.");
-  const idToken = await withAuthTimeout(auth.currentUser.getIdToken());
+  const user = auth.currentUser;
+  if (!user) throw new Error("Sign in to continue.");
+  const assertIdentity = () => {
+    if (auth.currentUser?.uid !== user.uid)
+      throw new ApiError(
+        "Your account changed. Please try again.",
+        409,
+        "account-changed",
+      );
+  };
+  const idToken = await withAuthTimeout(user.getIdToken());
+  assertIdentity();
 
   const headers = new Headers(options.headers);
   headers.set("Authorization", `Bearer ${idToken}`);
@@ -94,6 +103,7 @@ export async function authenticatedFetch<T>(
     }),
   );
   const data: unknown = await response.json().catch(() => null);
+  assertIdentity();
   if (!response.ok) {
     const body = data as { message?: string; error?: string } | null;
     throw new ApiError(
@@ -134,19 +144,15 @@ export async function registerOwner(
   return completeOwnerRegistration(input);
 }
 
-export async function login(email: string, password: string, role: UserRole) {
+export async function login(email: string, password: string) {
   const auth = firebaseClient().auth;
   await withAuthTimeout(
     signInWithEmailAndPassword(auth, email.trim(), password),
   );
   const session = await currentSession();
-  if (session.role !== role) {
+  if (session.role !== "OWNER") {
     await signOut(auth);
-    throw new Error(
-      role === "CLINIC"
-        ? "This is a pet owner account. Select Pet Owner to sign in."
-        : "This is a clinic account. Select Vet Clinic to sign in.",
-    );
+    throw new Error("This account cannot access Pet-Connect.");
   }
   return session;
 }

@@ -265,7 +265,7 @@ app.get("/v1/ready", async (_req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-store");
   try {
     await pool.query({
-      sql: "SELECT 1 FROM media_cleanup_jobs LIMIT 0",
+      sql: "SELECT pets.microchip_number FROM pets, media_cleanup_jobs, finder_sessions, finder_otp_challenges, sighting_evidence, recovery_contact_events, pet_recovery_tags, recovery_tag_scans, expo_push_receipts, push_delivery_jobs LIMIT 0",
       timeout: 5000,
     });
     if (uploadStorageProvider === "local") {
@@ -466,55 +466,25 @@ async function requireOwner(
   }
 }
 
-async function requireClinic(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction,
-) {
-  try {
-    const session = await accounts.session(req.user!.uid, req.user!.token);
-    if (session.role !== "CLINIC" || !session.clinicId) {
-      return res.status(403).json({
-        error: "permission-denied",
-        message: "Active clinic account required.",
-      });
-    }
-    req.session = session;
-    return next();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (
-      [
-        "User not found",
-        "Account not active",
-        "Role mismatch",
-        "Clinic membership inactive or missing",
-      ].includes(message)
-    ) {
-      return res.status(403).json({
-        error: "permission-denied",
-        message: "Active clinic account required.",
-      });
-    }
-    return next(error);
-  }
-}
-
 async function requireFinderSession(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction,
 ) {
-  const credential = req.get("X-Finder-Session");
-  const finder = await finderSessions.resolve(credential);
-  if (!finder) {
-    return res.status(401).json({
-      error: "finder-session-required",
-      message: "Start a new PetConnect finder session and try again.",
-    });
+  try {
+    const credential = req.get("X-Finder-Session");
+    const finder = await finderSessions.resolve(credential);
+    if (!finder) {
+      return res.status(401).json({
+        error: "finder-session-required",
+        message: "Start a new PetConnect finder session and try again.",
+      });
+    }
+    req.finder = finder;
+    return next();
+  } catch (error) {
+    return next(error);
   }
-  req.finder = finder;
-  return next();
 }
 
 function petRoute(
@@ -1439,6 +1409,25 @@ app.post(
   }),
 );
 
+app.get(
+  "/v1/reminders/:id",
+  requireAuth,
+  requireOwner,
+  petRoute(async (req, res) => {
+    const reminder = await healthClinic.reminderById(
+      req.user!.uid,
+      req.params.id,
+    );
+    if (!reminder) {
+      res
+        .status(404)
+        .json({ error: "not-found", message: "Reminder not found." });
+      return;
+    }
+    res.json(reminder);
+  }),
+);
+
 app.patch(
   "/v1/reminders/:id",
   requireAuth,
@@ -1524,175 +1513,6 @@ app.post(
       return;
     }
     res.json(appointment);
-  }),
-);
-
-app.get(
-  "/v1/clinic",
-  requireAuth,
-  requireClinic,
-  petRoute(async (req, res) => {
-    const clinic = await healthClinic.currentClinic(req.session!.clinicId!);
-    if (!clinic) {
-      res
-        .status(404)
-        .json({ error: "not-found", message: "Clinic not found." });
-      return;
-    }
-    res.json(clinic);
-  }),
-);
-
-app.get(
-  "/v1/clinic/appointments",
-  requireAuth,
-  requireClinic,
-  petRoute(async (req, res) => {
-    res.json({
-      appointments: await healthClinic.clinicAppointments(
-        req.session!.clinicId!,
-      ),
-    });
-  }),
-);
-
-app.patch(
-  "/v1/clinic/appointments/:id",
-  requireAuth,
-  requireClinic,
-  petRoute(async (req, res) => {
-    const appointment = await healthClinic.updateClinicAppointment(
-      req.session!.clinicId!,
-      req.user!.uid,
-      req.params.id,
-      req.body,
-    );
-    if (!appointment) {
-      res.status(404).json({
-        error: "not-found",
-        message: "Appointment not found.",
-      });
-      return;
-    }
-    res.json(appointment);
-  }),
-);
-
-app.get(
-  "/v1/clinic/patients/recovery/:token",
-  requireAuth,
-  requireClinic,
-  petRoute(async (req, res) => {
-    const petId = await recovery.resolvePetId(req.params.token);
-    if (!petId) {
-      res.status(404).json({
-        error: "not-found",
-        message: "This Pet ID is invalid, expired, or disabled.",
-      });
-      return;
-    }
-    const patient = await healthClinic.clinicPatient(
-      req.session!.clinicId!,
-      petId,
-    );
-    if (!patient) {
-      res
-        .status(404)
-        .json({ error: "not-found", message: "Patient not found." });
-      return;
-    }
-    res.json(patient);
-  }),
-);
-
-app.get(
-  "/v1/clinic/patients/recovery/:token/health-records",
-  requireAuth,
-  requireClinic,
-  petRoute(async (req, res) => {
-    const petId = await recovery.resolvePetId(req.params.token);
-    if (!petId) {
-      res.status(404).json({
-        error: "not-found",
-        message: "This Pet ID is invalid, expired, or disabled.",
-      });
-      return;
-    }
-    res.json({
-      records: await healthClinic.recordsForClinicPet(
-        req.session!.clinicId!,
-        petId,
-      ),
-    });
-  }),
-);
-
-app.post(
-  "/v1/clinic/patients/recovery/:token/health-records",
-  requireAuth,
-  requireClinic,
-  petRoute(async (req, res) => {
-    const petId = await recovery.resolvePetId(req.params.token);
-    if (!petId) {
-      res.status(404).json({
-        error: "not-found",
-        message: "This Pet ID is invalid, expired, or disabled.",
-      });
-      return;
-    }
-    const record = await healthClinic.createHealthRecord(
-      req.session!.clinicId!,
-      req.user!.uid,
-      petId,
-      req.body,
-    );
-    res.status(201).json(record);
-  }),
-);
-
-app.post(
-  "/v1/clinic/patients/recovery/:token/vaccinations",
-  requireAuth,
-  requireClinic,
-  petRoute(async (req, res) => {
-    const petId = await recovery.resolvePetId(req.params.token);
-    if (!petId) {
-      res.status(404).json({
-        error: "not-found",
-        message: "This Pet ID is invalid, expired, or disabled.",
-      });
-      return;
-    }
-    const record = await healthClinic.createVaccination(
-      req.session!.clinicId!,
-      req.user!.uid,
-      petId,
-      req.body,
-    );
-    res.status(201).json(record);
-  }),
-);
-
-app.post(
-  "/v1/clinic/patients/recovery/:token/appointments",
-  requireAuth,
-  requireClinic,
-  petRoute(async (req, res) => {
-    const petId = await recovery.resolvePetId(req.params.token);
-    if (!petId) {
-      res.status(404).json({
-        error: "not-found",
-        message: "This Pet ID is invalid, expired, or disabled.",
-      });
-      return;
-    }
-    const appointment = await healthClinic.clinicCreateAppointment(
-      req.session!.clinicId!,
-      req.user!.uid,
-      petId,
-      req.body,
-    );
-    res.status(201).json(appointment);
   }),
 );
 

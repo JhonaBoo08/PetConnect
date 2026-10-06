@@ -8,11 +8,11 @@
 
 ## Service
 
-PetConnect provides tools for pet identity, QR-assisted recovery, lost-pet reports and sightings, owner notifications, pet-care reminders, appointments, and authorized clinic collaboration. The service is an information and coordination system; it does not guarantee that a lost pet will be found or that a notification will be delivered.
+PetConnect provides tools for pet identity, QR-assisted recovery, lost-pet reports and sightings, owner notifications, pet-care reminders, and personal appointment schedules. Owners must contact the clinic directly to confirm a visit. The service is an information and coordination system; it does not guarantee that a lost pet will be found or that a notification will be delivered.
 
 ## Accounts
 
-Users must provide accurate account information, protect access to their account, and use only roles they are authorized to hold. Clinic roles are provisioned by the operator. Users must not attempt to access another owner's private records or bypass authorization controls.
+Pet owners are the only application users. Users must provide accurate account information and protect access to their account. Users must not attempt to access another owner's private records or bypass authorization controls.
 
 ## Recovery information
 

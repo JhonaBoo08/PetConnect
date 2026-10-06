@@ -16,7 +16,7 @@ Anonymous finder sessions are random server-issued credentials. PetConnect does 
 
 ## How information is used
 
-Information is used to authenticate accounts, manage pet profiles and Pet IDs, help recover lost pets, deliver owner/clinic notifications, manage pet health/reminder/appointment workflows, secure the service, diagnose failures, and meet lawful operational obligations.
+Information is used to authenticate accounts, manage pet profiles and Pet IDs, help recover lost pets, deliver owner notifications, manage pet health/reminder/appointment workflows, secure the service, diagnose failures, and meet lawful operational obligations.
 
 PetConnect does not require continuous background location tracking. Recovery location is collected when a user deliberately invokes a location-enabled recovery action.
 
@@ -30,9 +30,9 @@ Owners can rotate or revoke a Pet ID recovery token. Old/revoked tokens stop res
 
 Finder evidence submitted through public recovery is private to the affected pet owner and authorized backend processing. Exact finder GPS is not automatically published to the nearby lost-pet feed; public recovery coordinates continue to follow the owner's location-precision setting.
 
-## Clinic access
+## Private care information
 
-Clinic access requires an authenticated clinic account and follows PetConnect's clinic/pet authorization and appointment relationship rules. Scanning a Pet ID identifies the pet; it does not by itself create unrestricted permanent access to all clinical data.
+Pet owners are the only application users. Private pet-care information is available to the owner; a public Pet ID does not grant access to health records. Clinic names and historical veterinary records may remain in an owner's care history, but clinics have no account or portal access.
 
 ## Sharing and service providers
 

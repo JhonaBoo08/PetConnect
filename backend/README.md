@@ -1,6 +1,6 @@
 # PetConnect API
 
-The backend is an Express/TypeScript API backed by MySQL 8. Firebase Authentication supplies user identity; the API verifies Firebase ID tokens and enforces PetConnect roles, ownership, privacy, clinic authorization, and recovery-token rules.
+The backend is an Express/TypeScript API backed by MySQL 8. Firebase Authentication supplies user identity; the API verifies Firebase ID tokens and enforces the owner role, ownership, privacy, and recovery-token rules.
 
 ## Local setup
 
@@ -47,9 +47,9 @@ When `NODE_ENV=production`, startup requires explicit safe values, HTTPS public 
 
 ## Authentication and roles
 
-Owner self-registration uses Firebase email/password and `POST /v1/account/initialize`. Clinic accounts are operator-provisioned; ordinary account creation does not grant clinic role.
+Owner self-registration uses Firebase email/password and `POST /v1/account/initialize`. Pet owners are the only supported application users. Clinic provisioning and clinic-authenticated routes have been retired; historical clinic identities are denied access.
 
-Protected requests use `Authorization: Bearer <Firebase ID token>`. Token verification checks revoked/disabled sessions. Owner and clinic routes enforce role and relationship checks server-side.
+Protected requests use `Authorization: Bearer <Firebase ID token>`. Token verification checks revoked/disabled sessions. Private owner routes enforce the owner role and resource ownership server-side.
 
 ## Pet CRUD and photos
 
@@ -99,13 +99,13 @@ Abuse controls are progressive. Normal recovery viewing is challenge-free. Submi
 
 Finder-session lifetime is at most 30 days. Unused staged evidence defaults to 24 hours. Attached evidence and private finder contact/location are cleaned after the configured incident-retention window (30 days by default after reunion, or after a non-lost recovery contact). Retention also removes free-form finder notes, copied finder coordinates in reunited reports, and historical finder notification bodies that could contain contact/location details. New notification bodies use generic copy; private details are read from the authenticated report. OTP challenges are short-lived and old challenges are periodically deleted. The cleanup worker is bounded and runs alongside the notification worker. File deletion failures remain retryable and are logged instead of marking retained bytes as deleted.
 
-In-app notifications are durable MySQL rows. Native Expo push is optional. Successful Expo push tickets are recorded for receipt checks; `DeviceNotRegistered` disables the affected token so later notifications do not repeatedly target it.
+In-app notifications and per-device `push_delivery_jobs` are committed together in MySQL. Native Expo push is optional, and transient delivery failures remain retryable with backoff. Successful Expo push tickets are recorded for receipt checks; `DeviceNotRegistered` disables the affected token so later notifications do not repeatedly target it.
 
-## Health and clinic workflows
+## Owner health and care workflows
 
 Authenticated owner APIs cover health records, vaccinations, reminders, clinics, and appointments. Reminder and appointment notification jobs use the MySQL `scheduled_notifications` queue.
 
-Clinic patient lookup uses a valid PetConnect recovery token plus an authenticated active clinic account. The QR identifies the pet; it does not by itself grant unrestricted clinical access. Clinical history/write access follows the appointment/relationship rules in `health-clinic.ts`.
+Only owners can read their private care information and manage reminders or personal appointment schedules. Clinic names, locations, and existing veterinary record attribution remain metadata. Saving an appointment does not book a clinic visit; the owner must contact the clinic to confirm it. Reminder and appointment mutations commit with their linked notification work in one transaction. Historical clinic records are preserved, and there are no clinic patient lookup or clinical write APIs.
 
 ## Database migrations
 

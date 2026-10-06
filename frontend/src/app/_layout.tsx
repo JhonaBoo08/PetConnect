@@ -43,7 +43,7 @@ function AppNavigator() {
     const observers = [
       () =>
         observeNotificationResponses((data) => {
-          if (active) router.push(notificationTarget(data, role));
+          if (active) router.push(notificationTarget(data));
         }),
       observePushTokenChanges,
     ];
@@ -67,12 +67,7 @@ function AppNavigator() {
     const publicRoutes = ["/scan", "/recover"];
     if (publicRoutes.includes(pathname)) return;
 
-    let destination:
-      | "/"
-      | "/create-account"
-      | "/dashboard"
-      | "/clinic-dashboard"
-      | "/session-status";
+    let destination: "/" | "/create-account" | "/dashboard" | "/session-status";
     let allowedRoutes: string[];
 
     if (state.status === "guest") {
@@ -84,9 +79,6 @@ function AppNavigator() {
     } else if (state.status === "blocked" || state.status === "error") {
       destination = "/session-status";
       allowedRoutes = ["/session-status"];
-    } else if (state.session.role === "CLINIC") {
-      destination = "/clinic-dashboard";
-      allowedRoutes = ["/clinic-dashboard", "/clinic-scan", "/clinic-patient"];
     } else {
       destination = "/dashboard";
       allowedRoutes = [
@@ -118,7 +110,6 @@ function AppNavigator() {
 
   const guest = state.status === "guest";
   const owner = state.status === "ready" && state.session.role === "OWNER";
-  const clinic = state.status === "ready" && state.session.role === "CLINIC";
   const issue = state.status === "blocked" || state.status === "error";
 
   return (
@@ -194,11 +185,6 @@ function AppNavigator() {
             options={{ animation: "slide_from_right" }}
           />
         </Stack.Protected>
-        <Stack.Protected guard={clinic}>
-          <Stack.Screen name="clinic-dashboard" />
-          <Stack.Screen name="clinic-scan" />
-          <Stack.Screen name="clinic-patient" />
-        </Stack.Protected>
         <Stack.Protected guard={issue}>
           <Stack.Screen name="session-status" />
         </Stack.Protected>
@@ -207,8 +193,7 @@ function AppNavigator() {
       {refreshing && state.status === "ready" ? (
         <View
           accessibilityLiveRegion="polite"
-          pointerEvents="none"
-          style={styles.syncFeedback}
+          style={[styles.syncFeedback, { pointerEvents: "none" }]}
         >
           <ActivityIndicator size="small" color={Palette.forestDark} />
           <Text style={styles.syncFeedbackText}>Syncing</Text>

@@ -431,9 +431,6 @@ test.describe("owner integration", () => {
     await publicPhone.click();
     await expect(publicPhone).toBeChecked();
 
-    await page.goto("/clinic-dashboard");
-    await expect(page).toHaveURL(/\/dashboard$/);
-
     await page.goto("/my-pets");
     await page.getByRole("button", { name: "View Bantay Pet ID" }).click();
 
@@ -492,13 +489,11 @@ test.describe("owner integration", () => {
 test.describe("route guards", () => {
   test.skip(!integration, "Requires Firebase Auth emulator.");
 
-  test("guest cannot enter owner or clinic protected routes", async ({
-    page,
-  }) => {
+  test("guest cannot enter protected owner routes", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/$/);
 
-    await page.goto("/clinic-dashboard");
+    await page.goto("/care-calendar");
     await expect(page).toHaveURL(/\/$/);
   });
 });

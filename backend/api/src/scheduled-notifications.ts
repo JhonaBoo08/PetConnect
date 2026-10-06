@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool, RowDataPacket } from "mysql2/promise";
+import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { Notifications } from "./notifications.js";
 
 type ScheduledRow = RowDataPacket & {
@@ -34,14 +34,17 @@ export class ScheduledNotifications {
     private notifications: Notifications,
   ) {}
 
-  async schedule(input: ScheduledNotificationInput): Promise<string> {
+  async schedule(
+    input: ScheduledNotificationInput,
+    connection: Pool | PoolConnection = this.pool,
+  ): Promise<string> {
     if (!Number.isFinite(input.scheduledAt.getTime())) {
       throw new Error("Invalid scheduled notification time.");
     }
     const id = `SN-${randomUUID().toUpperCase()}`;
     const data = JSON.stringify(input.data || {});
     if (input.dedupeKey) {
-      await this.pool.query(
+      await connection.query(
         `INSERT INTO scheduled_notifications (
           id, user_id, type, title, body, data, scheduled_at, dedupe_key, status
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
@@ -69,7 +72,7 @@ export class ScheduledNotifications {
       return id;
     }
 
-    await this.pool.query(
+    await connection.query(
       `INSERT INTO scheduled_notifications (
         id, user_id, type, title, body, data, scheduled_at, status
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
@@ -86,8 +89,11 @@ export class ScheduledNotifications {
     return id;
   }
 
-  async cancel(dedupeKey: string): Promise<void> {
-    await this.pool.query(
+  async cancel(
+    dedupeKey: string,
+    connection: Pool | PoolConnection = this.pool,
+  ): Promise<void> {
+    await connection.query(
       `UPDATE scheduled_notifications
           SET status = 'CANCELLED', claimed_at = NULL
         WHERE dedupe_key = ? AND status IN ('PENDING', 'PROCESSING')`,
@@ -201,6 +207,7 @@ export class ScheduledNotifications {
       this.running = true;
       void (async () => {
         await this.processDue();
+        await this.notifications.processPushDeliveries();
         await this.notifications.processPushReceipts();
       })()
         .catch(() =>

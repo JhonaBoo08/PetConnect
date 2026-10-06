@@ -1,80 +1,73 @@
-type CacheEntry<T> = {
-  value?: T;
-  updatedAt: number;
-  inFlight?: Promise<T>;
-};
-
+type CacheEntry<T> = { value?: T; updatedAt: number; inFlight?: Promise<T> };
 const entries = new Map<string, CacheEntry<unknown>>();
-
-export function peekCached<T>(key: string): T | undefined {
-  return entries.get(key)?.value as T | undefined;
+let identity: string | null = null;
+let identityRevision = 0;
+function scopedKey(key: string): string {
+  return (identity ?? "guest") + "\u0000" + key;
 }
-
+export function setCacheIdentity(uid: string | null): void {
+  if (uid === identity) return;
+  identity = uid;
+  identityRevision += 1;
+  entries.clear();
+}
+export function peekCached<T>(key: string): T | undefined {
+  return entries.get(scopedKey(key))?.value as T | undefined;
+}
 export function setCached<T>(key: string, value: T): T {
-  entries.set(key, { value, updatedAt: Date.now() });
+  entries.set(scopedKey(key), { value, updatedAt: Date.now() });
   return value;
 }
-
 export function updateCached<T>(
   key: string,
   update: (current: T | undefined) => T | undefined,
 ): T | undefined {
   const next = update(peekCached<T>(key));
   if (next === undefined) {
-    entries.delete(key);
+    entries.delete(scopedKey(key));
     return undefined;
   }
-  setCached(key, next);
-  return next;
+  return setCached(key, next);
 }
-
 export function invalidateCached(prefix: string): void {
-  for (const key of entries.keys()) {
-    if (key === prefix || key.startsWith(prefix)) entries.delete(key);
-  }
+  const scopedPrefix = scopedKey(prefix);
+  for (const key of entries.keys())
+    if (key === scopedPrefix || key.startsWith(scopedPrefix))
+      entries.delete(key);
 }
-
 export function clearCached(): void {
   entries.clear();
 }
-
 export async function cachedRequest<T>(
   key: string,
   loader: () => Promise<T>,
   options: { ttlMs?: number; force?: boolean } = {},
 ): Promise<T> {
-  const ttlMs = options.ttlMs ?? 15_000;
-  const existing = entries.get(key) as CacheEntry<T> | undefined;
-
+  const cacheKey = scopedKey(key);
+  const turn = identityRevision;
+  const existing = entries.get(cacheKey) as CacheEntry<T> | undefined;
   if (
     !options.force &&
     existing?.value !== undefined &&
-    Date.now() - existing.updatedAt <= ttlMs
-  ) {
+    Date.now() - existing.updatedAt <= (options.ttlMs ?? 15_000)
+  )
     return existing.value;
-  }
-
   if (existing?.inFlight) return existing.inFlight;
-
   const next: CacheEntry<T> = existing ?? { updatedAt: 0 };
   const request = loader()
     .then((value) => {
-      // Only commit if this request still owns the cache entry. A mutation or
-      // sign-out may invalidate/replace it while the request is in flight.
-      if (entries.get(key) === next) {
-        entries.set(key, { value, updatedAt: Date.now() });
-      }
+      if (turn !== identityRevision)
+        throw new Error("Your account changed. Please try again.");
+      if (entries.get(cacheKey) === next)
+        entries.set(cacheKey, { value, updatedAt: Date.now() });
       return value;
     })
     .finally(() => {
-      const current = entries.get(key) as CacheEntry<T> | undefined;
-      if (current === next && current.inFlight === request) {
+      const current = entries.get(cacheKey) as CacheEntry<T> | undefined;
+      if (current === next && current.inFlight === request)
         current.inFlight = undefined;
-        entries.set(key, current);
-      }
     });
-
   next.inFlight = request;
-  entries.set(key, next);
+  entries.set(cacheKey, next);
   return request;
 }

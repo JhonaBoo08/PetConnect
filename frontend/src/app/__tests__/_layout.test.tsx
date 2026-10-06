@@ -65,10 +65,10 @@ it("keeps the navigator mounted and shows subtle feedback during session refresh
   expect(mockReplace).not.toHaveBeenCalled();
 });
 
-it("redirects a clinic away from owner finder evidence", async () => {
-  mockState = { status: "ready", session: { role: "CLINIC" } };
+it("redirects a blocked account to the session status screen", async () => {
+  mockState = { status: "blocked", message: "Account unavailable" };
   await render(<RootLayout />);
   await waitFor(() =>
-    expect(mockReplace).toHaveBeenCalledWith("/clinic-dashboard"),
+    expect(mockReplace).toHaveBeenCalledWith("/session-status"),
   );
 });

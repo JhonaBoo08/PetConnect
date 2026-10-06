@@ -76,3 +76,6 @@ backend/api/.e2e-uploads/
 !.env.production.example
 .finder-*-output.txt
 jest-*.json
+
+# Generated LAN web QR (regenerate when the address changes)
+frontend/assets/web-access-qr.png

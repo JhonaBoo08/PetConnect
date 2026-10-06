@@ -6,10 +6,12 @@ import {
   invalidateCached,
   peekCached,
   setCached,
+  setCacheIdentity,
   updateCached,
 } from "../resource-cache";
 
 beforeEach(() => {
+  setCacheIdentity(null);
   clearCached();
 });
 
@@ -67,4 +69,32 @@ describe("resource cache", () => {
     clearCached();
     expect(peekCached("care:appointments:today")).toBeUndefined();
   });
+});
+
+it("loads fresh private data when the signed-in UID changes without a sign-out", async () => {
+  setCacheIdentity("owner-a");
+  setCached("care:records:", ["private-a"]);
+  setCacheIdentity("owner-b");
+  const loader = jest.fn(async () => ["private-b"]);
+  await expect(cachedRequest("care:records:", loader)).resolves.toEqual([
+    "private-b",
+  ]);
+  expect(loader).toHaveBeenCalledTimes(1);
+});
+it("rejects results from a previous identity even after switching back to it", async () => {
+  setCacheIdentity("owner-a");
+  let resolve!: (value: string[]) => void;
+  const request = cachedRequest(
+    "pets",
+    () =>
+      new Promise<string[]>((r) => {
+        resolve = r;
+      }),
+  );
+  const rejected = expect(request).rejects.toThrow("account changed");
+  setCacheIdentity("owner-b");
+  setCacheIdentity("owner-a");
+  resolve(["old-private-a"]);
+  await rejected;
+  expect(peekCached("pets")).toBeUndefined();
 });

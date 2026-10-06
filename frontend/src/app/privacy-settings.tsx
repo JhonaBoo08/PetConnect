@@ -36,11 +36,6 @@ const options: {
     title: "Share exact lost-pet location",
     description: "Show the exact map point while a lost report is active.",
   },
-  {
-    key: "sharePhoneWithClinics",
-    title: "Share phone with clinics",
-    description: "Let authorized clinic views see your phone number.",
-  },
 ];
 
 export default function PrivacySettingsScreen() {

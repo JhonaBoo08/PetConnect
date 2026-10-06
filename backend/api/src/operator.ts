@@ -1,5 +1,3 @@
-import fs from "fs";
-import path from "path";
 import dotenv from "dotenv";
 import {
   initializeApp,
@@ -30,7 +28,7 @@ async function main() {
 
   if (!command || !projectId) {
     console.log(
-      "Usage: npm run operator -- <provision-clinic|disable> <project-id> <operator-id> <json-path|uid>",
+      "Usage: npm run operator -- disable <project-id> <operator-id> <uid>",
     );
     process.exit(1);
   }
@@ -58,20 +56,7 @@ async function main() {
   const accounts = new Accounts(auth, pool);
 
   try {
-    if (command === "provision-clinic") {
-      const operatorId = args[2];
-      const jsonPath = args[3];
-      if (!operatorId || !jsonPath) {
-        console.error(
-          "Usage: provision-clinic <project-id> <operator-id> <json-path>",
-        );
-        process.exit(1);
-      }
-      const raw = fs.readFileSync(path.resolve(jsonPath), "utf8");
-      const data = JSON.parse(raw);
-      await accounts.provisionClinic(data, operatorId);
-      console.log(`Clinic ${data.clinicId} provisioned successfully.`);
-    } else if (command === "disable") {
+    if (command === "disable") {
       const operatorId = args[2];
       const uid = args[3];
       if (!operatorId || !uid) {
