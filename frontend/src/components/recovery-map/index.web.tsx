@@ -57,6 +57,7 @@ export function RecoveryMap({
 
     let cancelled = false;
     let map: import("leaflet").Map | null = null;
+    let handleContainerClick: ((event: MouseEvent) => void) | null = null;
 
     void import("leaflet").then((leaflet) => {
       if (cancelled || !container) return;
@@ -152,12 +153,23 @@ export function RecoveryMap({
       renderDataRef.current = renderData;
       renderData();
 
-      map.on("click", (event: import("leaflet").LeafletMouseEvent) => {
-        onSelectRef.current?.({
-          latitude: event.latlng.lat,
-          longitude: event.latlng.lng,
+      handleContainerClick = (event: MouseEvent) => {
+        if (!map || !onSelectRef.current) return;
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest(".leaflet-control, .leaflet-popup")
+        ) {
+          return;
+        }
+
+        const coordinate = map.mouseEventToLatLng(event);
+        onSelectRef.current({
+          latitude: coordinate.lat,
+          longitude: coordinate.lng,
         });
-      });
+      };
+      container.addEventListener("click", handleContainerClick, true);
 
       requestAnimationFrame(() => map?.invalidateSize());
     });
@@ -165,6 +177,9 @@ export function RecoveryMap({
     return () => {
       cancelled = true;
       renderDataRef.current = null;
+      if (handleContainerClick) {
+        container.removeEventListener("click", handleContainerClick, true);
+      }
       map?.remove();
     };
   }, []);

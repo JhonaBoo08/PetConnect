@@ -295,7 +295,7 @@ export default function RecoveryScreen() {
       closeReport("reports");
       const recoveryMessage =
         report.petName +
-        " is now in Recovery. Follow finder sightings in My Reports.";
+        " is now in Recovery. Follow finder sightings in My cases.";
       setMessage(recoveryMessage);
       showFeedback(report.petName + " is now in Recovery.");
       // Publication succeeded even if a subsequent refresh temporarily fails.
